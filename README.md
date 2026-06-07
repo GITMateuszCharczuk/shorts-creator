@@ -19,10 +19,15 @@ strikes, runs locally on `kind` with a single NVIDIA GPU.
   deeply-engineered first slice we are building now (2 niches, 2 platforms). Read this first.
 - **[docs/STRATEGY.md](docs/STRATEGY.md)** — content & monetization fundamentals (niches,
   platforms, earnings, automation policy, compliance). The *why* (full vision).
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — ⭐ the **locked runtime blueprint**:
+  topology diagrams, the batched DAG, VRAM choreography, storage, and the repo layout.
+  Supersedes the older runtime topology in DESIGN where they disagree.
 - **[docs/DESIGN.md](docs/DESIGN.md)** — architecture, tools, pipeline stages (the *how*).
 - **[docs/OPTIONS.md](docs/OPTIONS.md)** — tooling decision matrix.
 - **[docs/REVIEW.md](docs/REVIEW.md)** — architecture review (corpus + per-service findings,
   applied fixes, and open decisions to resolve before/during implementation).
+- **[docs/decisions/](docs/decisions/)** — ADR log (decision-of-record); start at
+  **[0001](docs/decisions/0001-lightened-runtime-architecture.md)** (lightened runtime).
 
 > **Current focus:** a proof-of-concept narrowed to **Finance + Business** on **YouTube Shorts +
 > TikTok**, posting private-first. The blurb above and STRATEGY/DESIGN describe the broader
@@ -32,7 +37,12 @@ strikes, runs locally on `kind` with a single NVIDIA GPU.
 Pre-implementation (planning). No pipeline code yet. Active scope = **[docs/POC.md](docs/POC.md)**.
 
 ## Stack at a glance
-- **Orchestration:** Argo Workflows on kind (GPU-in-kind), artifacts via MinIO
+> Runtime topology is locked in **[ADR 0001](docs/decisions/0001-lightened-runtime-architecture.md)**:
+> the host owns the GPU (ComfyUI + a per-batch LLM); a thin Argo control plane on `kind`
+> orchestrates CPU stages and calls the host over HTTP; one PVC holds everything.
+
+- **Orchestration:** Argo Workflows on kind (CPU control plane), artifacts on a shared PVC
+- **GPU plane (host):** ComfyUI owns the GPU — FLUX / LTX / ESRGAN / RIFE / GFPGAN; no GPU-in-kind
 - **Script:** Ollama + Qwen2.5-14B (hook-first, real-data for finance/business)
 - **Visuals:** real-footage-first (Pexels/Pixabay/Mixkit/Coverr/Videvo) + FLUX.1-schnell fill
   + LTX-Video / Ken Burns + Real-ESRGAN/RIFE + GFPGAN/CodeFormer
