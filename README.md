@@ -21,6 +21,8 @@ strikes, runs locally on `kind` with a single NVIDIA GPU.
   platforms, earnings, automation policy, compliance). The *why* (full vision).
 - **[docs/DESIGN.md](docs/DESIGN.md)** — architecture, tools, pipeline stages (the *how*).
 - **[docs/OPTIONS.md](docs/OPTIONS.md)** — tooling decision matrix.
+- **[docs/REVIEW.md](docs/REVIEW.md)** — architecture review (corpus + per-service findings,
+  applied fixes, and open decisions to resolve before/during implementation).
 
 > **Current focus:** a proof-of-concept narrowed to **Finance + Business** on **YouTube Shorts +
 > TikTok**, posting private-first. The blurb above and STRATEGY/DESIGN describe the broader

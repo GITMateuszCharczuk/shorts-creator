@@ -1,7 +1,8 @@
 # Shorts Creator — Design & Implementation Plan
 
 A Kubernetes-native (Kind-compatible) data pipeline that automatically produces and
-publishes YouTube Shorts for five content categories using free, self-hostable AI tools.
+publishes short-form vertical video across multiple niches and platforms using free,
+self-hostable AI tools.
 
 > Status: **Plan / pre-implementation**. This document is the agreed blueprint. No
 > pipeline code exists yet.
@@ -37,7 +38,9 @@ publishes YouTube Shorts for five content categories using free, self-hostable A
 - Multi-account / multi-channel management.
 - A web UI (CLI + Argo UI is enough to start).
 - Cloud GPU autoscaling (single local GPU box assumed).
-- Cross-posting to TikTok/Reels (architecture won't preclude it, but out of scope).
+
+> *(Removed an obsolete non-goal that listed "cross-posting to TikTok/Reels" as out of
+> scope — multi-platform distribution is now a core goal; see §1 Goals and Stage 6.)*
 
 ---
 
@@ -287,10 +290,12 @@ See STRATEGY §2 for rationale.
 - **Mass-produced / repetitious AI content** can be demonetized or removed under YT's
   inauthentic-content and "reused content" policies. Mitigations: per-video variety,
   quality bar, human-in-the-loop before public, reasonable upload cadence.
-- **Decision (resolved):** "celebrity news" is **dropped** for v1 due to likeness/
-  defamation/AI-of-real-people risk; replaced with **tech news**. Tech news still avoids
-  unlicensed brand logos/product footage (use stock + generic AI scenes + charts) and
-  must stay factually careful.
+- **Decision (resolved):** the **True Crime** niche is **dropped** from the active build due
+  to catastrophic defamation/privacy risk on real, named people (see `research/04` R3:
+  $17.5M verdict, May 2026; an AI true-crime channel terminated by YouTube). Active niches are
+  **Finance + Business** (PoC); both are YMYL and kept strictly educational/non-advisory.
+  *(Earlier relics — "celebrity news", "tech news", history/geopolitics/horror — are obsolete
+  category names from prior iterations and no longer part of the design.)*
 
 **Factual accuracy (history/geopolitics)**
 - LLMs hallucinate. Add a claims-extraction + optional retrieval/self-check step, and
