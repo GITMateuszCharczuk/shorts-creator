@@ -2,7 +2,7 @@
 
 A free, self-hostable, Kubernetes-native (Kind-compatible) pipeline that automatically
 produces and publishes YouTube Shorts across five categories: **history, geopolitics,
-moving story, celebrity news, horror story**.
+moving story, tech news, horror story**.
 
 The pipeline: pick a category → build visuals (real stock footage + AI fill + GPU
 motion/upscale) → AI narration (TTS) → synced animated subtitles → mood-matched music →

@@ -12,7 +12,7 @@ publishes YouTube Shorts for five content categories using free, self-hostable A
 
 **Goals**
 - Generate full, ready-to-publish vertical (9:16) Shorts end-to-end with no manual editing.
-- Five categories: **history, geopolitics, moving story, celebrity news, horror story**.
+- Five categories: **history, geopolitics, moving story, tech news, horror story**.
 - Visuals that look polished and **not obviously AI-generated** (hybrid real footage + AI).
 - Subtitles, AI narration (dub), and fitting background music per video.
 - Optional automated upload to YouTube.
@@ -185,9 +185,13 @@ motion & polish.**
 - **Purpose:** Publish to YouTube with title/description/tags from Stage 0.
 - **Tool:** **YouTube Data API v3** `videos.insert` via google-api-python-client, OAuth2
   refresh token mounted as a K8s Secret.
-- **Hard constraints (see §7):** unaudited API projects upload as **private only**;
-  quota ≈ **6 uploads/day**. v1 defaults to uploading as **private/unlisted draft** for
-  human review; auto-public is opt-in after API audit.
+- **v1 behavior (resolved):** the stage **renders and uploads, but never publishes**.
+  It uploads with `privacyStatus=private` (a draft only the channel owner sees) and
+  supports a `--dry-run` that stages title/description/tags without calling YouTube at
+  all. Going public is always a deliberate, manual action — keeps us clear of the
+  API-audit gate and YT inauthentic-content risk.
+- **Hard constraints (see §7):** unaudited API projects upload as **private only**
+  anyway; quota ≈ **6 uploads/day**.
 - **License/policy:** ✅ technically; policy risk handled in §6.
 
 ---
@@ -202,7 +206,7 @@ The pipeline is one DAG; a **category profile** parameterizes it. Profiles live 
 | history | AI-gen scenes + archival-style stock | calm narrator | cinematic/epic | factual accuracy |
 | geopolitics | real news/map stock, charts | authoritative | tense/neutral | accuracy, bias, defamation |
 | moving story | real human B-roll + AI fill | warm/emotive | emotional piano | low |
-| celebrity news | ⚠️ see §6 — **highest risk** | upbeat | pop/energetic | likeness, defamation, copyright |
+| tech news | product/UI stock + AI fill, charts | upbeat/clear | modern/electronic | accuracy, brand trademarks |
 | horror story | AI-gen atmospheric scenes | low/whisper | dark ambient/drone | low |
 
 ---
@@ -235,10 +239,10 @@ The pipeline is one DAG; a **category profile** parameterizes it. Profiles live 
 - **Mass-produced / repetitious AI content** can be demonetized or removed under YT's
   inauthentic-content and "reused content" policies. Mitigations: per-video variety,
   quality bar, human-in-the-loop before public, reasonable upload cadence.
-- **Celebrity news** is the riskiest category: real-person **likeness/publicity rights**,
-  **defamation** from false claims, and tightening rules on AI depictions of real people.
-  Recommendation: either **drop it for v1**, or restrict it to clearly-sourced factual
-  summaries with no AI images of real individuals. Flagged for your decision.
+- **Decision (resolved):** "celebrity news" is **dropped** for v1 due to likeness/
+  defamation/AI-of-real-people risk; replaced with **tech news**. Tech news still avoids
+  unlicensed brand logos/product footage (use stock + generic AI scenes + charts) and
+  must stay factually careful.
 
 **Factual accuracy (history/geopolitics)**
 - LLMs hallucinate. Add a claims-extraction + optional retrieval/self-check step, and
@@ -329,8 +333,7 @@ shorts-creator/
 ## 11. Open risks & gaps (tracked)
 1. **GPU-in-kind stability** — primary technical risk; fallback documented.
 2. **sm_120 toolchain** — must pin CUDA 12.8+/torch cu128 in every GPU image.
-3. **Celebrity-news category** — legal risk; recommend dropping or constraining for v1
-   (needs your call).
+3. ~~Celebrity-news category~~ — **resolved: dropped, replaced with tech news.**
 4. **YouTube API audit** — uploads private until passed; quota ≈6/day.
 5. **YT inauthentic-content policy** — automation cadence + quality bar + human review.
 6. **LTX-Video license** — confirm commercial terms at build time; Ken Burns is the safe
