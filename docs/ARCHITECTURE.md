@@ -4,6 +4,8 @@
 > the **runtime topology** and the **repository layout**. It implements **[ADR
 > 0001](decisions/0001-lightened-runtime-architecture.md)** and resolves the open runtime
 > findings in **[REVIEW.md](REVIEW.md)** (T1–T5 + the Stage-1/Stage-0 decompositions).
+> Freshness (recent-news sourcing) and cross-run de-duplication are added by
+> **[ADR 0002](decisions/0002-recency-and-novelty-ledger.md)**.
 >
 > **Precedence:** for *tooling* choices, `OPTIONS.md` stands. For *scope*, `POC.md` wins.
 > Where `DESIGN.md §2–§3/§9` describes the older GPU-in-kind / MinIO / monolithic-Stage-1
@@ -27,7 +29,7 @@ architecture — it removes GPU-in-kind (the #1 risk) and hands VRAM management 
 | **Components** | ComfyUI server; LLM endpoint (Qwen2.5-14B, per-batch) | Argo controller + UI; all stage pods; PVC |
 | **Heavy models** | FLUX, LTX-Video, Real-ESRGAN, RIFE, GFPGAN/CodeFormer, Qwen | none resident — pods are thin HTTP clients |
 | **VRAM lifecycle** | managed by ComfyUI queue + batch ordering | n/a |
-| **CPU work** | — | data-fetch, stock-fetch, TTS, subs, music, render, QC, distribute |
+| **CPU work** | — | research/ingest, stock-fetch, TTS, subs, music, render, QC, distribute |
 | **Reliability primitives** | ComfyUI prompt queue (GPU serializer) | Argo retries, backoff, scheduling, lineage, UI |
 
 > **GPU placement rule.** At any instant the host GPU has **one logical owner**. Diffusion/
@@ -90,13 +92,15 @@ whole batch (resolves **REVIEW T1**). GPU stages (`→host`) are thin clients to
 ```
               ┌──────────── per-niche seeds: finance, business ────────────┐
               ▼                                                            ▼
-   ╔══════════════════════╗   CPU
-   ║ 00a data-fetch        ║   Alpha Vantage / Yahoo / FRED  → data.json   (first-class
-   ╚══════════╤═══════════╝   (fetch failure = visible DAG state)          state, R:Stage0)
+   ╔══════════════════════╗   CPU       market data (Alpha Vantage/Yahoo/FRED)
+   ║ 00a research/ingest   ║   + RECENT NEWS via free RSS, published ≥ now−3d → data.json
+   ╚══════════╤═══════════╝   (fetch failure = visible DAG state; cite, don't republish)
               ▼
    ╔══════════════════════╗   →HOST LLM   ── load Qwen ONCE for the whole batch ──┐
    ║ 00b script  (×N)      ║   Qwen2.5-14B → script.json per video                 │ EVICT
-   ╚══════════╤═══════════╝                                                        │ before
+   ║   ↑ dedup: query      ║   reject/repick if source-URL reused or topic overlaps │ before
+   ║   history/ledger      ║   recent records (keyword now, embeddings post-M1)     │ diffusion
+   ╚══════════╤═══════════╝                                                        │
               ▼                                                                    │ diffusion
    ╔══════════════════════╗   CPU                                                  ▼
    ║ 01a stock-fetch (×N)  ║   Pexels/Pixabay/Mixkit/Coverr/Videvo → real clips + provenance
@@ -128,7 +132,9 @@ whole batch (resolves **REVIEW T1**). GPU stages (`→host`) are thin clients to
                                                          ▼  (gated)
                                               ╔══════════════════════╗  CPU
                                               ║ 06 distribute (×N)    ║  idempotent, private-
-                                              ╚══════════════════════╝  first, AI-disclosure
+                                              ║   → append history/   ║  first, AI-disclosure;
+                                              ║     ledger.jsonl      ║  record topic for dedup
+                                              ╚══════════════════════╝
 ```
 
 CPU stages (`02 voice`, `04 music`, the renders) overlap GPU work freely — while ComfyUI
@@ -163,14 +169,20 @@ zero-OOM is a PoC reliability requirement.
 
 ---
 
-## 5. Storage — a single PVC
+## 5. Storage — a single PVC (host-backed for durability)
+
+The data volume is a single PVC **backed by a host directory via kind `extraMounts`**, so
+everything below lives on the host disk and **survives `kind delete cluster` and reboots**.
+This durability is not cosmetic: the novelty ledger (below) can only prevent repeats across
+runs because it persists — a plain in-cluster PVC would be wiped on every cluster rebuild
+(ADR 0002 §4).
 
 ```
- PVC: shorts-data  (one ReadWriteOnce volume, mounted into every stage pod)
+ PVC: shorts-data  →  host dir via kind extraMounts  (one RWO volume, mounted into pods)
  └── runs/
      └── <batch-id>/                     # one CronWorkflow run = one day's batch
          ├── batch.json                  # batch manifest: which videos, profiles, status
-         ├── data/                       # 00a outputs (finance/business real data)
+         ├── data/                       # 00a: market data + recent news (≤3d) + summaries
          └── <video-id>/                 # one per video in the batch
              ├── job.json                # ⭐ the spine — threads through every stage
              ├── script.json             # 00b
@@ -183,12 +195,20 @@ zero-OOM is a PoC reliability requirement.
              ├── renders/                # 05 — youtube.mp4, tiktok.mp4 + thumbnail.jpg
              └── qc.json                 # 05b — pass/fail + reasons
  └── quarantine/<video-id>/              # 05b failures, kept for the weekly spot-audit
+ └── history/
+     └── ledger.jsonl                    # ⭐ append-only novelty ledger (ADR 0002): one record
+                                         #   per produced video {id,date,niche,topic,title,hook,
+                                         #   source_urls,keywords,embedding=null}. 00b queries it
+                                         #   to reject repeats; 06 appends after a successful post.
  └── models/                             # (host-mounted) shared weight cache, downloaded once
 ```
 
 No MinIO (resolves **REVIEW T5**). Argo passes artifacts by **path** on this shared volume;
 the `job.json` spine + `provenance.json` make any run reconstructable (`POC §6`
-reproducibility / auditability).
+reproducibility / auditability). The `history/ledger.jsonl` gives the pipeline **memory
+across runs** — freshness (00a, ≤3-day news) and novelty (00b dedup) together are what keep
+output current and non-repetitive, which is also the compliance lever against repetitious-
+content demotion (ADR 0002).
 
 ---
 
@@ -242,8 +262,8 @@ shorts-creator/
 │   ├── llm/                       # Ollama/llama.cpp Qwen2.5-14B; per-batch load/evict
 │   └── README.md                  # host bring-up + cluster↔host networking (§6)
 ├── stages/                        # one dir = one image = pure fn of inputs + job.json
-│   ├── 00a-data-fetch/            #   CPU — Alpha Vantage / Yahoo / FRED  (split, R:Stage0)
-│   ├── 00b-script/                #   CPU client → host LLM
+│   ├── 00a-research/              #   CPU — market data (AlphaVantage/Yahoo/FRED) + RSS news ≤3d
+│   ├── 00b-script/                #   CPU client → host LLM; dedup-checks history/ledger.jsonl
 │   ├── 01a-stock-fetch/           #   CPU — Pexels/Pixabay/Mixkit/Coverr/Videvo
 │   ├── 01b-image-gen/             #   client → host ComfyUI (FLUX)
 │   ├── 01c-img2vid/               #   client → host ComfyUI (LTX / Ken Burns)
@@ -253,7 +273,8 @@ shorts-creator/
 │   ├── 04-music/                  #   CPU — mood match + ducked mix
 │   ├── 05-render/                 #   CPU — ffmpeg, per-platform YT + TikTok cuts
 │   ├── 05b-qc/                    #   the safety-net gate (pass → continue / fail → quarantine)
-│   └── 06-distribute/             #   CPU — idempotent, private-first, AI-disclosure
+│   └── 06-distribute/             #   CPU — idempotent, private-first, AI-disclosure;
+│                                  #         appends to history/ledger.jsonl after a post
 ├── shared/                        # py utils: job.json IO, provenance, host_client.py, logging
 ├── deploy/
 │   ├── kind/                      # cluster config — NO GPU device-plugin needed anymore
@@ -272,7 +293,8 @@ shorts-creator/
 | `+ host/` plane | GPU work moves out of kind onto host ComfyUI/LLM (ADR 0001 / T3·T4) |
 | `− deploy/minio/` | single PVC only (T5) |
 | `01-visuals/ → 01a–01d` | one model per sub-stage, clean load/evict, independent retry (Stage-1 finding) |
-| `+ 00a-data-fetch/` | data fetch is a first-class DAG state, not hidden in scripting (Stage-0 finding) |
+| `+ 00a-research/` | data-fetch split out *and* widened to recent-news ingestion (Stage-0 finding + ADR 0002) |
+| `+ history/ledger.jsonl` (on PVC) | cross-run novelty memory so we don't repeat topics (ADR 0002) |
 | `+ schemas/` | the stage contracts are the architecture; first code artifact (C2/P0) |
 | `+ docs/decisions/` | ADR log = decision-of-record (C1) |
 | `deploy/kind/` no device-plugin | GPU-in-kind eliminated — the #1 risk is gone |
