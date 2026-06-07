@@ -35,8 +35,10 @@ publishes YouTube Shorts for five content categories using free, self-hostable A
 | GPU | **RTX 5070 Ti, 16 GB VRAM** available locally. |
 | Visual style | Hybrid: prefer **real stock footage**, use AI to fill gaps + add motion. Must not look "fully AI". |
 | Monetization | **Yes** → strict commercial-safe licenses only. |
-| Orchestration | **Argo Workflows** on `kind` (under evaluation vs Dagster — see OPTIONS §A). |
+| Orchestration | **Argo Workflows** on `kind` — confirmed. |
+| GPU exposure | **GPU inside kind** (NVIDIA Container Toolkit + k8s device plugin) — confirmed. |
 | Image generation | **FLUX.1-schnell** (Apache-2.0) — confirmed. |
+| Motion | **LTX-Video** (img→video) wired in from the start — confirmed. |
 | First deliverable | This plan document. |
 
 ### 2.1 Hardware caveat — Blackwell (sm_120)
