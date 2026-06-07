@@ -5,6 +5,11 @@ publishes YouTube Shorts for five content categories using free, self-hostable A
 
 > Status: **Plan / pre-implementation**. This document is the agreed blueprint. No
 > pipeline code exists yet.
+>
+> ⚠️ **Scope note:** this doc describes the broader 3-niche / 4-platform vision. The
+> **current build is narrowed** to a proof-of-concept — **Finance + Business** on
+> **YouTube + TikTok**, private-first. See **[POC.md](POC.md)**, which is authoritative on
+> present scope; treat true-crime / FB / IG / tech-news mentions here as future vision.
 
 ---
 

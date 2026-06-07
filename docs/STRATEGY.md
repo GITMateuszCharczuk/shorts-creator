@@ -4,6 +4,10 @@ The business fundamentals behind the pipeline: what we make, where it earns, who
 and how it stays monetizable. Read alongside `DESIGN.md` (architecture/tools). Where the two
 disagree, **this doc wins on strategy**, DESIGN wins on implementation.
 
+> ⚠️ **Scope note:** this doc covers the full 3-niche / 4-platform vision. The **current build
+> is a proof-of-concept** narrowed to **Finance + Business** on **YouTube + TikTok** (true crime
+> dropped, FB/IG deferred). See **[POC.md](POC.md)** — authoritative on present scope.
+
 > Figures below are grounded in 2026 market data (see Sources). RPMs vary by niche,
 > geography, and season — treat them as directional.
 >

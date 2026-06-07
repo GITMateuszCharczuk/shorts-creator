@@ -15,13 +15,19 @@ distribute per-platform.
 strikes, runs locally on `kind` with a single NVIDIA GPU.
 
 ## Docs
+- **[docs/POC.md](docs/POC.md)** — ⭐ **authoritative current scope.** The deliberately narrow,
+  deeply-engineered first slice we are building now (2 niches, 2 platforms). Read this first.
 - **[docs/STRATEGY.md](docs/STRATEGY.md)** — content & monetization fundamentals (niches,
-  platforms, earnings, automation policy, compliance). Start here for the *why*.
+  platforms, earnings, automation policy, compliance). The *why* (full vision).
 - **[docs/DESIGN.md](docs/DESIGN.md)** — architecture, tools, pipeline stages (the *how*).
 - **[docs/OPTIONS.md](docs/OPTIONS.md)** — tooling decision matrix.
 
+> **Current focus:** a proof-of-concept narrowed to **Finance + Business** on **YouTube Shorts +
+> TikTok**, posting private-first. The blurb above and STRATEGY/DESIGN describe the broader
+> 3-niche / 4-platform vision; **[POC.md](docs/POC.md) wins on what's being built now.**
+
 ## Status
-Pre-implementation (planning). No pipeline code yet.
+Pre-implementation (planning). No pipeline code yet. Active scope = **[docs/POC.md](docs/POC.md)**.
 
 ## Stack at a glance
 - **Orchestration:** Argo Workflows on kind (GPU-in-kind), artifacts via MinIO
