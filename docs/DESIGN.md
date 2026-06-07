@@ -10,9 +10,17 @@ publishes YouTube Shorts for five content categories using free, self-hostable A
 
 ## 1. Goals & non-goals
 
+> **Strategy note:** the content/monetization fundamentals — niches, platforms, earnings,
+> automation policy, compliance — live in **`STRATEGY.md`**. This doc covers architecture.
+
 **Goals**
-- Generate full, ready-to-publish vertical (9:16) Shorts end-to-end with no manual editing.
-- Five categories: **history, geopolitics, moving story, tech news, horror story**.
+- Generate full, ready-to-publish vertical (9:16) videos end-to-end, **auto + safety-net**
+  (full automation gated by automated QC, phased ramp, weekly spot-audit — see STRATEGY §4).
+- **3 channels / niches:** **Finance**, **True crime**, **Business** (high-RPM cluster).
+- **Length 60–90s** (required for TikTok payouts; hook-first, retention-optimized).
+- **Multi-platform distribution:** YouTube Shorts + TikTok + Facebook Reels + Instagram
+  Reels, with **distinct native renders per platform** (no foreign watermarks; dodges
+  duplicate-content penalties). FB/TikTok are the earners; YT/IG are reach/funnel.
 - Visuals that look polished and **not obviously AI-generated** (hybrid real footage + AI).
 - Subtitles, AI narration (dub), and fitting background music per video.
 - Optional automated upload to YouTube.
@@ -32,6 +40,11 @@ publishes YouTube Shorts for five content categories using free, self-hostable A
 
 | Topic | Decision |
 |---|---|
+| Niches / channels | **Finance · True crime · Business** (3 channels) — see STRATEGY §2. |
+| Monetization | **Ad-share, multi-platform** (FB Reels + TikTok primary earners) — STRATEGY §1. |
+| Distribution | **YouTube + TikTok + Facebook + Instagram**, native per-platform renders. |
+| Video length | **60–90s** (TikTok payout requirement; hook-first). |
+| Automation | **Auto + safety-net** (QC gate + phased ramp + spot-audit) — STRATEGY §4. |
 | GPU | **RTX 5070 Ti, 16 GB VRAM** available locally. |
 | Visual style | **Real-footage-first hybrid**: real 4K stock is the backbone; AI fills only genuine gaps; prefer **img→video on real frames** over text→video. AI video always carries an "AI look", so it is used sparingly. |
 | Script LLM | **Qwen2.5-14B-Instruct** (Apache-2.0, fits 16 GB) — upgraded from 7B for quality. |
@@ -114,9 +127,13 @@ Each stage = one container image, one Argo template. Inputs/outputs are files in
 run workdir, described by `job.json`.
 
 ### Stage 0 — Script & storyboard (CPU)
-- **Purpose:** From `category` (+ optional topic/seed), produce a Short script: hook,
-  3–6 narration beats, on-screen caption text, per-scene **visual search keywords**,
-  music **mood**, title/description/hashtags. Output `script.json`.
+- **Purpose:** From `channel` (+ optional topic/seed), produce a **60–90s, hook-first**
+  script: **multiple scroll-stopping hook variants** (first 1–2s is the whole ballgame),
+  narration beats with a retention curve, on-screen captions, per-scene **visual keywords**,
+  music **mood**, and **per-platform** title/description/hashtags. For Finance/Business it
+  also fetches **real data** (Alpha Vantage / Yahoo Finance / FRED) for original charts and
+  injects the mandatory **"educational, not financial advice"** disclaimer. Output
+  `script.json`.
 - **Tool:** **Ollama** running as an in-cluster service (Deployment + Service), model
   **Qwen2.5-14B-Instruct** (Apache-2.0; fits 16 GB at Q4/Q5). Upgraded from 7B because
   script quality is the highest-leverage lever on perceived video quality. Since the LLM
@@ -188,8 +205,11 @@ genuine gaps. AI video always carries an "AI look", so we minimise it.
 ### Stage 5 — Render / mux (CPU, GPU optional)
 - **Purpose:** Compose scenes + burn captions + mix VO & music + **finishing polish** →
   final 9:16 MP4.
-- **Tool:** **ffmpeg** (concat scenes, overlay `.ass`, audio mix, 1080×1920, ~30–45s,
+- **Tool:** **ffmpeg** (concat scenes, overlay `.ass`, audio mix, 1080×1920, **60–90s**,
   H.264/AAC, faststart). NVENC on the 5070 Ti for fast encode.
+- **Per-platform native renders:** emit a **distinct cut per platform** (YouTube/TikTok/FB/
+  IG) — no foreign watermarks, platform-specific caption style / hook / sound / length — to
+  avoid duplicate-content penalties (STRATEGY §5). Output `renders/<platform>.mp4`.
 - **Finishing polish (baked in):** unified **color grade** (LUT/curves), subtle **film
   grain** and **motion blur**, and consistent contrast/saturation across scenes so real
   stock and AI fills match — this "real edit" pass is what most separates polished output
@@ -197,33 +217,40 @@ genuine gaps. AI video always carries an "AI look", so we minimise it.
 - **Output:** `final.mp4` + `thumbnail.jpg`.
 - **License:** ✅ (LGPL/GPL ffmpeg build).
 
-### Stage 6 — Upload (CPU, optional & gated)
-- **Purpose:** Publish to YouTube with title/description/tags from Stage 0.
-- **Tool:** **YouTube Data API v3** `videos.insert` via google-api-python-client, OAuth2
-  refresh token mounted as a K8s Secret.
-- **v1 behavior (resolved):** the stage **renders and uploads, but never publishes**.
-  It uploads with `privacyStatus=private` (a draft only the channel owner sees) and
-  supports a `--dry-run` that stages title/description/tags without calling YouTube at
-  all. Going public is always a deliberate, manual action — keeps us clear of the
-  API-audit gate and YT inauthentic-content risk.
-- **Hard constraints (see §7):** unaudited API projects upload as **private only**
-  anyway; quota ≈ **6 uploads/day**.
-- **License/policy:** ✅ technically; policy risk handled in §6.
+### Stage 5b — Automated QC gate (CPU/GPU) — the safety-net
+- **Purpose:** Auto-reject bad/risky videos **before** they post (STRATEGY §4.3). Functions
+  as the "human replacement" so the system stays hands-off but compliant.
+- **Checks:** second-pass LLM fact/sanity + hallucination flag; claims/profanity filter;
+  **finance/business YMYL** check (disclaimer present, no buy/sell calls, sources cited);
+  render integrity (no dead audio / black frames / clipped loudness).
+- **Output:** pass → continue to distribution; fail → quarantine + log for the spot-audit.
+
+### Stage 6 — Multi-platform distribution (CPU, gated)
+- **Purpose:** Post the per-platform renders to **YouTube, TikTok, Facebook, Instagram** with
+  per-platform title/description/tags/hashtags from Stage 0.
+- **Tools:** **YouTube Data API v3** `videos.insert`; **TikTok Content Posting API**;
+  **Facebook/Instagram Graph API** (Reels). OAuth/refresh tokens per channel as K8s Secrets.
+- **Auto + safety-net behavior:** posting is automated but gated by Stage 5b QC and a
+  **phased volume ramp** (start 1–2/day/channel → scale to 5/day). YouTube uses
+  `privacyStatus` controllable per phase; a `--dry-run` stages metadata without posting.
+- **Hard constraints (see §7):** YouTube API quota ≈ **6 uploads/day/project** (1 project per
+  channel = fine); each platform's posting API needs its own app review/approval; unaudited
+  YouTube projects upload **private only** until audited.
+- **Policy:** YMYL + inauthentic-content + duplicate-content handled in §6 / STRATEGY §5.
 
 ---
 
-## 5. Per-category configuration
+## 5. Per-channel configuration
 
-The pipeline is one DAG; a **category profile** parameterizes it. Profiles live in
-`profiles/<category>.yaml`:
+The pipeline is one DAG; a **channel profile** parameterizes it. Profiles live in
+`profiles/<channel>.yaml` (visual style, voice, music mood, hook templates, data sources).
+See STRATEGY §2 for rationale.
 
-| Category | Visual sourcing bias | Voice tone | Music mood | Special risk |
+| Channel | Visual sourcing bias | Voice tone | Music mood | Special risk |
 |---|---|---|---|---|
-| history | AI-gen scenes + archival-style stock | calm narrator | cinematic/epic | factual accuracy |
-| geopolitics | real news/map stock, charts | authoritative | tense/neutral | accuracy, bias, defamation |
-| moving story | real human B-roll + AI fill | warm/emotive | emotional piano | low |
-| tech news | product/UI stock + AI fill, charts | upbeat/clear | modern/electronic | accuracy, brand trademarks |
-| horror story | AI-gen atmospheric scenes | low/whisper | dark ambient/drone | low |
+| **Finance** | real-data **charts/viz** + stock B-roll + AI fill | clear/authoritative | modern/neutral | **YMYL** — disclaimer, no buy/sell calls, cite sources, accuracy |
+| **True crime** | cinematic stock + AI atmospheric fill | low/tense narrator | dark ambient/tension | sensitivity, factual accuracy, no defamation |
+| **Business** | clean corporate stock + charts + AI fill | upbeat/confident | modern/upbeat | **YMYL**-adjacent — accuracy, no get-rich-quick claims |
 
 ---
 

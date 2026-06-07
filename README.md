@@ -1,27 +1,35 @@
 # shorts-creator
 
 A free, self-hostable, Kubernetes-native (Kind-compatible) pipeline that automatically
-produces and publishes YouTube Shorts across five categories: **history, geopolitics,
-moving story, tech news, horror story**.
+produces and distributes short-form video (60–90s) across **3 channels** —
+**Finance, True Crime, Business** — to **YouTube, TikTok, Facebook & Instagram**, with
+native per-platform renders. Runs **"auto + safety-net"**: full automation gated by an
+automated QC check, a phased volume ramp, and a weekly spot-audit.
 
-The pipeline: pick a category → build visuals (real stock footage + AI fill + GPU
-motion/upscale) → AI narration (TTS) → synced animated subtitles → mood-matched music →
-render a 9:16 video → optionally upload to YouTube.
+The pipeline: pick a channel → script (hook-first, real-data-driven) → build visuals (real
+stock footage + AI fill + GPU motion/upscale) → AI narration (TTS) → synced animated
+subtitles → mood-matched music → render + finishing polish → automated QC gate →
+distribute per-platform.
 
-**Design constraints:** no recurring cost, commercial/monetization-safe licensing, no
-copyright strikes, runs locally on `kind` with a single NVIDIA GPU.
+**Constraints:** no recurring cost, commercial/monetization-safe licensing, no copyright
+strikes, runs locally on `kind` with a single NVIDIA GPU.
+
+## Docs
+- **[docs/STRATEGY.md](docs/STRATEGY.md)** — content & monetization fundamentals (niches,
+  platforms, earnings, automation policy, compliance). Start here for the *why*.
+- **[docs/DESIGN.md](docs/DESIGN.md)** — architecture, tools, pipeline stages (the *how*).
+- **[docs/OPTIONS.md](docs/OPTIONS.md)** — tooling decision matrix.
 
 ## Status
-Pre-implementation. The full blueprint lives in **[docs/DESIGN.md](docs/DESIGN.md)** —
-architecture, tool choices, licensing matrix, YouTube constraints, milestones, and open
-risks.
+Pre-implementation (planning). No pipeline code yet.
 
 ## Stack at a glance
-- **Orchestration:** Argo Workflows on kind, artifacts via MinIO
-- **Script:** Ollama (Llama 3.1 / Qwen 2.5)
-- **Visuals:** Pexels/Pixabay stock + FLUX.1-schnell + LTX-Video / Ken Burns + Real-ESRGAN/RIFE
-- **Voice:** Kokoro-82M (Apache-2.0) / Piper
+- **Orchestration:** Argo Workflows on kind (GPU-in-kind), artifacts via MinIO
+- **Script:** Ollama + Qwen2.5-14B (hook-first, real-data for finance/business)
+- **Visuals:** real-footage-first (Pexels/Pixabay/Mixkit/Coverr/Videvo) + FLUX.1-schnell fill
+  + LTX-Video / Ken Burns + Real-ESRGAN/RIFE + GFPGAN/CodeFormer
+- **Voice:** Kokoro-82M (Apache-2.0)
 - **Subtitles:** WhisperX (word-level alignment)
 - **Music:** YouTube Audio Library / Pixabay Music (commercial-safe)
-- **Render:** ffmpeg
-- **Upload:** YouTube Data API v3
+- **Render:** ffmpeg + NVENC, finishing polish (grade/grain), per-platform native cuts
+- **QC + distribution:** automated QC gate → YouTube / TikTok / Facebook / Instagram APIs
