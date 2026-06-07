@@ -125,7 +125,13 @@ Legend: 💰 commercial-safe · ⚠️ caveat · ❌ disqualified for monetized 
 - **Upload:** render + upload as **private draft only**, never auto-publish (`--dry-run` supported).
 - **Monetization-safe:** all ❌ rows excluded.
 
-## Suggested "safe default" stack (if you just want my full pick)
-Argo · Ollama+Qwen2.5-7B · Pexels+Pixabay · FLUX.1-schnell · Ken Burns→LTX-Video ·
-Real-ESRGAN+RIFE · Kokoro · WhisperX · Pixabay/YT-Audio music · ffmpeg+NVENC · MinIO+PVC ·
-GPU-in-kind.
+## Confirmed stack (decisions locked)
+Argo Workflows · **GPU-in-kind** · Ollama + **Qwen2.5-14B** · **real-footage-first**
+(Pexels + Pixabay + Mixkit + Coverr + Videvo) · FLUX.1-schnell (gap fill) · **LTX-Video**
+img→video (+ Ken Burns) · Real-ESRGAN + RIFE + **GFPGAN/CodeFormer** · **finishing polish**
+(color grade + film grain + motion blur) · Kokoro · WhisperX · Pixabay/YT-Audio music ·
+ffmpeg + NVENC · MinIO + PVC.
+
+**Post-M1 A/B (decide on real output):** video model LTX vs **Wan2.1/CogVideoX**; voice
+Kokoro vs **Orpheus/Chatterbox**; image model FLUX-schnell vs photoreal SDXL (RealVisXL/
+Juggernaut) / SD3.5-Large. Verify each candidate's weight license before adopting.

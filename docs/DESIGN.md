@@ -33,12 +33,15 @@ publishes YouTube Shorts for five content categories using free, self-hostable A
 | Topic | Decision |
 |---|---|
 | GPU | **RTX 5070 Ti, 16 GB VRAM** available locally. |
-| Visual style | Hybrid: prefer **real stock footage**, use AI to fill gaps + add motion. Must not look "fully AI". |
+| Visual style | **Real-footage-first hybrid**: real 4K stock is the backbone; AI fills only genuine gaps; prefer **img→video on real frames** over text→video. AI video always carries an "AI look", so it is used sparingly. |
+| Script LLM | **Qwen2.5-14B-Instruct** (Apache-2.0, fits 16 GB) — upgraded from 7B for quality. |
 | Monetization | **Yes** → strict commercial-safe licenses only. |
 | Orchestration | **Argo Workflows** on `kind` — confirmed. |
 | GPU exposure | **GPU inside kind** (NVIDIA Container Toolkit + k8s device plugin) — confirmed. |
 | Image generation | **FLUX.1-schnell** (Apache-2.0) — confirmed. |
-| Motion | **LTX-Video** (img→video) wired in from the start — confirmed. |
+| Motion | **LTX-Video** (img→video) wired in from the start — confirmed (A/B vs Wan2.1/CogVideoX after M1). |
+| Voice | **Kokoro-82M** for M1 (A/B vs Orpheus/Chatterbox after M1). |
+| Finishing polish | **GFPGAN/CodeFormer** face restoration + color grade + film grain + motion blur in render — baked in. |
 | First deliverable | This plan document. |
 
 ### 2.1 Hardware caveat — Blackwell (sm_120)
@@ -114,10 +117,11 @@ run workdir, described by `job.json`.
 - **Purpose:** From `category` (+ optional topic/seed), produce a Short script: hook,
   3–6 narration beats, on-screen caption text, per-scene **visual search keywords**,
   music **mood**, title/description/hashtags. Output `script.json`.
-- **Tool:** **Ollama** running as an in-cluster service (Deployment + Service), models
-  **Llama 3.1 8B / Qwen 2.5 7B** (Apache/community licenses, commercial-OK). The 16 GB
-  GPU comfortably serves an 8B model, but to keep the GPU free for media work we can run
-  the LLM quantized or accept slower CPU inference — script gen is tiny vs. video work.
+- **Tool:** **Ollama** running as an in-cluster service (Deployment + Service), model
+  **Qwen2.5-14B-Instruct** (Apache-2.0; fits 16 GB at Q4/Q5). Upgraded from 7B because
+  script quality is the highest-leverage lever on perceived video quality. Since the LLM
+  runs as a distinct stage, the GPU is free for media work the rest of the time; 32B is a
+  possible future bump with RAM offload (6/day absorbs the slower inference).
 - **Prompting:** per-category system prompts + a strict JSON schema (validated before
   the stage exits). Templates live in `prompts/<category>.md`.
 - **Risk control:** for **history / geopolitics**, add a "claims" field and a
@@ -128,18 +132,22 @@ run workdir, described by `job.json`.
 This is the differentiator. Strategy: **real footage first, AI to fill gaps, GPU for
 motion & polish.**
 
-1. **Stock-first retrieval.** For each scene's keywords, pull **real** vertical clips/
-   photos from **Pexels API** and **Pixabay API** (both free, generous quota, license
-   permits commercial use, **no attribution legally required** — we still log source).
-   Real B-roll is what keeps it from looking AI.
-2. **AI fill for the un-stockable.** Categories like *history* and *horror* need scenes
-   no stock library has ("a Roman legion at dusk"). For those scenes generate stills with
-   **FLUX.1-schnell** or **SDXL** (GPU), tuned for photoreal, not "AI art".
-3. **Add motion (GPU).** Turn stills into living shots with **image-to-video**
-   (**LTX-Video** or **Stable Video Diffusion**) for subtle parallax, OR apply
-   **Ken Burns** pan/zoom/slide via `ffmpeg zoompan` when img2vid is overkill.
-4. **Polish (GPU).** **Real-ESRGAN** upscale + **RIFE** frame interpolation for smooth
-   60fps motion → reduces the tell-tale AI/stutter look.
+**Real-footage-first.** The decided strategy weights real stock heavily; AI fills only
+genuine gaps. AI video always carries an "AI look", so we minimise it.
+
+1. **Stock-first retrieval (primary source).** For each scene's keywords, pull **real**
+   vertical clips/photos from **Pexels, Pixabay, Mixkit, Coverr, Videvo** (all free; each
+   license verified for commercial use; source logged regardless). Real 4K B-roll is the
+   backbone and the main reason output looks real, not AI.
+2. **AI fill for the un-stockable only.** Categories like *history* and *horror* need
+   scenes no stock library has ("a Roman legion at dusk"). For those, generate photoreal
+   stills with **FLUX.1-schnell** (Apache-2.0), tuned for realism, not "AI art".
+3. **Add motion (GPU) — prefer animating real frames.** Favour **img→video on a real
+   stock frame or photoreal still** (stays real) over text→video (drifts into AI-land).
+   **LTX-Video** for M1; apply **Ken Burns** (`ffmpeg zoompan`) when img2vid is overkill.
+   (Wan2.1 / CogVideoX A/B vs LTX after M1.)
+4. **Polish (GPU).** **Real-ESRGAN** upscale + **RIFE** interpolation (smooth 60fps), plus
+   **GFPGAN/CodeFormer** face restoration on any AI frames → kills the AI/stutter tells.
 - **Output:** `scenes/` (one clip per beat, normalized to 1080×1920) + `assets.json`.
 - **License:** Pexels/Pixabay ✅ commercial. FLUX.1-schnell weights **Apache-2.0** ✅.
   SDXL base **CreativeML OpenRAIL++** (commercial-OK, use-restrictions only) ✅. SVD has
@@ -178,9 +186,14 @@ motion & polish.**
 - **License:** ✅ commercial. We store provenance per track for auditability.
 
 ### Stage 5 — Render / mux (CPU, GPU optional)
-- **Purpose:** Compose scenes + burn captions + mix VO & music → final 9:16 MP4.
+- **Purpose:** Compose scenes + burn captions + mix VO & music + **finishing polish** →
+  final 9:16 MP4.
 - **Tool:** **ffmpeg** (concat scenes, overlay `.ass`, audio mix, 1080×1920, ~30–45s,
-  H.264/AAC, faststart). NVENC available on the 5070 Ti for fast encode if we want it.
+  H.264/AAC, faststart). NVENC on the 5070 Ti for fast encode.
+- **Finishing polish (baked in):** unified **color grade** (LUT/curves), subtle **film
+  grain** and **motion blur**, and consistent contrast/saturation across scenes so real
+  stock and AI fills match — this "real edit" pass is what most separates polished output
+  from AI slop. (Face restoration GFPGAN/CodeFormer runs upstream in Stage 1.)
 - **Output:** `final.mp4` + `thumbnail.jpg`.
 - **License:** ✅ (LGPL/GPL ffmpeg build).
 
