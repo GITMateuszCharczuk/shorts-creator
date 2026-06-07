@@ -6,6 +6,16 @@ disagree, **this doc wins on strategy**, DESIGN wins on implementation.
 
 > Figures below are grounded in 2026 market data (see Sources). RPMs vary by niche,
 > geography, and season — treat them as directional.
+>
+> **⚠️ Corrected by research (see `research/01-business.md`, `research/04-limitations-and-risks.md`):**
+> An earlier draft listed **Facebook Reels at $2–5 RPM** — that was *long-form in-stream*
+> revenue, **not Reels**. Under Meta's Aug 2025 Content Monetization program, Reels pay
+> ~**$0.02–0.20/1k**. **TikTok is the only meaningful short-form ad payer** ($0.20–$1.00,
+> up to ~$2.50 in finance); YouTube Shorts and IG/FB Reels are pennies-to-zero. The honest
+> takeaways: **Shorts/Reels ad-share is a funnel, not the income** — the real money is
+> **long-form (10–50× RPM)** and **affiliate**; and **True Crime carries catastrophic
+> defamation risk** ($17.5M verdict, May 2026) and should be dropped or heavily gated.
+> The tables below are left as originally written; trust the research docs where they differ.
 
 ---
 
