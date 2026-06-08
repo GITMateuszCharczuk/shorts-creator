@@ -11,7 +11,8 @@
 > [0006 — algorithm-fit & format tuning](../../decisions/0006-algorithm-fit-and-format-tuning.md), and
 > [0007 — format-aware layout templates](../../decisions/0007-format-aware-layout-templates.md), and
 > [0008 — output-parity hardening](../../decisions/0008-output-parity-hardening.md), and
-> [0009 — content integrity & account robustness](../../decisions/0009-content-integrity-and-account-robustness.md).
+> [0009 — content integrity & account robustness](../../decisions/0009-content-integrity-and-account-robustness.md), and
+> [0010 — implementation conventions & extensibility seams](../../decisions/0010-implementation-conventions-and-extensibility-seams.md).
 > The full topology diagrams live in [`docs/ARCHITECTURE.md`](../../ARCHITECTURE.md).
 >
 > **Precedence:** the ADRs win on runtime topology; `POC.md` wins on scope. This spec is the
@@ -199,6 +200,24 @@ every stage boundary:
 - **`posts.schema.json`** — the posted-state record keyed `(video_id, platform)`: intent →
   confirmed (with the remote post id). The **exactly-once** backbone (ADR 0003 D1), kept
   separate from the novelty ledger.
+- **`profile.schema.json` / `format.schema.json`** — niches and format archetypes are **validated
+  config, not code** (ADR 0010): adding a niche or a format is a checked data file behind a loader/
+  registry, resolved through one precedence layer (**global → niche → batch → per-platform**).
+- **`feature_record.schema.json`** — a **stable per-video record** (chosen format / seed / hook
+  variant + judge scores + a reserved metrics slot) written from the first run, so the deferred
+  analytics loop (ADR 0002/0005) starts *warm* instead of cold (ADR 0010 D6).
+
+**Extensibility conventions (M0, ADR 0010).** The seams that keep "extend by configuration, not
+rewrite" true are set *before the first stage is written*: schemas carry a **`schema_version`** and
+a **validation harness fails loud** at every boundary, backed by a committed **golden-fixtures**
+chain; stages share a thin **Stage SDK** (`run(ctx)` over declared inputs/outputs + `job.json`,
+seed, logging, retry/quarantine) and **declare metadata the DAG is generated from**; the three
+growth axes sit behind **adapter interfaces** — `DistributionAdapter` (exactly-once in the base),
+per-capability **model backends** (so every model A/B swap is config), and a `LayoutEngine`
+(abstracts the still-unpicked composition engine, ADR 0007); and a **fake-backend offline harness +
+content-addressed stage cache keyed on `(stage, input_hash, seed)`** lets the whole DAG run on a
+laptop / in CI with no GPU and skip already-computed work (sound because the seed is persisted, ADR
+0009).
 
 **Storage — a single PVC, host-backed for durability.** The data volume is backed by a host
 directory via kind `extraMounts`, so it **survives `kind delete cluster` and reboots** — not
@@ -566,7 +585,7 @@ not land within the PoC, and the DoD does not depend on it.
 
 | M | Goal |
 |---|---|
-| **M0** | Scaffold & cluster: repo structure, `kind` up, **host GPU verified** (ComfyUI + LLM reachable from a pod — *not* GPU-in-kind, under the host supervisor + lease), Argo installed, **the seven schemas** (`job/script/assets/provenance/qc/creative_qc/posts`) + validation, the observability stack bootstrapped, CI running the unit tests. |
+| **M0** | Scaffold & cluster: repo structure, `kind` up, **host GPU verified** (ComfyUI + LLM reachable from a pod — *not* GPU-in-kind, under the host supervisor + lease), Argo installed, **the versioned schemas** (`job/script/assets/provenance/qc/creative_qc/posts/profile/format/feature_record`) + **fail-loud validation harness + golden fixtures**, the **Stage SDK + adapter interfaces** (`DistributionAdapter`/model backends/`LayoutEngine`) and the **fake-backend offline harness + content-addressed stage cache** (ADR 0010), the observability stack bootstrapped, **CI running the full DAG GPU-free**. |
 | **M1** | Vertical slice: `00a (seeded job + numeric grounding) → 00b (Qwen: treatment + best-of-N + judge) → 02 (Kokoro) → 03 (WhisperX, forced-aligned to script) → 05 (ffmpeg, stills + Ken Burns)` → a real `final.mp4` for **finance**. Proves the shape end-to-end. |
 | **M2** | Visuals for real: `01a` stock-first **(CLIP relevance + dedup, format-aware media zones)** + `01b` FLUX fill + `01c` LTX img→video + `01d` upscale/restore + **`01e` data-viz**; **lock the composition engine** (MIT-clean vs Remotion-solo) and stand up the **format-aware compositor** (ADR 0007) — the "not obviously AI" look + the finance signature visual dialed in. |
 | **M3** | The **8 format layout templates** (ADR 0007), audio performance layer (normalization/prosody/music taxonomy/SFX), **caption design**, the **`05c` creative-QC gate** backed by the **`05x` vision pass** (Qwen2.5-VL, ADR 0008), persona + brand kit, **business** profile — proving the two-niche abstraction, the format→layout binding, *and* the quality bar. |
@@ -618,11 +637,26 @@ human-labeled calibration floor); **per-platform music sourcing** (strike-safe i
 **TikTok public signal is audit-gated** (lean on YouTube); **account provisioning + warming**;
 **external-API budgeting + caching**; **≥2-source news corroboration**.
 
+**Decided since (the extensibility review → ADR 0010):** the M0 code conventions that keep "extend
+by configuration, not rewrite" honest — **versioned schemas + a fail-loud validation harness +
+golden fixtures**; a thin **Stage SDK** with the **DAG generated from stage metadata**; **adapter
+interfaces** for the three growth axes (`DistributionAdapter`, per-capability **model backends**,
+`LayoutEngine`); a **fake-backend offline harness + content-addressed stage cache** keyed on
+`(stage, input_hash, seed)` (GPU-free CI, skip-completed-work); a **typed config-resolution layer**
+with **profiles/formats as validated config**; and the **feedback data contract emitted now** so
+the deferred analytics loop starts warm. Set *before the first stage is written* (repo is currently
+docs-only — the cheapest moment).
+
 **Still open (tracked):**
 
-1. **Contracts (P0).** Write `schemas/{job,script,assets,provenance,qc,creative_qc,posts}.schema.json`
-   *before* stage code — they are every stage's interface. `script.schema` now carries the
-   **structured per-beat layout data** the format templates bind to (ADR 0007).
+1. **Contracts + M0 conventions (P0).** Write
+   `schemas/{job,script,assets,provenance,qc,creative_qc,posts,profile,format,feature_record}.schema.json`
+   *before* stage code — they are every stage's interface — each with a **`schema_version`** and a
+   **fail-loud validation harness + golden fixtures** (ADR 0010). `script.schema` carries the
+   **structured per-beat layout data** the format templates bind to (ADR 0007). Stand up the
+   **Stage SDK**, the **adapter interfaces** (`DistributionAdapter` / model backends /
+   `LayoutEngine`), and the **fake-backend offline harness + content-addressed stage cache** in the
+   same M0 pass.
 2. **Per-platform render differentiation** — concrete deltas (caption safe-zones / cover frame /
    hook timing / LUFS / **engagement-CTA verb + icon** — YT Subscribe+bell vs TikTok/IG Follow,
    ADR 0005 D10), so YouTube and TikTok cuts aren't a penalized dupe re-encode.
@@ -649,7 +683,12 @@ human-labeled calibration floor); **per-platform music sourcing** (strike-safe i
     set** for the floor; per-platform **music libraries** + verified terms; **warming duration** +
     provisioning checklist; per-API **budget numbers** + cache TTLs; the **corroboration threshold**
     + reputable-source list per niche.
-11. **Post-M1 A/B (non-blocking)** — LTX vs Wan2.1/CogVideoX; Kokoro vs Orpheus/Chatterbox;
+11. **Extensibility-seam residue (ADR 0010)** — the **stage-metadata format + DAG generator**
+    (hand-written vs generated Argo templates); the **cache backend + eviction/TTL** and the key
+    boundary for seeded-but-nondeterministic stages; the **fake-backend fidelity bar** (fixture
+    replay vs lightweight CI models); whether the **feature record** lives in the ledger or a
+    separate metrics store.
+12. **Post-M1 A/B (non-blocking)** — LTX vs Wan2.1/CogVideoX; Kokoro vs Orpheus/Chatterbox;
     FLUX-schnell vs photoreal SDXL/SD3.5; **Qwen-32B with RAM offload for 00b** (the script stage
     is where model quality matters most).
 

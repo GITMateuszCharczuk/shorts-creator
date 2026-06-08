@@ -20,7 +20,11 @@
 > **[ADR 0008](decisions/0008-output-parity-hardening.md)**; deterministic numeric grounding,
 > seed/determinism, forced-aligned captions, per-platform music, account warming + the honest
 > TikTok-public caveat by
-> **[ADR 0009](decisions/0009-content-integrity-and-account-robustness.md)**.
+> **[ADR 0009](decisions/0009-content-integrity-and-account-robustness.md)**; the M0 extensibility
+> seams — versioned schemas + validation harness, the Stage SDK + metadata-generated DAG, the
+> distribution/model/layout adapter interfaces, and the fake-backend offline harness + content-
+> addressed stage cache — by
+> **[ADR 0010](decisions/0010-implementation-conventions-and-extensibility-seams.md)**.
 >
 > **Precedence:** for *tooling* choices, `OPTIONS.md` stands. For *scope*, `POC.md` wins.
 > Where `DESIGN.md §2–§3/§9` describes the older GPU-in-kind / MinIO / monolithic-Stage-1
@@ -263,12 +267,15 @@ shorts-creator/
 │   ├── decisions/                 # ADR log — decision-of-record (REVIEW C1)
 │   │   └── 0001-lightened-runtime-architecture.md
 │   └── research/                  # 01–05 evidence
-├── schemas/                       # ⭐ the contracts = first code artifact (REVIEW C2/P0)
-│   ├── job.schema.json            #    the spine
+├── schemas/                       # ⭐ the contracts = first code artifact (REVIEW C2/P0) — all schema_version'd (ADR 0010)
+│   ├── job.schema.json            #    the spine (+ persisted seed)
 │   ├── script.schema.json         #    Stage 00b output
 │   ├── assets.schema.json         #    Stage 01d output
-│   └── provenance.schema.json     #    per-asset audit record
-├── profiles/                      # per-niche config (config-driven, not hardcoded)
+│   ├── provenance.schema.json     #    per-asset audit record
+│   ├── profile.schema.json        #    niche config, validated (ADR 0010)
+│   ├── format.schema.json         #    format archetype config, validated (ADR 0010)
+│   └── feature_record.schema.json #    stable per-video record → warm-start the analytics loop (ADR 0010)
+├── profiles/                      # per-niche config, validated against profile.schema (ADR 0010)
 │   ├── finance.yaml
 │   └── business.yaml
 ├── prompts/                       # LLM system/user templates per niche
@@ -297,13 +304,17 @@ shorts-creator/
 │   ├── 05c-creative-qc/           #   quality gate — judge score vs floor, vision-grounded (ADR 0005/0008)
 │   └── 06-distribute/             #   CPU — exactly-once, private-first, AI-disclosure;
 │                                  #         appends to history/ledger.jsonl after a post
-├── shared/                        # py utils: job.json IO, provenance, host_client.py, logging
+├── shared/                        # ⭐ the Stage SDK (ADR 0010): run(ctx) base, job.json IO, seed, provenance, logging, retry/quarantine
+│   ├── stage.py                   #    base contract + stage metadata (DAG generated from it)
+│   ├── adapters/                  #    DistributionAdapter (exactly-once in base) · model backends (per-capability) · LayoutEngine
+│   ├── config.py                  #    precedence resolver: global → niche → batch → per-platform
+│   └── fakes/                     #    fixture-returning host backends → GPU-free local/CI runs + content-addressed (stage,input_hash,seed) cache
 ├── deploy/
 │   ├── kind/                      # cluster config — NO GPU device-plugin needed anymore
 │   ├── argo/                      # install + WorkflowTemplate (batched DAG) + CronWorkflow
 │   └── storage/                   # the single shared PVC (NO minio/)
 ├── music/                         # strike-safe local library + index.json (mood→tracks)
-├── tests/                         # schema validation + deterministic seams (POC §6)
+├── tests/                         # schema validation + golden fixtures + GPU-free full-DAG run via shared/fakes (ADR 0010)
 ├── Makefile                       # host-up · cluster-up · build · submit-batch · dry-run
 └── README.md
 ```
