@@ -59,8 +59,11 @@ music mood, hook templates, data sources).
 
 ## 3. Format & clickability
 
-- **Length: target 60–90s** (not 30s). Required for TikTok payouts; allows real substance
-  (lowers "low-effort" signal); future-proofs for YouTube mid-rolls.
+- **Length: two lanes, per format (ADR 0006 refines this).** A **monetization lane ~60–90s
+  (≥1 min)** — required for TikTok payouts, allows real substance, future-proofs for YouTube
+  mid-rolls — *and* a **reach lane ~20–40s** for punchy formats optimized for completion
+  rate/attention (2026 data: ~72% completion under 30s vs ~54% at 30–60s). Chosen per format,
+  not a flat number.
 - **Hook-first.** Shorts/Reels are swipe-fed — the **first 1–2 seconds** decide watch vs
   swipe. The script LLM's #1 deliverable is a scroll-stopping hook + a retention curve, NOT
   just narration. Generate **multiple hook variants** and let analytics pick winners.

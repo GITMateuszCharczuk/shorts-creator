@@ -32,13 +32,17 @@ keywords, CTA) is craft we bake in regardless, so it is worth getting right now.
 
 ## Decision
 
-1. **Per-format length range — supersedes the flat 60–90s.** Length becomes a **per-format**
-   field in the `formats/` library (which already carries a "length target"). Punchy, hook-native
-   formats (`news_reaction`, `surprising_stat`, `myth_buster`) target **~20–40s** for completion
-   rate; depth formats (`explainer`, `ranked_list`, `how_to_steps`, `head_to_head`,
-   `cautionary_tale`) may run to **~60s**. The ~60s lane **deliberately stays TikTok-monetization-
-   eligible** (≥1 min where it matters) for the future revenue phase, so we optimize reach now
-   without burning the monetizable format.
+1. **Per-format length — two deliberate lanes (supersedes the flat 60–90s as a *single* rule).**
+   Length becomes a **per-format** field in the `formats/` library (which already carries a
+   "length target"):
+   - **Reach lane (~20–40s)** — punchy, hook-native formats (`news_reaction`, `surprising_stat`,
+     `myth_buster`) optimized for **completion rate / attention**. Below the TikTok payout bar,
+     which is fine in the PoC (we don't chase revenue yet — ADR 0004 D1).
+   - **Monetization lane (~60–90s, i.e. ≥1 min)** — depth formats (`explainer`, `ranked_list`,
+     `how_to_steps`, `head_to_head`, `cautionary_tale`) kept **over the 1-minute TikTok Creator
+     Rewards bar** so the monetizable format survives into the revenue phase.
+
+   So we run *both*: short for views, ≥1 min for monetization — chosen **per format**, not flat.
 
 2. **Completion rate is the internal craft target (not a DoD metric).** The quality layer treats
    estimated completion / retention-curve shape as a first-class craft goal — the `05c` judge may

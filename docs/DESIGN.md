@@ -23,7 +23,8 @@ self-hostable AI tools.
 - Generate full, ready-to-publish vertical (9:16) videos end-to-end, **auto + safety-net**
   (full automation gated by automated QC, phased ramp, weekly spot-audit — see STRATEGY §4).
 - **3 channels / niches:** **Finance**, **True crime**, **Business** (high-RPM cluster).
-- **Length 60–90s** (required for TikTok payouts; hook-first, retention-optimized).
+- **Length per-format, two lanes** (ADR 0006): **~60–90s** monetization lane (TikTok payouts) +
+  **~20–40s** reach lane (completion rate); hook-first, retention-optimized.
 - **Multi-platform distribution:** YouTube Shorts + TikTok + Facebook Reels + Instagram
   Reels, with **distinct native renders per platform** (no foreign watermarks; dodges
   duplicate-content penalties). FB/TikTok are the earners; YT/IG are reach/funnel.
@@ -51,7 +52,7 @@ self-hostable AI tools.
 | Niches / channels | **Finance · True crime · Business** (3 channels) — see STRATEGY §2. |
 | Monetization | **Ad-share, multi-platform** (FB Reels + TikTok primary earners) — STRATEGY §1. |
 | Distribution | **YouTube + TikTok + Facebook + Instagram**, native per-platform renders. |
-| Video length | **60–90s** (TikTok payout requirement; hook-first). |
+| Video length | **Per-format (ADR 0006):** ~60–90s monetization lane (TikTok payout) + ~20–40s reach lane. |
 | Automation | **Auto + safety-net** (QC gate + phased ramp + spot-audit) — STRATEGY §4. |
 | GPU | **RTX 5070 Ti, 16 GB VRAM** available locally. |
 | Visual style | **Real-footage-first hybrid**: real 4K stock is the backbone; AI fills only genuine gaps; prefer **img→video on real frames** over text→video. AI video always carries an "AI look", so it is used sparingly. |
@@ -135,8 +136,8 @@ Each stage = one container image, one Argo template. Inputs/outputs are files in
 run workdir, described by `job.json`.
 
 ### Stage 0 — Script & storyboard (CPU)
-- **Purpose:** From `channel` (+ optional topic/seed), produce a **60–90s, hook-first**
-  script: **multiple scroll-stopping hook variants** (first 1–2s is the whole ballgame),
+- **Purpose:** From `channel` (+ optional topic/seed), produce a **hook-first** script at the
+  **format's target length** (~20–40s reach / ~60–90s monetization — ADR 0006): **multiple scroll-stopping hook variants** (first 1–2s is the whole ballgame),
   narration beats with a retention curve, on-screen captions, per-scene **visual keywords**,
   music **mood**, and **per-platform** title/description/hashtags. For Finance/Business it
   also fetches **real data** (Alpha Vantage / Yahoo Finance / FRED) for original charts and
@@ -213,8 +214,8 @@ genuine gaps. AI video always carries an "AI look", so we minimise it.
 ### Stage 5 — Render / mux (CPU, GPU optional)
 - **Purpose:** Compose scenes + burn captions + mix VO & music + **finishing polish** →
   final 9:16 MP4.
-- **Tool:** **ffmpeg** (concat scenes, overlay `.ass`, audio mix, 1080×1920, **60–90s**,
-  H.264/AAC, faststart). NVENC on the 5070 Ti for fast encode.
+- **Tool:** **ffmpeg** (concat scenes, overlay `.ass`, audio mix, 1080×1920, **per-format
+  length** ~20–40s/~60–90s, H.264/AAC, faststart). NVENC on the 5070 Ti for fast encode.
 - **Per-platform native renders:** emit a **distinct cut per platform** (YouTube/TikTok/FB/
   IG) — no foreign watermarks, platform-specific caption style / hook / sound / length — to
   avoid duplicate-content penalties (STRATEGY §5). Output `renders/<platform>.mp4`.
