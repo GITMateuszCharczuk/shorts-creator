@@ -6,7 +6,8 @@
 > [0001 — lightened runtime](../../decisions/0001-lightened-runtime-architecture.md),
 > [0002 — recency & novelty](../../decisions/0002-recency-and-novelty-ledger.md),
 > [0003 — resilience, concurrency & observability](../../decisions/0003-resilience-concurrency-observability.md),
-> and [0004 — commercial posture & account-safety](../../decisions/0004-poc-commercial-posture-and-account-safety.md).
+> [0004 — commercial posture & account-safety](../../decisions/0004-poc-commercial-posture-and-account-safety.md),
+> and [0005 — editorial quality layer](../../decisions/0005-editorial-quality-layer.md).
 > The full topology diagrams live in [`docs/ARCHITECTURE.md`](../../ARCHITECTURE.md).
 >
 > **Precedence:** the ADRs win on runtime topology; `POC.md` wins on scope. This spec is the
@@ -35,9 +36,11 @@ reproducible, genuine GPU use) is a first-class requirement, equal to the outcom
    "human replacement"; a failed stage retries/quarantines rather than wedging the pipeline.
    *(During the initial **ramp** a human approves each post on top of the gate — ADR 0004 D2;
    the unattended run that satisfies this clause happens **after** the ramp.)*
-2. **Quality bar.** Output passes the automated QC gate *and* a human spot-check would call it
-   "genuinely good," not "AI slop" — real-footage-first visuals, clean narration, synced
-   captions, a coherent script with a real hook.
+2. **Quality bar — owned and enforced.** Output passes the automated **safety gate (05b)** *and*
+   the automated **creative-QC quality gate (05c, ADR 0005)** *and* a human spot-check would call
+   it "genuinely good," not "AI slop" — real-footage-first visuals, clean narration, synced
+   captions, a coherent script with a real hook. The creative-QC gate is what makes this clause
+   *enforceable* rather than aspirational: a boring-but-safe video is quarantined, not posted.
 3. **Real posting.** Videos upload through the **real** YouTube Data API v3 and TikTok Content
    Posting API to **real, live, new accounts**, defaulting to private/unlisted.
 4. **Stability.** The system runs **~1–2 weeks** producing its daily batch without manual
@@ -71,6 +74,12 @@ runs ≥1 genuinely **public** account per platform alongside the private-first 
   account + Meta App Review). The render stage stays platform-generic.
 - **Long-form companions + affiliate** — the real revenue levers, a distinct future phase.
 - **Multi-account / scale-out, web UI, cloud GPU autoscaling, analytics feedback loop.**
+
+Each **niche profile** (`profiles/*.yaml`) carries not just prompts but an **editorial persona /
+point of view** the 00b model writes *in* (ADR 0005 D9) and a **brand kit** (palette, font, logo
+bug, lower-third + citation-chip templates, thumbnail/cover template) — so variety comes from
+*what the channel thinks*, not only which template it filled, and 50 videos read as one channel
+rather than a content farm.
 
 **Carry-forward (designed-in, not built):** third niche → add a profile + prompts; FB/IG → add
 per-platform render cuts + distribution adapters; long-form/affiliate + analytics → future phases.
@@ -118,16 +127,18 @@ batch** rather than once per video. CPU stages overlap GPU work.
 | Stage | Compute | Purpose | Output |
 |---|---|---|---|
 | **00a research/ingest** | CPU | Market data (Alpha Vantage/Yahoo/FRED) **+ recent news via free RSS, ≤3 days old**. Fetch failure = first-class DAG state. | `data.json {market, news[]}` |
-| **00b script** | CPU →host LLM | Qwen2.5-14B → **selects + rotates a format template** (Chapter 6) → hook-first 60–90s script: hook variants, narration beats, on-screen captions, per-scene visual keywords, music mood, per-platform title/desc/hashtags. **YMYL:** mandatory "educational, not financial advice" disclaimer, no buy/sell/price calls, on-screen source citations, accuracy self-check. **Dedup:** query `history/ledger.jsonl` (cross-run) **and reserve the chosen topic/source-URLs in `batch.json`** (intra-batch, so two same-day videos can't pick the same story — ADR 0003 D5), reject/repick repeats. Optional affiliate CTA + disclosure fields (ADR 0004 D5). | `script.json` |
-| **01a stock-fetch** | CPU | Real vertical clips/photos from Pexels/Pixabay/Mixkit/Coverr/Videvo (license verified, source logged). Real footage is the backbone. | `scenes/` + provenance |
+| **00b script** | CPU →host LLM | Qwen2.5-14B writing **in the channel persona** (ADR 0005 D9) → **selects + rotates a format template** (Chapter 6) → emits a **treatment** (thesis/angle/tone, per-beat visual motif, energy curve — the through-line every later stage renders against) → **best-of-N** scripts, **judge picks the winner** (ADR 0005 D1/D2). Output: a first-class **hook composite** {spoken, on-screen text, first-frame visual, ≤2s}, narration beats with **prosody + emphasis markup**, on-screen captions with **emphasis-word tags**, per-beat visual motif, music **mood+energy**, per-platform title/desc/hashtags. **YMYL:** mandatory disclaimer, no buy/sell/price calls, on-screen citations, accuracy self-check. **Dedup:** `history/ledger.jsonl` (cross-run) **+ reserve the pick in `batch.json`** (intra-batch — ADR 0003 D5). Optional affiliate fields (ADR 0004 D5). | `script.json` (+ `treatment`) |
+| **01a stock-fetch** | CPU | Real vertical clips/photos from Pexels/Pixabay/Mixkit/Coverr/Videvo (license verified, source logged). **Pulls N candidates per beat, ranks by image-text similarity (e.g. CLIP) against the beat's visual motif, dedups against clips used in other batch videos + the ledger** (ADR 0005 D5) — below-threshold beats fall through to 01b/01e. Real footage is the backbone. | `scenes/` + provenance |
 | **01b image-gen** | →host ComfyUI | FLUX.1-schnell photoreal stills for the un-stockable only. | `scenes/` fills |
 | **01c img2vid** | →host ComfyUI | LTX-Video (img→video on real frames) / Ken Burns. AI motion kept to short fill clips. | `scenes/` clips |
 | **01d upscale-restore** | →host ComfyUI | Real-ESRGAN upscale + RIFE interpolation + GFPGAN/CodeFormer face restore on AI frames. | `assets.json` |
-| **02 voice** | CPU | Kokoro-82M narration. | `narration.wav` |
-| **03 subtitles** | CPU | WhisperX `int8` word-level alignment → karaoke captions. | `captions.ass/.srt` |
-| **04 music** | CPU | Mood-matched strike-safe track, ducked under VO (sidechain), loudness-normalized. | `music.wav` |
-| **05 render** | CPU (ffmpeg) | Compose + burn captions + mix audio + finishing polish (color grade / film grain / motion blur) → **distinct native cuts for YouTube + TikTok** (no foreign watermarks). | `renders/{youtube,tiktok}.mp4`, `thumbnail.jpg` |
-| **05b QC gate** | CPU +host LLM | The always-on **account-safety gate** (Chapter 8, ADR 0004 D3): YMYL disclaimer present, no buy/sell calls, sources cited, AI-disclosure set, profanity/claims clear, repetitious-content check vs ledger, render integrity. Pass → continue; fail → quarantine. | `qc.json` |
+| **01e data-viz** | CPU | **Branded animated charts / counters / stat reveals** rendered from `data.json` numbers (ADR 0005 D5) — deterministic, artifact-free, license-free; the finance niche's signature visual *and* a citation surface. Fills beats stock can never match. | `scenes/` viz clips |
+| **02 voice** | CPU | Kokoro-82M narration, driven by a **finance text-normalization + pronunciation lexicon** (`$1.5M`, `401(k)`, `FOMC`…) and **per-beat prosody/emphasis/pause markup** incl. a deliberate hook delivery (ADR 0005 D6). | `narration.wav` |
+| **03 subtitles** | CPU | WhisperX `int8` word-level alignment → **designed** karaoke captions: brand font, ≤N words on-screen, stroke/shadow, **emphasis-word styling**, animation, **per-platform vertical safe zones** (ADR 0005 D7). | `captions.ass/.srt` |
+| **04 music** | CPU | Strike-safe track from a **curated library, selected by a closed mood/energy taxonomy tied to the format** (anti-repeat across the batch) + a **transition-SFX layer** (whoosh/tick/reveal), ducked under VO (sidechain), **per-platform LUFS** (ADR 0005 D6). | `music.wav` + sfx |
+| **05 render** | CPU (ffmpeg) | Editorial compose: **word-timed cuts + visual-change-rate target** (no slideshow), **per-clip color *matching* before** the unifying grade, **brand overlay** system, designed **thumbnail/cover** (TikTok cover = frame 1) → **distinct native cuts for YouTube + TikTok** (ADR 0005 D4). | `renders/{youtube,tiktok}.mp4`, `thumbnail.jpg` |
+| **05b safety gate** | CPU +host LLM | The always-on **account-safety gate** (Chapter 8, ADR 0004 D3): YMYL disclaimer present, no buy/sell calls, sources cited, AI-disclosure set, profanity/claims clear, repetitious-content check vs ledger, render integrity — **+ aesthetic/artifact checks** (morphing hands, temporal warp, garbled AI text) **and audio-defect checks** (hook dead-air, loudness window, synth-duration match) (ADR 0005 D8). Pass → continue; fail → quarantine. | `qc.json` |
+| **05c creative-QC** | CPU →host LLM | The **quality gate** (ADR 0005 D2), distinct from safety: judge scores the assembled video (hook strength, non-obvious take, visual↔script coherence, payoff) vs a **quality floor**. Above floor → distribute; below → **quarantine, not post**. | `creative_qc.json` |
 | **06 distribute** | CPU | Per-platform **distribution adapters** (YouTube Data API v3 + TikTok Content Posting API), **exactly-once** via the `(video_id, platform)` **posted-state ledger** (`history/posts.jsonl`, ADR 0003 D1), **private-first / ≥1 public**, **AI-disclosure on every call**, emits affiliate description when enabled. Append the novelty ledger via the batch's single fan-in commit step. | post receipts |
 
 All clips are normalized to **1080×1920**. The scene manifest (`assets.json`) plus the
@@ -141,10 +152,14 @@ every stage boundary:
 
 - **`job.schema.json`** — the spine threaded through every stage: `batch_id`, `video_id`, niche,
   profile, platform targets, per-stage status, and the run's file paths.
-- **`script.schema.json`** — Stage 00b output: the chosen **`format`** (Chapter 6), hook
-  variants, narration beats, on-screen captions, per-scene visual keywords, music mood,
-  per-platform metadata, claims + citations, disclaimer, and **optional affiliate fields**
-  (link / CTA / disclosure — ADR 0004 D5).
+- **`script.schema.json`** — Stage 00b output: the chosen **`format`** (Chapter 6); a
+  **`treatment`** block (thesis/angle/tone, per-beat visual motif, energy curve — ADR 0005 D1);
+  a first-class **`hook`** composite (`{spoken, on_screen_text, first_frame_visual, duration}`)
+  plus its scored variants; narration beats **with prosody/emphasis markup**; captions with
+  emphasis tags; per-beat visual motif; music **mood+energy**; per-platform metadata;
+  claims + citations; disclaimer; and **optional affiliate fields** (ADR 0004 D5).
+- **`creative_qc.schema.json`** — Stage 05c output: the judge's per-criterion scores + overall
+  quality score vs the floor (ADR 0005 D2). Distinct from `qc.schema.json` (safety).
 - **`assets.schema.json`** — Stage 01d output: the final scene manifest (one normalized clip per
   beat).
 - **`provenance.schema.json`** — per asset: `source`, `url`, `license`, `fetch_date`.
@@ -163,10 +178,10 @@ cosmetic: cross-run dedup is only possible because the ledger persists.
      ├── batch.json                # which videos, profiles, status
      ├── data/                     # 00a: market data + recent news (≤3d)
      └── <video-id>/
-         ├── job.json  script.json  assets.json  provenance.json
+         ├── job.json  script.json (+treatment)  assets.json  provenance.json
          ├── scenes/  narration.wav  captions.ass/.srt  music.wav
          ├── renders/{youtube,tiktok}.mp4  thumbnail.jpg
-         └── qc.json
+         └── qc.json  creative_qc.json
  └── quarantine/<video-id>/        # 05b failures; retention/GC policy (ADR 0003 D8)
  └── history/ledger.jsonl          # append-only novelty ledger (Chapter 6)
  └── history/posts.jsonl           # posted-state ledger, (video,platform) exactly-once (ADR 0003 D1)
@@ -247,9 +262,35 @@ Rules that keep this honest and non-repetitive:
   buy/sell/price calls, and on-screen citations; `cautionary_tale` is **illustrative/third-person**
   (never a fabricated personal "I lost $X") to stay truthful under the account-safety gate.
 
+### Treatment, hook & best-of-N — the quality layer (ADR 0005)
+
+Format + fresh topic make a video *structurally varied and current*; they do **not** make it
+*good*. The output-quality review found the pipeline had no owner of the *whole* video — each
+stage was locally optimized while nothing enforced a through-line — so 00b now owns three things:
+
+- **A treatment (the through-line).** Before the script, 00b emits a compact creative brief:
+  the one-line thesis/"so-what", the angle, the tone, a **per-beat visual motif** (the intended
+  shot and *why*, not a bare keyword), and an **energy curve**. Every downstream stage renders
+  against the treatment instead of doing its own lossy lookup — this is what binds words,
+  pictures, captions, music, and pacing into one story.
+- **Best-of-N + an LLM-as-judge.** 00b generates **N** treatments/scripts; a judge rubric (hook
+  strength, says-something-non-obvious, visual↔script coherence, payoff) **selects the winner**.
+  Until the deferred analytics loop exists, *the judge is the picker*. The same judge backs the
+  **05c creative-QC** quality gate on the assembled video (quality floor → quarantine, not post).
+- **The hook as a first-class composite.** Not a spoken line but `{spoken, on_screen_text,
+  first_frame_visual, ≤2s}` — frame 1 is a designed pattern-interrupt (and the TikTok cover).
+  All hook variants + the chosen one + their scores are **persisted to the ledger** (the same
+  "reserved field" discipline as `embedding`) so the future feedback loop starts with data, not
+  cold.
+
+Formats are **weighted, not uniformly rotated** — bias toward the hook-native, automation-friendly
+archetypes (`news_reaction`, `surprising_stat`, `myth_buster`); treat the slideshow-prone ones
+(`explainer`, `ranked_list`) as high-production-requirement; the weights are config, tunable once
+data exists.
+
 **Open (tracked):** the per-niche RSS source list; the overlap threshold default; the embedding
-model for the post-M1 tier; the starting **format library** per niche (which archetypes, hook
-copy, length targets).
+model for the post-M1 tier; the starting **format library** + weights per niche; the **judge
+rubric weights + quality floor** and **N** for best-of-N (ADR 0005).
 
 ## Chapter 7 — GPU / VRAM & throughput
 
@@ -287,7 +328,10 @@ platform renders ≈ double the ffmpeg encode; 12 min assumes near-zero AI motio
 (amortizes model load/unload across the batch); the #2 is **CPU/GPU overlap** — meaning CPU
 stages (ffmpeg + WhisperX + Kokoro) overlap GPU stages **within one batch**, **never two GPU
 batches at once** (ADR 0003 D2). Note FLUX (~12 GB) and LTX (~14 GB) are near the 16 GB ceiling
-*even singly* — leave headroom and validate before committing to any higher cadence.
+*even singly* — leave headroom and validate before committing to any higher cadence. The quality
+layer (ADR 0005) **re-opens this baseline**: best-of-N adds N−1 LLM passes and 05c a judge pass
+(both cheap — the LLM is already resident), 01e data-viz adds a CPU stage; the per-video figure
+must be **re-measured**, not assumed.
 
 **Choke points — what a 16 GB 5070 Ti *cannot* do (the binding constraints):**
 - **Full-length AI video.** Generating the whole 60–90s as img2vid collapses throughput to
@@ -333,12 +377,26 @@ opportunistic spot cloud (only past ~30/day).
 - **Checks (all must hold to pass):** YMYL disclaimer present; **no buy/sell/price calls or
   guaranteed-return claims**; sources cited; **AI-disclosure flag set**; profanity/unsafe-claims
   clear; **repetitious-content** check vs the novelty ledger; render integrity (no dead audio,
-  no black frames, no clipped loudness); second-pass LLM fact/sanity + hallucination flag.
+  no black frames, no clipped loudness); second-pass LLM fact/sanity + hallucination flag;
+  **+ aesthetic/artifact checks** (morphing hands, temporal warp, garbled AI text → quarantine or
+  fall back to Ken Burns on a clean still) and **audio-defect checks** (hook dead-air, loudness
+  within the platform window, synth-duration matches script) (ADR 0005 D8).
 - **Outcome:** pass → distribute; fail → quarantine + log for the weekly spot-audit.
 - The second-pass LLM uses the **same host endpoint + eviction rule** as 00b.
 - **Human-at-publish during the ramp (ADR 0004 D2):** in addition to this gate, a person
-  approves each post during the initial ramp; removed once the gate + a track record earn the
+  approves each post during the initial ramp; removed once the gates + a track record earn the
   fully-unattended run. *(Open: numeric pass/fail thresholds; ramp-exit criteria.)*
+
+**The creative-QC quality gate (Stage 5c) — distinct from safety (ADR 0005 D2)**
+- **Purpose:** enforce the DoD's "genuinely good, not slop" clause. 05b asks *"is it safe to
+  post?"*; 05c asks *"is it worth watching?"* — two different questions, two gates.
+- **Mechanism:** the LLM-as-judge (the same one that picks the best-of-N at 00b) scores the
+  assembled video against a rubric — **hook strength, says-something-non-obvious, visual↔script
+  coherence, payoff lands** — to an overall **quality floor**.
+- **Outcome:** above floor → distribute; **below floor → quarantine, not post.** A boring-but-safe
+  video is held back, which is the whole point — without 05c the quality bar is aspirational.
+- *(The human-at-treatment checkpoint was considered and declined — ADR 0005; the judge + the
+  ramp's publish-time human cover early and late quality respectively.)*
 
 **Observability**
 - Structured (JSON) logs per stage; a per-batch (`batch.json`) and per-video (`job.json`)
@@ -358,8 +416,9 @@ opportunistic spot cloud (only past ~30/day).
 
 **Testing (`POC §6`)**
 - Schema validation on `job.json` and every stage output.
-- Unit tests on the deterministic seams: script-schema adherence, music selection, render-arg
-  construction, QC heuristics, and dedup matching. TDD where it fits.
+- Unit tests on the deterministic seams: script/treatment-schema adherence, finance text
+  normalization, stock relevance-ranking, music selection, render-arg construction, QC heuristics
+  (safety + creative), and dedup matching. TDD where it fits.
 
 ## Chapter 9 — Compliance & licensing
 
@@ -378,7 +437,8 @@ used as **facts + citations**, never republished; paywalled sources skipped.
   buy/sell/price calls**; on-screen source citations; accuracy self-check. Kept strictly
   educational/non-advisory.
 - **Inauthentic / repetitious content.** Mitigated by per-video variety (the novelty ledger,
-  Chapter 6) + the quality bar + the phased cadence ramp.
+  Chapter 6) + the **creative-QC quality bar (05c)** + a **recognizable editorial persona**
+  (ADR 0005 D9, the anti-content-farm lever) + the phased cadence ramp.
 - **AI-content disclosure.** The disclosure flag is set on **every** publish call, both
   platforms, always — non-negotiable.
 
@@ -400,36 +460,47 @@ human-at-publish step, plus the audit where required.
 
 | M | Goal |
 |---|---|
-| **M0** | Scaffold & cluster: repo structure, `kind` up, **host GPU verified** (ComfyUI + LLM reachable from a pod — *not* GPU-in-kind, under the host supervisor + lease), Argo installed, **the six schemas** (`job/script/assets/provenance/qc/posts`) + validation, the observability stack bootstrapped, CI running the unit tests. |
-| **M1** | Vertical slice: `00a → 00b (Qwen) → 02 (Kokoro) → 03 (WhisperX) → 05 (ffmpeg, stills + Ken Burns)` → a real `final.mp4` for **finance**. Proves the shape end-to-end. |
-| **M2** | Visuals for real: `01a` stock-first + `01b` FLUX fill + `01c` LTX img→video + `01d` upscale/restore — the "not obviously AI" look dialed in. |
-| **M3** | Music, polish, **business** profile — proving the two-niche abstraction. |
+| **M0** | Scaffold & cluster: repo structure, `kind` up, **host GPU verified** (ComfyUI + LLM reachable from a pod — *not* GPU-in-kind, under the host supervisor + lease), Argo installed, **the seven schemas** (`job/script/assets/provenance/qc/creative_qc/posts`) + validation, the observability stack bootstrapped, CI running the unit tests. |
+| **M1** | Vertical slice: `00a → 00b (Qwen: treatment + best-of-N + judge) → 02 (Kokoro) → 03 (WhisperX) → 05 (ffmpeg, stills + Ken Burns)` → a real `final.mp4` for **finance**. Proves the shape end-to-end. |
+| **M2** | Visuals for real: `01a` stock-first **(CLIP relevance + dedup)** + `01b` FLUX fill + `01c` LTX img→video + `01d` upscale/restore + **`01e` data-viz** — the "not obviously AI" look + the finance signature visual dialed in. |
+| **M3** | Audio performance layer (normalization/prosody/music taxonomy/SFX), **caption design**, the **`05c` creative-QC gate**, persona + brand kit, **business** profile — proving the two-niche abstraction *and* the quality bar. |
 | **M4** | Orchestration: `WorkflowTemplate` + `CronWorkflow` (`concurrencyPolicy: Forbid`), **per-video failure domains**, GPU lease + confirm-evicted gate, retries/timeouts, artifacts, **stage-batching**, the phased daily batch. |
 | **M5** | Account-safety gate (`05b`) + distribution (`06`, per-platform adapters + the `posts.jsonl` exactly-once ledger) to YouTube + TikTok; private-first **plus ≥1 public**; disclosure on; **human-at-publish ramp**; affiliate fields wired (can ship disabled); platform audits submitted in parallel. |
 | **M6** | Hardening + alerts/GC/credential pre-flight wired, then the **1–2 week unattended run** (post-ramp) that satisfies the Chapter 1 definition of done. |
 
-**Decided since (the five-specialist review → ADR 0003 / 0004):** Stage 6 exactly-once
+**Decided since (the runtime review → ADR 0003 / 0004):** Stage 6 exactly-once
 (posted-state ledger); host GPU lease + confirm-evicted gate + `Forbid` concurrency; host
 supervision + readiness gate; per-video failure domains; intra-batch dedup claim + starvation
 ladder + timestamp hygiene; serialized ledger writes; observability backend; disk GC +
-credential pre-flight; host toolchain pinning; throughput re-baseline to ~25 min/video — plus
-the commercial-posture calls (reframed DoD, human-at-publish ramp, always-on account-safety gate,
-≥1 public account, affiliate designed-in).
+credential pre-flight; host toolchain pinning — plus the commercial-posture calls (reframed DoD,
+human-at-publish ramp, always-on account-safety gate, ≥1 public account, affiliate designed-in).
+
+**Decided since (the output-quality review → ADR 0005):** a `treatment` artifact owning the
+through-line; best-of-N + an LLM-as-judge; the hook as a first-class composite (persisted to the
+ledger); a pacing/assembly contract; engineered stock relevance + the `01e` data-viz stage; the
+audio performance layer (normalization / prosody / music taxonomy / SFX); caption design; the
+`05c` creative-QC gate (distinct from `05b` safety) + expanded aesthetic/audio QC; channel
+persona + brand kit in profiles. *(Human-at-treatment considered and declined; human stays at
+publish.)*
 
 **Still open (tracked):**
 
-1. **Contracts (P0).** Write `schemas/{job,script,assets,provenance,qc,posts}.schema.json`
+1. **Contracts (P0).** Write `schemas/{job,script,assets,provenance,qc,creative_qc,posts}.schema.json`
    *before* stage code — they are every stage's interface.
-2. **Stage 5 render differentiation** — what concretely differs per platform (caption style /
-   hook / length / sound), so YouTube and TikTok cuts aren't a penalized dupe re-encode.
-3. **Numeric tuning** — Stage 5b QC pass/fail thresholds + ramp-exit criteria; retry counts /
-   backoff / per-stage timeouts + `activeDeadlineSeconds`.
+2. **Per-platform render differentiation** — concrete deltas (caption safe-zones / cover frame /
+   hook timing / LUFS), so YouTube and TikTok cuts aren't a penalized dupe re-encode.
+3. **Numeric tuning** — 05b safety thresholds + ramp-exit criteria; **05c quality floor + judge
+   rubric weights + N** (ADR 0005); retry counts / backoff / per-stage timeouts; the re-measured
+   throughput baseline.
 4. **ADR 0002 residue** — per-niche RSS source list; topic-overlap threshold default; embedding
    model for the post-M1 similarity tier; optional free-tier news API.
 5. **Posture residue (ADR 0004)** — public-vs-private account counts per niche; affiliate program
    selection + disclosure wording (kept disabled until decided).
-6. **Post-M1 A/B (non-blocking)** — LTX vs Wan2.1/CogVideoX; Kokoro vs Orpheus/Chatterbox;
-   FLUX-schnell vs photoreal SDXL/SD3.5; Qwen-32B with RAM offload.
+6. **Quality-layer residue (ADR 0005)** — CLIP relevance model + data-viz tech; curated music +
+   SFX libraries; the pronunciation lexicon; per-niche persona + brand kit.
+7. **Post-M1 A/B (non-blocking)** — LTX vs Wan2.1/CogVideoX; Kokoro vs Orpheus/Chatterbox;
+   FLUX-schnell vs photoreal SDXL/SD3.5; **Qwen-32B with RAM offload for 00b** (the script stage
+   is where model quality matters most).
 
 ---
 

@@ -9,7 +9,9 @@
 > (exactly-once posting, host GPU lease + supervision, per-video failure domains, observability)
 > is added by **[ADR 0003](decisions/0003-resilience-concurrency-observability.md)**; the PoC's
 > commercial posture + account-safety gate by
-> **[ADR 0004](decisions/0004-poc-commercial-posture-and-account-safety.md)**.
+> **[ADR 0004](decisions/0004-poc-commercial-posture-and-account-safety.md)**; the editorial
+> quality layer (treatment, best-of-N, the `01e` data-viz + `05c` creative-QC stages) by
+> **[ADR 0005](decisions/0005-editorial-quality-layer.md)**.
 >
 > **Precedence:** for *tooling* choices, `OPTIONS.md` stands. For *scope*, `POC.md` wins.
 > Where `DESIGN.md §2–§3/§9` describes the older GPU-in-kind / MinIO / monolithic-Stage-1
@@ -69,8 +71,8 @@ architecture — it removes GPU-in-kind (the #1 risk) and hands VRAM management 
         │   └───────────────────────────────┬─────────────────────────────────┘   │
         │                                   │  schedules thin CPU client pods       │
         │                                   ▼                                       │
-        │     00a data-fetch · 00b script · 01a stock-fetch · 01b/01c/01d (→host)  │
-        │     02 voice · 03 subs · 04 music · 05 render · 05b QC · 06 distribute    │
+        │  00a data-fetch · 00b script · 01a stock · 01b/01c/01d (→host) · 01e viz │
+        │  02 voice · 03 subs · 04 music · 05 render · 05b safety · 05c quality · 06 │
         │                                   │                                       │
         │                                   ▼                                       │
         │   ┌─────────────────────────────────────────────────────────────────┐   │
@@ -189,16 +191,17 @@ runs because it persists — a plain in-cluster PVC would be wiped on every clus
          ├── data/                       # 00a: market data + recent news (≤3d) + summaries
          └── <video-id>/                 # one per video in the batch
              ├── job.json                # ⭐ the spine — threads through every stage
-             ├── script.json             # 00b
-             ├── scenes/                 # 01a stock clips + 01b/01c/01d AI fills (1080×1920)
+             ├── script.json             # 00b — incl. the treatment through-line (ADR 0005)
+             ├── scenes/                 # 01a stock + 01b/01c/01d AI fills + 01e data-viz (1080×1920)
              ├── assets.json             # 01d — final scene manifest
              ├── provenance.json         # source/URL/license/fetch-date per asset (audit trail)
              ├── narration.wav           # 02
              ├── captions.ass / .srt     # 03
              ├── music.wav               # 04
              ├── renders/                # 05 — youtube.mp4, tiktok.mp4 + thumbnail.jpg
-             └── qc.json                 # 05b — pass/fail + reasons
- └── quarantine/<video-id>/              # 05b failures, kept for the weekly spot-audit
+             ├── qc.json                 # 05b — safety gate pass/fail + reasons
+             └── creative_qc.json        # 05c — quality-gate score vs floor (ADR 0005)
+ └── quarantine/<video-id>/              # 05b/05c failures, kept for the weekly spot-audit
  └── history/
      └── ledger.jsonl                    # ⭐ append-only novelty ledger (ADR 0002): one record
                                          #   per produced video {id,date,niche,topic,title,hook,
@@ -274,12 +277,14 @@ shorts-creator/
 │   ├── 01b-image-gen/             #   client → host ComfyUI (FLUX)
 │   ├── 01c-img2vid/               #   client → host ComfyUI (LTX / Ken Burns)
 │   ├── 01d-upscale-restore/       #   client → host ComfyUI (ESRGAN/RIFE/GFPGAN)
-│   ├── 02-voice/                  #   CPU — Kokoro-82M
-│   ├── 03-subtitles/              #   CPU — WhisperX int8
-│   ├── 04-music/                  #   CPU — mood match + ducked mix
-│   ├── 05-render/                 #   CPU — ffmpeg, per-platform YT + TikTok cuts
-│   ├── 05b-qc/                    #   the safety-net gate (pass → continue / fail → quarantine)
-│   └── 06-distribute/             #   CPU — idempotent, private-first, AI-disclosure;
+│   ├── 01e-dataviz/               #   CPU — branded animated charts/counters from data.json (ADR 0005)
+│   ├── 02-voice/                  #   CPU — Kokoro-82M (text-normalization + prosody)
+│   ├── 03-subtitles/              #   CPU — WhisperX int8 (designed captions)
+│   ├── 04-music/                  #   CPU — taxonomy-matched track + SFX, ducked mix
+│   ├── 05-render/                 #   CPU — ffmpeg, word-timed cuts, per-platform YT + TikTok cuts
+│   ├── 05b-qc/                    #   safety gate (pass → continue / fail → quarantine)
+│   ├── 05c-creative-qc/           #   quality gate — judge score vs floor (ADR 0005)
+│   └── 06-distribute/             #   CPU — exactly-once, private-first, AI-disclosure;
 │                                  #         appends to history/ledger.jsonl after a post
 ├── shared/                        # py utils: job.json IO, provenance, host_client.py, logging
 ├── deploy/
