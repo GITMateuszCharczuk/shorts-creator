@@ -15,7 +15,9 @@
 > placement + the closing follow CTA by
 > **[ADR 0006](decisions/0006-algorithm-fit-and-format-tuning.md)**; the per-format **layout
 > templates** + the headless-Chromium composition engine (Stage 05 / 01e) by
-> **[ADR 0007](decisions/0007-format-aware-layout-templates.md)**.
+> **[ADR 0007](decisions/0007-format-aware-layout-templates.md)**; the shared **vision QC pass**,
+> format↔lane fit, the asset fallback ladder + honest limits by
+> **[ADR 0008](decisions/0008-output-parity-hardening.md)**.
 >
 > **Precedence:** for *tooling* choices, `OPTIONS.md` stands. For *scope*, `POC.md` wins.
 > Where `DESIGN.md §2–§3/§9` describes the older GPU-in-kind / MinIO / monolithic-Stage-1
@@ -203,8 +205,9 @@ runs because it persists — a plain in-cluster PVC would be wiped on every clus
              ├── captions.ass / .srt     # 03
              ├── music.wav               # 04
              ├── renders/                # 05 — youtube.mp4, tiktok.mp4 + thumbnail.jpg
+             ├── vision.json             # 05x — VLM read of sampled frames (ADR 0008)
              ├── qc.json                 # 05b — safety gate pass/fail + reasons
-             └── creative_qc.json        # 05c — quality-gate score vs floor (ADR 0005)
+             └── creative_qc.json        # 05c — quality-gate score vs floor (ADR 0005/0008)
  └── quarantine/<video-id>/              # 05b/05c failures, kept for the weekly spot-audit
  └── history/
      └── ledger.jsonl                    # ⭐ append-only novelty ledger (ADR 0002): one record
@@ -286,8 +289,9 @@ shorts-creator/
 │   ├── 03-subtitles/              #   CPU — WhisperX int8 (designed captions)
 │   ├── 04-music/                  #   CPU — taxonomy-matched track + SFX, ducked mix
 │   ├── 05-render/                 #   format-aware compositor (headless-Chromium layouts) + NVENC; cuts, CTA, loop, end-card (ADR 0007)
+│   ├── 05x-vision/                #   →host Qwen2.5-VL over sampled frames; feeds both gates (ADR 0008)
 │   ├── 05b-qc/                    #   safety gate (pass → continue / fail → quarantine)
-│   ├── 05c-creative-qc/           #   quality gate — judge score vs floor (ADR 0005)
+│   ├── 05c-creative-qc/           #   quality gate — judge score vs floor, vision-grounded (ADR 0005/0008)
 │   └── 06-distribute/             #   CPU — exactly-once, private-first, AI-disclosure;
 │                                  #         appends to history/ledger.jsonl after a post
 ├── shared/                        # py utils: job.json IO, provenance, host_client.py, logging
