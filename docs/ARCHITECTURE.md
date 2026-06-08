@@ -17,7 +17,10 @@
 > templates** + the headless-Chromium composition engine (Stage 05 / 01e) by
 > **[ADR 0007](decisions/0007-format-aware-layout-templates.md)**; the shared **vision QC pass**,
 > format↔lane fit, the asset fallback ladder + honest limits by
-> **[ADR 0008](decisions/0008-output-parity-hardening.md)**.
+> **[ADR 0008](decisions/0008-output-parity-hardening.md)**; deterministic numeric grounding,
+> seed/determinism, forced-aligned captions, per-platform music, account warming + the honest
+> TikTok-public caveat by
+> **[ADR 0009](decisions/0009-content-integrity-and-account-robustness.md)**.
 >
 > **Precedence:** for *tooling* choices, `OPTIONS.md` stands. For *scope*, `POC.md` wins.
 > Where `DESIGN.md §2–§3/§9` describes the older GPU-in-kind / MinIO / monolithic-Stage-1
@@ -196,8 +199,8 @@ runs because it persists — a plain in-cluster PVC would be wiped on every clus
          ├── batch.json                  # batch manifest: which videos, profiles, status
          ├── data/                       # 00a: market data + recent news (≤3d) + summaries
          └── <video-id>/                 # one per video in the batch
-             ├── job.json                # ⭐ the spine — threads through every stage
-             ├── script.json             # 00b — incl. the treatment through-line (ADR 0005)
+             ├── job.json                # ⭐ the spine — threads through every stage (+ persisted seed, ADR 0009)
+             ├── script.json             # 00b — treatment + {value,source_ref} numeric grounding (ADR 0005/0009)
              ├── scenes/                 # 01a stock + 01b/01c/01d AI fills + 01e data-viz (1080×1920)
              ├── assets.json             # 01d — final scene manifest
              ├── provenance.json         # source/URL/license/fetch-date per asset (audit trail)
@@ -286,8 +289,8 @@ shorts-creator/
 │   ├── 01d-upscale-restore/       #   client → host ComfyUI (ESRGAN/RIFE/GFPGAN)
 │   ├── 01e-dataviz/               #   CPU — branded charts/counters via the shared compositor (ADR 0005/0007)
 │   ├── 02-voice/                  #   CPU — Kokoro-82M (text-normalization + prosody)
-│   ├── 03-subtitles/              #   CPU — WhisperX int8 (designed captions)
-│   ├── 04-music/                  #   CPU — taxonomy-matched track + SFX, ducked mix
+│   ├── 03-subtitles/              #   CPU — WhisperX int8, forced-aligned to script (ADR 0009)
+│   ├── 04-music/                  #   CPU — per-platform taxonomy-matched track + SFX, ducked mix (ADR 0009)
 │   ├── 05-render/                 #   format-aware compositor (headless-Chromium layouts) + NVENC; cuts, CTA, loop, end-card (ADR 0007)
 │   ├── 05x-vision/                #   →host Qwen2.5-VL over sampled frames; feeds both gates (ADR 0008)
 │   ├── 05b-qc/                    #   safety gate (pass → continue / fail → quarantine)
