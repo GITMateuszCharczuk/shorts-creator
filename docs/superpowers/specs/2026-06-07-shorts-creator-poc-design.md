@@ -77,9 +77,12 @@ runs ≥1 genuinely **public** account per platform alongside the private-first 
 
 Each **niche profile** (`profiles/*.yaml`) carries not just prompts but an **editorial persona /
 point of view** the 00b model writes *in* (ADR 0005 D9) and a **brand kit** (palette, font, logo
-bug, lower-third + citation-chip templates, thumbnail/cover template) — so variety comes from
-*what the channel thinks*, not only which template it filled, and 50 videos read as one channel
-rather than a content farm.
+bug, lower-third + citation-chip templates, thumbnail/cover template, **+ a channel-styled
+animated engagement-CTA bump** — ADR 0005 D10) — so variety comes from *what the channel thinks*,
+not only which template it filled, and 50 videos read as one channel rather than a content farm.
+The CTA's second verb is the natural per-platform delta (`youtube`→Subscribe+bell,
+`tiktok`/`instagram`→Follow), drawn at a **seeded constrained-random mid-roll slot** (never the
+hook or outro) so placement varies without ever stepping on the moments that carry the video.
 
 **Carry-forward (designed-in, not built):** third niche → add a profile + prompts; FB/IG → add
 per-platform render cuts + distribution adapters; long-form/affiliate + analytics → future phases.
@@ -136,7 +139,7 @@ batch** rather than once per video. CPU stages overlap GPU work.
 | **02 voice** | CPU | Kokoro-82M narration, driven by a **finance text-normalization + pronunciation lexicon** (`$1.5M`, `401(k)`, `FOMC`…) and **per-beat prosody/emphasis/pause markup** incl. a deliberate hook delivery (ADR 0005 D6). | `narration.wav` |
 | **03 subtitles** | CPU | WhisperX `int8` word-level alignment → **designed** karaoke captions: brand font, ≤N words on-screen, stroke/shadow, **emphasis-word styling**, animation, **per-platform vertical safe zones** (ADR 0005 D7). | `captions.ass/.srt` |
 | **04 music** | CPU | Strike-safe track from a **curated library, selected by a closed mood/energy taxonomy tied to the format** (anti-repeat across the batch) + a **transition-SFX layer** (whoosh/tick/reveal), ducked under VO (sidechain), **per-platform LUFS** (ADR 0005 D6). | `music.wav` + sfx |
-| **05 render** | CPU (ffmpeg) | Editorial compose: **word-timed cuts + visual-change-rate target** (no slideshow), **per-clip color *matching* before** the unifying grade, **brand overlay** system, designed **thumbnail/cover** (TikTok cover = frame 1) → **distinct native cuts for YouTube + TikTok** (ADR 0005 D4). | `renders/{youtube,tiktok}.mp4`, `thumbnail.jpg` |
+| **05 render** | CPU (ffmpeg) | Editorial compose: **word-timed cuts + visual-change-rate target** (no slideshow), **per-clip color *matching* before** the unifying grade, **brand overlay** system incl. a **per-platform animated engagement-CTA bump** (`Like` + `Subscribe`/`Follow`) at a **seeded constrained-random mid-roll slot** (ADR 0005 D10), designed **thumbnail/cover** (TikTok cover = frame 1) → **distinct native cuts for YouTube + TikTok** (ADR 0005 D4). | `renders/{youtube,tiktok}.mp4`, `thumbnail.jpg` |
 | **05b safety gate** | CPU +host LLM | The always-on **account-safety gate** (Chapter 8, ADR 0004 D3): YMYL disclaimer present, no buy/sell calls, sources cited, AI-disclosure set, profanity/claims clear, repetitious-content check vs ledger, render integrity — **+ aesthetic/artifact checks** (morphing hands, temporal warp, garbled AI text) **and audio-defect checks** (hook dead-air, loudness window, synth-duration match) (ADR 0005 D8). Pass → continue; fail → quarantine. | `qc.json` |
 | **05c creative-QC** | CPU →host LLM | The **quality gate** (ADR 0005 D2), distinct from safety: judge scores the assembled video (hook strength, non-obvious take, visual↔script coherence, payoff) vs a **quality floor**. Above floor → distribute; below → **quarantine, not post**. | `creative_qc.json` |
 | **06 distribute** | CPU | Per-platform **distribution adapters** (YouTube Data API v3 + TikTok Content Posting API), **exactly-once** via the `(video_id, platform)` **posted-state ledger** (`history/posts.jsonl`, ADR 0003 D1), **private-first / ≥1 public**, **AI-disclosure on every call**, emits affiliate description when enabled. Append the novelty ledger via the batch's single fan-in commit step. | post receipts |
@@ -380,7 +383,9 @@ opportunistic spot cloud (only past ~30/day).
   no black frames, no clipped loudness); second-pass LLM fact/sanity + hallucination flag;
   **+ aesthetic/artifact checks** (morphing hands, temporal warp, garbled AI text → quarantine or
   fall back to Ken Burns on a clean still) and **audio-defect checks** (hook dead-air, loudness
-  within the platform window, synth-duration matches script) (ADR 0005 D8).
+  within the platform window, synth-duration matches script) (ADR 0005 D8). The channel's own
+  **engagement-CTA bump is whitelisted** (not a *foreign* watermark) but is verified to sit in the
+  **platform-safe zone** — not occluding TikTok's right-rail UI or the caption band (ADR 0005 D10).
 - **Outcome:** pass → distribute; fail → quarantine + log for the weekly spot-audit.
 - The second-pass LLM uses the **same host endpoint + eviction rule** as 00b.
 - **Human-at-publish during the ramp (ADR 0004 D2):** in addition to this gate, a person
@@ -488,7 +493,8 @@ publish.)*
 1. **Contracts (P0).** Write `schemas/{job,script,assets,provenance,qc,creative_qc,posts}.schema.json`
    *before* stage code — they are every stage's interface.
 2. **Per-platform render differentiation** — concrete deltas (caption safe-zones / cover frame /
-   hook timing / LUFS), so YouTube and TikTok cuts aren't a penalized dupe re-encode.
+   hook timing / LUFS / **engagement-CTA verb + icon** — YT Subscribe+bell vs TikTok/IG Follow,
+   ADR 0005 D10), so YouTube and TikTok cuts aren't a penalized dupe re-encode.
 3. **Numeric tuning** — 05b safety thresholds + ramp-exit criteria; **05c quality floor + judge
    rubric weights + N** (ADR 0005); retry counts / backoff / per-stage timeouts; the re-measured
    throughput baseline.

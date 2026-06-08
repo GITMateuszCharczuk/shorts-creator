@@ -97,7 +97,22 @@ slideshow" — the precise slop signature the research says is now an account-su
    not just an aesthetic one). "Does the channel have a personality" becomes an explicit
    acceptance criterion.
 
-### Human gate — considered, **not** moved
+### Engagement overlay (follow-up addition)
+
+10. **Animated engagement-CTA bump (Stage 05, per-platform).** A short (~2–3s) branded animation
+    — `Like` + a **platform-specific** second verb (`youtube → Subscribe` + bell, `tiktok → Follow`,
+    `instagram → Follow`) — pops in **once** at a **constrained-random mid-roll slot** and animates
+    out. The asset is a **brand-kit element** (channel-styled, not a generic sticker, ADR 0005 D9);
+    the verb/icon mapping is the natural **per-platform render delta** (so the YT and TikTok cuts
+    differ for a real reason, not a penalized re-encode). "Constrained" is deliberate: the slot is
+    drawn from an **eligible window** — **never** the hook (first ~3s pattern-interrupt) or the
+    outro, and skipping data-viz / emphasis-caption beats — so placement *varies* (a fixed 0:15
+    bump is itself a content-farm tell) without ever stepping on the moments that carry the video.
+    The draw is **seeded from `video_id`** so re-renders reproduce it (the pipeline is
+    reproducible-by-design), and the chosen slot + variant are **persisted to the ledger** (same
+    reserved-field pattern as the hook variants, D3) since placement timing is a future-A/B knob.
+    `05b` **whitelists** the channel's own CTA (it is not a *foreign* watermark) but still verifies
+    it sits in the **platform-safe zone** (not occluding TikTok's right-rail UI or the caption band).
 
 Moving the ramp's human review *earlier* (to the treatment, where edits are cheap and steer
 everything) was proposed and **declined for now**: the human stays at **publish** per ADR 0004.
@@ -129,5 +144,8 @@ human remains the final publish veto. (Re-openable if the automated judge proves
   Remotion/Lottie).
 - Curated **music + SFX libraries**, the **pronunciation lexicon**, and **per-platform LUFS**
   values.
-- **Persona definitions** per niche; the **brand kit** (palette/font/logo/lower-thirds) per niche.
+- **Persona definitions** per niche; the **brand kit** (palette/font/logo/lower-thirds, **+ the
+  engagement-CTA animation**) per niche.
+- The **engagement-CTA** specifics: the eligible-window bounds, whether it may fire more than once,
+  and whether a stronger end-card belongs alongside the mid-roll bump.
 - Whether to revisit the **human-at-treatment** checkpoint if the automated judge proves lenient.

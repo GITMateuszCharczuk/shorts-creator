@@ -281,7 +281,7 @@ shorts-creator/
 │   ├── 02-voice/                  #   CPU — Kokoro-82M (text-normalization + prosody)
 │   ├── 03-subtitles/              #   CPU — WhisperX int8 (designed captions)
 │   ├── 04-music/                  #   CPU — taxonomy-matched track + SFX, ducked mix
-│   ├── 05-render/                 #   CPU — ffmpeg, word-timed cuts, per-platform YT + TikTok cuts
+│   ├── 05-render/                 #   CPU — ffmpeg, word-timed cuts, per-platform cuts + CTA bump
 │   ├── 05b-qc/                    #   safety gate (pass → continue / fail → quarantine)
 │   ├── 05c-creative-qc/           #   quality gate — judge score vs floor (ADR 0005)
 │   └── 06-distribute/             #   CPU — exactly-once, private-first, AI-disclosure;
