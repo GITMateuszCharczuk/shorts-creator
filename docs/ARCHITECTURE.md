@@ -5,7 +5,11 @@
 > 0001](decisions/0001-lightened-runtime-architecture.md)** and resolves the open runtime
 > findings in **[REVIEW.md](REVIEW.md)** (T1–T5 + the Stage-1/Stage-0 decompositions).
 > Freshness (recent-news sourcing) and cross-run de-duplication are added by
-> **[ADR 0002](decisions/0002-recency-and-novelty-ledger.md)**.
+> **[ADR 0002](decisions/0002-recency-and-novelty-ledger.md)**. Failure-path hardening
+> (exactly-once posting, host GPU lease + supervision, per-video failure domains, observability)
+> is added by **[ADR 0003](decisions/0003-resilience-concurrency-observability.md)**; the PoC's
+> commercial posture + account-safety gate by
+> **[ADR 0004](decisions/0004-poc-commercial-posture-and-account-safety.md)**.
 >
 > **Precedence:** for *tooling* choices, `OPTIONS.md` stands. For *scope*, `POC.md` wins.
 > Where `DESIGN.md §2–§3/§9` describes the older GPU-in-kind / MinIO / monolithic-Stage-1
@@ -200,6 +204,8 @@ runs because it persists — a plain in-cluster PVC would be wiped on every clus
                                          #   per produced video {id,date,niche,topic,title,hook,
                                          #   source_urls,keywords,embedding=null}. 00b queries it
                                          #   to reject repeats; 06 appends after a successful post.
+     └── posts.jsonl                     # ⭐ posted-state ledger (ADR 0003): (video_id,platform)
+                                         #   intent→confirmed records — Stage 06 exactly-once.
  └── models/                             # (host-mounted) shared weight cache, downloaded once
 ```
 
