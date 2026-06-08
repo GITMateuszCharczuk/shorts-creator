@@ -23,8 +23,10 @@
 **What it is.** A free, self-hostable, Kubernetes-native (`kind`) pipeline that produces and
 posts **per-format-length** vertical (9:16) videos for **Finance** and **Business** to **YouTube
 Shorts** and **TikTok**, fully unattended. Length is set **per format** (ADR 0006): punchy formats
-run **~20–40s** for completion/attention, depth formats **~60–90s (≥1 min)** to stay
-TikTok-monetization-eligible — two lanes, chosen per format, superseding the flat 60–90s rule.
+run **~20–35s** for completion/attention, depth formats **~61–90s (over 1 min)** to stay
+TikTok-monetization-eligible. Two lanes, chosen per format; a configurable **rolling-window mix
+targets ~60% of videos in the ≥61s monetization lane** (ADR 0006) — superseding the flat 60–90s
+rule.
 
 **What the PoC must prove.** Not revenue. The goal is to prove — with a solidly-engineered
 system — that the **end-to-end produce-and-post loop works reliably and unattended**, on real
@@ -136,7 +138,7 @@ batch** rather than once per video. CPU stages overlap GPU work.
 | Stage | Compute | Purpose | Output |
 |---|---|---|---|
 | **00a research/ingest** | CPU | Market data (Alpha Vantage/Yahoo/FRED) **+ recent news via free RSS, ≤3 days old**. Fetch failure = first-class DAG state. | `data.json {market, news[]}` |
-| **00b script** | CPU →host LLM | Qwen2.5-14B writing **in the channel persona** (ADR 0005 D9) → **selects + rotates a format template** (Chapter 6) → emits a **treatment** (thesis/angle/tone, per-beat visual motif, energy curve — the through-line every later stage renders against) → **best-of-N** scripts, **judge picks the winner** (ADR 0005 D1/D2). Output: a first-class **hook composite** {spoken, on-screen text, first-frame visual, ≤2s}, narration beats with **prosody + emphasis markup**, on-screen captions with **emphasis-word tags**, per-beat visual motif, music **mood+energy**, a **primary keyword** (for caption/on-screen/spoken placement) and the **per-format target length** (~20–40s reach / ~60–90s monetization — ADR 0006), per-platform title/desc/hashtags. **YMYL:** mandatory disclaimer, no buy/sell/price calls, on-screen citations, accuracy self-check. **Dedup:** `history/ledger.jsonl` (cross-run) **+ reserve the pick in `batch.json`** (intra-batch — ADR 0003 D5). Optional affiliate fields (ADR 0004 D5). | `script.json` (+ `treatment`) |
+| **00b script** | CPU →host LLM | Qwen2.5-14B writing **in the channel persona** (ADR 0005 D9) → **selects + rotates a format template** (Chapter 6) → emits a **treatment** (thesis/angle/tone, per-beat visual motif, energy curve — the through-line every later stage renders against) → **best-of-N** scripts, **judge picks the winner** (ADR 0005 D1/D2). Output: a first-class **hook composite** {spoken, on-screen text, first-frame visual, ≤2s}, narration beats with **prosody + emphasis markup**, on-screen captions with **emphasis-word tags**, per-beat visual motif, music **mood+energy**, a **primary keyword** (for caption/on-screen/spoken placement) and the **per-format target length** (~20–35s reach / ~61–90s monetization — ADR 0006), per-platform title/desc/hashtags. **YMYL:** mandatory disclaimer, no buy/sell/price calls, on-screen citations, accuracy self-check. **Dedup:** `history/ledger.jsonl` (cross-run) **+ reserve the pick in `batch.json`** (intra-batch — ADR 0003 D5). Optional affiliate fields (ADR 0004 D5). | `script.json` (+ `treatment`) |
 | **01a stock-fetch** | CPU | Real vertical clips/photos from Pexels/Pixabay/Mixkit/Coverr/Videvo (license verified, source logged). **Pulls N candidates per beat, ranks by image-text similarity (e.g. CLIP) against the beat's visual motif, dedups against clips used in other batch videos + the ledger** (ADR 0005 D5) — below-threshold beats fall through to 01b/01e. Real footage is the backbone. | `scenes/` + provenance |
 | **01b image-gen** | →host ComfyUI | FLUX.1-schnell photoreal stills for the un-stockable only. | `scenes/` fills |
 | **01c img2vid** | →host ComfyUI | LTX-Video (img→video on real frames) / Ken Burns. AI motion kept to short fill clips. | `scenes/` clips |
@@ -260,12 +262,18 @@ Rules that keep this honest and non-repetitive:
 - **Config-driven, not hardcoded.** Templates live in a versioned `formats/` library (hook
   pattern + structure + length target + any format-specific QC notes), so adding/retiring a
   format is **data, not a code change**.
-- **Length is per-format (ADR 0006).** Punchy formats (`news_reaction`, `surprising_stat`,
-  `myth_buster`) target **~20–40s** for completion/attention (the **reach lane**); depth formats
-  (`explainer`, `ranked_list`, `how_to_steps`, `head_to_head`, `cautionary_tale`) run **~60–90s
-  (≥1 min)** to stay over the TikTok Creator Rewards bar (the **monetization lane**). Completion
-  rate is the craft target (~70% aspiration),
-  **not** a DoD metric (ADR 0004 D1) — we shape for retention, we don't gate "done" on views.
+- **Length is per-format, two lanes (ADR 0006).** Punchy formats (`news_reaction`,
+  `surprising_stat`, `myth_buster`) target **~20–35s** for completion/attention (the **reach
+  lane**); depth formats (`explainer`, `ranked_list`, `how_to_steps`, `head_to_head`,
+  `cautionary_tale`) run **~61–90s** — strictly **over 60s**, since TikTok Creator Rewards pays
+  **$0** on sub-minute videos (the **monetization lane**, recommended 61–70s). Completion rate is
+  the craft target (~70% aspiration), **not** a DoD metric (ADR 0004 D1) — we shape for retention,
+  we don't gate "done" on views.
+- **Batch mix ≈ 60% monetization-lane (ADR 0006).** Format-selection weights target, over a
+  **rolling window** (a single 2–4-video batch is too small for a ratio), **~60% of videos ≥61s**
+  and ~40% reach-lane. The split is **config + phase-dependent**: pre-eligibility (under 10k
+  followers / 100k views-per-30-days) tilt toward reach to *reach* the bar; once eligible, hold
+  ~60% monetization. Recorded in `batch.json`.
 - **Discoverability built in (ADR 0006).** 00b emits a **primary keyword** threaded three ways:
   the caption's first ~150 chars (Stage 06 metadata), on-screen text in the first 2–3s (Stage 03),
   and the spoken opening (Stage 02) — so the video is *found*, not just recommended.
@@ -509,8 +517,9 @@ persona + brand kit in profiles. *(Human-at-treatment considered and declined; h
 publish.)*
 
 **Decided since (the algorithm-fit scan → ADR 0006):** **per-format length** — two lanes:
-~20–40s punchy (reach) / ~60–90s depth (≥1 min, monetization-eligible), superseding the flat
-60–90s — with completion rate as a craft target (not a DoD metric); **seamless loop** construction; **save/share** CTA framing; **primary-keyword** placement
+~20–35s reach / ~61–90s monetization (**over 60s**, since Creator Rewards pays $0 on sub-minute
+videos), with a configurable **rolling-window mix targeting ~60% of videos ≥61s** (phase-dependent:
+tilt to reach pre-eligibility); completion rate as a craft target (not a DoD metric); **seamless loop** construction; **save/share** CTA framing; **primary-keyword** placement
 across caption/on-screen/voiceover; a **closing FOMO follow end-card** (config-driven, rotatable);
 **series / multi-part** capability.
 
