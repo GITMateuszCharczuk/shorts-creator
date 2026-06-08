@@ -27,7 +27,9 @@
 > **[ADR 0010](decisions/0010-implementation-conventions-and-extensibility-seams.md)**; the
 > performance work — the visual∥audio lane-fork, GPU swap minimization, CPU fan-out, and
 > measurement-gated adoption (quality held constant) — by
-> **[ADR 0011](decisions/0011-performance-and-optimization.md)**.
+> **[ADR 0011](decisions/0011-performance-and-optimization.md)**; the concrete M0 build contract
+> (the `input_hash`/`ctx`/status/adapter primitives, acceptance checklist, and build ordering) by
+> **[ADR 0012](decisions/0012-m0-build-contract.md)**.
 >
 > **Precedence:** for *tooling* choices, `OPTIONS.md` stands. For *scope*, `POC.md` wins.
 > Where `DESIGN.md §2–§3/§9` describes the older GPU-in-kind / MinIO / monolithic-Stage-1
@@ -88,7 +90,7 @@ architecture — it removes GPU-in-kind (the #1 risk) and hands VRAM management 
         │                                   │  schedules thin CPU client pods       │
         │                                   ▼                                       │
         │  00a data-fetch · 00b script · 01a stock · 01b/01c/01d (→host) · 01e viz │
-        │  02 voice · 03 subs · 04 music · 05 render · 05b safety · 05c quality · 06 │
+        │  02 voice · 03 subs · 04 music · 05 render · 05x vision · 05b safety · 05c quality · 06 │
         │                                   │                                       │
         │                                   ▼                                       │
         │   ┌─────────────────────────────────────────────────────────────────┐   │
