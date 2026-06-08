@@ -52,6 +52,7 @@ wait_http() {
 # ---------- 0. preflight -----------------------------------------------------
 log "preflight: checking dependencies"
 need docker; need kind; need kubectl; need curl
+command -v argo  >/dev/null 2>&1 || warn "argo CLI not found — scripts/trigger.sh will need it to submit batches"
 command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L || warn "nvidia-smi not found — GPU plane may be unavailable"
 ok "dependencies present"
 
@@ -61,7 +62,10 @@ if curl -fsS -o /dev/null "http://${COMFYUI_HOST}:${COMFYUI_PORT}/system_stats" 
 else
   log "starting ComfyUI (host GPU plane)"
   make host-comfyui-up                     # M0: starts ComfyUI + ensures graphs/models
-  wait_http "http://${COMFYUI_HOST}:${COMFYUI_PORT}/system_stats" "ComfyUI"
+  wait_http "http://${COMFYUI_HOST}:${COMFYUI_PORT}/system_stats" "ComfyUI (process)"
+  # /system_stats answers before models+custom-nodes finish loading; also wait for the
+  # node registry so a batch never fires against a not-actually-ready ComfyUI.
+  wait_http "http://${COMFYUI_HOST}:${COMFYUI_PORT}/object_info" "ComfyUI (nodes loaded)"
 fi
 
 # ---------- 2. host LLM plane: Ollama ---------------------------------------
@@ -77,7 +81,8 @@ else
   wait_http "http://${OLLAMA_HOST}:${OLLAMA_PORT}/api/version" "Ollama"
 fi
 log "ensuring model present: ${OLLAMA_MODEL}"
-ollama list 2>/dev/null | grep -q "${OLLAMA_MODEL%%:*}" || ollama pull "${OLLAMA_MODEL}"
+# Match the full name:tag — grepping the bare name would accept any qwen2.5 variant and skip the pull.
+ollama list 2>/dev/null | awk '{print $1}' | grep -qx "${OLLAMA_MODEL}" || ollama pull "${OLLAMA_MODEL}"
 ok "LLM model ready"
 
 # ---------- 3. control plane: kind + Argo + PVC -----------------------------
@@ -89,6 +94,10 @@ else
 fi
 kubectl wait --for=condition=Available deployment --all -n argo --timeout="${HEALTH_TIMEOUT}s" 2>/dev/null \
   || warn "argo deployments not all Available yet — check 'kubectl get pods -n argo'"
+
+# ---------- 3b. build + load stage images -----------------------------------
+log "building stage images and loading them into the cluster"
+make build                                 # M0: build stages/* images + kind load (no images => empty DAG)
 
 # ---------- 4. wire check: pod -> host endpoints ----------------------------
 log "verifying cluster→host reachability (ADR 0001 contract)"

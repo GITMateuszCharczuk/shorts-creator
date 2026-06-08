@@ -37,8 +37,10 @@ run. The findings clustered, with multiple independent reviewers landing on the 
 1. **Exactly-once posting via a dedicated posted-state ledger.** Add `history/posts.jsonl`
    (distinct from the novelty ledger), keyed `(video_id, platform)`. Each post writes an
    **intent** record *before* the API call and a **confirmed** record (with the remote post id)
-   *after*. Retries consult it first. YouTube `insert` has no client idempotency token, so a
-   retry confirms via the stored remote `videoId` / a pre-upload search before re-posting.
+   *after*. Retries consult it first. YouTube `insert` has no client idempotency token, so —
+   to close the crash window *between* a successful API call and the confirmed-record write (an
+   intent with no confirmation) — a retry does **not** blindly re-post: it first **searches the
+   channel for a recent upload matching this video** (title/hash) and only posts if none is found.
    Per-platform records make partial multi-platform posts first-class. The novelty ledger is
    **never** reused for posting state.
 

@@ -209,6 +209,9 @@ every stage boundary:
   beat).
 - **`provenance.schema.json`** — per asset: `source`, `url`, `license`, `fetch_date`.
 - **`qc.schema.json`** — Stage 05b output: the account-safety gate's per-check pass/fail + verdict.
+- **`vision.schema.json`** — Stage 05x output: the VLM's per-keyframe observations (hook frame,
+  end-card, per-beat samples) that feed both gates (ADR 0008). A versioned contract like every other
+  stage output.
 - **`posts.schema.json`** — the posted-state record keyed `(video_id, platform)`: intent →
   confirmed (with the remote post id). The **exactly-once** backbone (ADR 0003 D1), kept
   separate from the novelty ledger.
@@ -245,7 +248,7 @@ cosmetic: cross-run dedup is only possible because the ledger persists.
          ├── scenes/  narration.wav  captions.ass/.srt  music.wav
          ├── renders/{youtube,tiktok}.mp4  thumbnail.jpg
          └── qc.json  creative_qc.json
- └── quarantine/<video-id>/        # 05b failures; retention/GC policy (ADR 0003 D8)
+ └── quarantine/<video-id>/        # 05b/05c failures; retention/GC policy (ADR 0003 D8)
  └── history/ledger.jsonl          # append-only novelty ledger (Chapter 6)
  └── history/posts.jsonl           # posted-state ledger, (video,platform) exactly-once (ADR 0003 D1)
  └── models/                       # host-mounted shared weight cache (downloaded once)
@@ -538,10 +541,10 @@ opportunistic spot cloud (only past ~30/day).
   **idempotent** (skips healthy pieces, health-gates each plane), so it doubles as resume-after-
   reboot. `scripts/down.sh` stops it (host-backed data persists; `--purge` deletes the cluster).
   Under the hood it calls the granular targets `make host-up · cluster-up · build · wire`.
-- **Three ways to run a batch, all the *same* `shorts-batch` WorkflowTemplate:**
+- **Two entry points to the *same* `shorts-batch` WorkflowTemplate, plus a dry-run flag:**
   **(a) manual / on-demand** — `scripts/trigger.sh [--profiles … --count … --dry-run --watch]`
-  (= `make trigger`); **(b) scheduled** — the `CronWorkflow` fires the daily batch automatically;
-  **(c) dry-run** — `scripts/trigger.sh --dry-run` stages all metadata and posts nothing. Manual and
+  (= `make trigger`); **(b) scheduled** — the `CronWorkflow` fires the daily batch automatically.
+  The **`--dry-run` flag** (on either path) stages all metadata and posts nothing. Manual and
   scheduled runs are identical bar the trigger, and `concurrencyPolicy: Forbid` (ADR 0003) rejects a
   manual kick that would overlap a running batch rather than letting two go co-resident.
 
@@ -603,8 +606,8 @@ not land within the PoC, and the DoD does not depend on it.
 
 | M | Goal |
 |---|---|
-| **M0** | Scaffold & cluster: repo structure, `kind` up, **host GPU verified** (ComfyUI + LLM reachable from a pod — *not* GPU-in-kind, under the host supervisor + lease), Argo installed, **the versioned schemas** (`job/script/assets/provenance/qc/creative_qc/posts/profile/format/feature_record`) + **fail-loud validation harness + golden fixtures**, the **Stage SDK + adapter interfaces** (`DistributionAdapter`/model backends/`LayoutEngine`) and the **fake-backend offline harness + content-addressed stage cache** (ADR 0010), the observability stack bootstrapped, **CI running the full DAG GPU-free**. |
-| **M1** | Vertical slice: `00a (seeded job + numeric grounding) → 00b (Qwen: treatment + best-of-N + judge) → 02 (Kokoro) → 03 (WhisperX, forced-aligned to script) → 05 (ffmpeg, stills + Ken Burns)` → a real `final.mp4` for **finance**. Proves the shape end-to-end. |
+| **M0** | Scaffold & cluster: repo structure, `kind` up, **host GPU verified** (ComfyUI + LLM reachable from a pod — *not* GPU-in-kind, under the host supervisor + lease), Argo installed, **the versioned schemas** (`job/script/assets/provenance/vision/qc/creative_qc/posts/profile/format/feature_record`) + **fail-loud validation harness + golden fixtures**, the **Stage SDK + adapter interfaces** (`DistributionAdapter`/model backends/`LayoutEngine`) and the **fake-backend offline harness + content-addressed stage cache** (ADR 0010), the observability stack bootstrapped, **CI running the full DAG GPU-free**. |
+| **M1** | Vertical slice: `00a (seeded job + numeric grounding) → 00b (Qwen: treatment + best-of-N + judge) → 02 (Kokoro) → 03 (WhisperX, forced-aligned to script) → 05 (ffmpeg, stills + Ken Burns)` → a real single render (`renders/youtube.mp4`, pre per-platform parity) for **finance**. Proves the shape end-to-end. |
 | **M2** | Visuals for real: `01a` stock-first **(CLIP relevance + dedup, format-aware media zones)** + `01b` FLUX fill + `01c` LTX img→video + `01d` upscale/restore + **`01e` data-viz**; **lock the composition engine** (MIT-clean vs Remotion-solo) and stand up the **format-aware compositor** (ADR 0007) — the "not obviously AI" look + the finance signature visual dialed in. |
 | **M3** | The **8 format layout templates** (ADR 0007), audio performance layer (normalization/prosody/music taxonomy/SFX), **caption design**, the **`05c` creative-QC gate** backed by the **`05x` vision pass** (Qwen2.5-VL, ADR 0008), persona + brand kit, **business** profile — proving the two-niche abstraction, the format→layout binding, *and* the quality bar. |
 | **M4** | Orchestration: `WorkflowTemplate` + **both entry points** (`CronWorkflow` scheduled / `scripts/trigger.sh` manual, same template; `concurrencyPolicy: Forbid`), the **one-command `scripts/up.sh` lifecycle** (host GPU + Ollama + kind/Argo, idempotent + health-gated) + `down.sh`, **per-video failure domains**, GPU lease + confirm-evicted gate, retries/timeouts, artifacts, **stage-batching + the visual∥audio lane-fork & per-video CPU fan-out** (ADR 0011, behind the timing metric), the phased daily batch. |
@@ -677,7 +680,7 @@ rejected — wrong place to trade quality for one swap/day).
 **Still open (tracked):**
 
 1. **Contracts + M0 conventions (P0).** Write
-   `schemas/{job,script,assets,provenance,qc,creative_qc,posts,profile,format,feature_record}.schema.json`
+   `schemas/{job,script,assets,provenance,vision,qc,creative_qc,posts,profile,format,feature_record}.schema.json`
    *before* stage code — they are every stage's interface — each with a **`schema_version`** and a
    **fail-loud validation harness + golden fixtures** (ADR 0010). `script.schema` carries the
    **structured per-beat layout data** the format templates bind to (ADR 0007). Stand up the

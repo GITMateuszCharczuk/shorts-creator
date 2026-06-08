@@ -148,17 +148,31 @@ column below is the *dependency* order; the visual/audio split is the *schedulin
    ║ 01d upscale-restore(×N)║  Real-ESRGAN + RIFE + GFPGAN/CodeFormer → assets.json
    ╚══════════╤═══════════╝
               ▼
+   ╔══════════════════════╗   CPU — branded charts/counters via the shared compositor
+   ║ 01e data-viz   (×N)   ║   → scenes/ viz clips (the finance signature visual)
+   ╚══════════╤═══════════╝
+              │   ▲ VISUAL LANE (01a–01e, GPU-bound) ∥ AUDIO LANE (02–04, CPU) run concurrently,
+              │   │   forked after 00b — both join at 05 render (ADR 0011)
+              ▼
    ╔══════════════════════╗   CPU (Kokoro)        ╔══════════════════════╗  CPU
    ║ 02 voice       (×N)   ║   narration.wav  ───► ║ 03 subtitles  (×N)    ║  WhisperX int8
    ╚══════════════════════╝                       ╚══════════╤═══════════╝  → captions.ass
                                                               ▼
-   ╔══════════════════════╗   CPU                 ╔══════════════════════╗  CPU (ffmpeg)
+   ╔══════════════════════╗   CPU                 ╔══════════════════════╗  CPU + NVENC
    ║ 04 music       (×N)   ║   ducked mix  ──────► ║ 05 render     (×N)    ║  per-platform
    ╚══════════════════════╝                       ╚══════════╤═══════════╝  YT + TikTok cuts
                                                               ▼
+                                              ╔══════════════════════╗  →HOST VLM (Qwen2.5-VL)
+                                              ║ 05x vision     (×N)   ║  one pass / sampled frames
+                                              ╚══════════╤═══════════╝  → vision.json (feeds gates)
+                                                         ▼
                                               ╔══════════════════════╗  CPU (+ →host LLM)
-                                              ║ 05b QC gate   (×N)    ║  pass → continue
+                                              ║ 05b safety gate(×N)   ║  pass → continue
                                               ╚══════════╤═══════════╝  fail → quarantine
+                                                         ▼
+                                              ╔══════════════════════╗  CPU (+ →host LLM)
+                                              ║ 05c creative-QC(×N)   ║  score vs floor;
+                                              ╚══════════╤═══════════╝  below → quarantine
                                                          ▼  (gated)
                                               ╔══════════════════════╗  CPU
                                               ║ 06 distribute (×N)    ║  idempotent, private-
@@ -180,22 +194,29 @@ above, not by hope. A day's batch walks the GPU through one model at a time:
 
 ```
  VRAM
- 16GB ┤                  ┌─FLUX─┐        ┌──LTX──┐     ┌ESRGAN┐
-      │   ┌─Qwen-14B─┐    │~12GB │        │ ~14GB │     │RIFE  │
-  ~9G ┤   │  ~9GB    │    │      │        │       │     │+GFPGAN
-      │   │ (scripts)│    │images│        │ clips │     │~4-6GB│
-   0  ┼───┴──────────┴────┴──────┴────────┴───────┴─────┴──────┴──────────────►  time
-          │   evict  │    │ evict│        │ evict │     │      │
-          └──00b─────┘    └─01b──┘        └─01c───┘     └─01d──┘
-                                                          (CPU: 02 voice, 03 subs, 04 music,
-                                                           05 render, 05b QC, 06 distribute —
-                                                           run alongside, no GPU contention)
+ 16GB ┤                  ┌─FLUX─┐        ┌─LTX*─┐     ┌ESRGAN┐
+      │   ┌─Qwen-14B─┐    │~12GB │        │quant │     │RIFE  │            ┌Qwen-VL┐
+  ~9G ┤   │  ~9GB    │    │      │        │ +VAE │     │+GFPGAN           │ ~9GB  │
+      │   │ (scripts)│    │images│        │ tiled│     │~4-6GB│           │ (05x) │
+   0  ┼───┴──────────┴────┴──────┴────────┴──────┴─────┴──────┴───────────┴───────┴──►  time
+          │   evict  │    │ evict│        │ evict│     │ evict│           │ evict │
+          └──00b─────┘    └─01b──┘        └─01c──┘     └─01d──┘           └─05x───┘
+                          (CPU audio lane 02–04 ∥ the visual lane above; then
+                           05 render, 05x→05b→05c gates, 06 distribute — no GPU contention)
 ```
 
 No two heavy models are ever resident together (`research/03 §6.2, §10`). ComfyUI's queue
-serializes 01b/01c/01d; the LLM endpoint is up only for 00b. This is *why* stages are
-batched and serialized rather than packed: predictable VRAM beats clever contention, and
-zero-OOM is a PoC reliability requirement.
+serializes 01b/01c/01d; the post-render VLM (05x) loads once after diffusion is evicted. This is
+*why* stages are batched and serialized rather than packed: predictable VRAM beats clever
+contention, and zero-OOM is a PoC reliability requirement.
+
+**Two VRAM caveats to validate on the real box (ADR 0011 / M2):** (1) **`*`LTX at 1080×1920 must
+run quantized (fp8/GGUF) with tiled VAE decode** — a full-precision LTX peak does not safely fit
+the ~2 GB headroom left on a 16 GB card; validate peak VRAM before M2, not after. (2) **Eviction
+between the two host processes is not automatic** — Ollama keeps the model resident on a default
+`keep_alive`, so the confirm-VRAM-free gate must explicitly unload it (`keep_alive: 0` / unload
+call) **and** poll `nvidia-smi` free-VRAM below a threshold before the next GPU stage starts, rather
+than assuming a lease the two unrelated processes don't share.
 
 ---
 
@@ -283,6 +304,10 @@ shorts-creator/
 │   ├── script.schema.json         #    Stage 00b output
 │   ├── assets.schema.json         #    Stage 01d output
 │   ├── provenance.schema.json     #    per-asset audit record
+│   ├── vision.schema.json         #    Stage 05x output (VLM keyframe observations)
+│   ├── qc.schema.json             #    Stage 05b output (account-safety verdict)
+│   ├── creative_qc.schema.json    #    Stage 05c output (quality score vs floor)
+│   ├── posts.schema.json          #    posted-state ledger record, (video,platform) exactly-once
 │   ├── profile.schema.json        #    niche config, validated (ADR 0010)
 │   ├── format.schema.json         #    format archetype config, validated (ADR 0010)
 │   └── feature_record.schema.json #    stable per-video record → warm-start the analytics loop (ADR 0010)
@@ -396,15 +421,16 @@ steady state, the GPU's VRAM managed for you with full visibility when something
 
 ## 10. Still open (the next decisions, tracked)
 
-Not closed by this blueprint — these are the remaining `REVIEW.md` items, in priority order:
+The four `REVIEW.md` items this blueprint originally left open have since been **decided** by later
+ADRs and are no longer open here:
 
-1. **C2 — the contracts.** Write `schemas/*.schema.json` (`job`/`script`/`assets`/
-   `provenance`) as versioned JSON Schema **before** stage code. They are every stage's
-   interface.
-2. **Stage 6 idempotency.** A posted-state ledger / idempotency key so a retry never
-   double-posts (real bug for unattended-with-retries).
-3. **Stage 5 render-differentiation spec** — what concretely differs per platform (caption
-   style / hook / length / sound), so the YouTube and TikTok cuts aren't a dupe re-encode.
-4. **Stage 5b QC spec** — pass/fail thresholds, the second-pass LLM's VRAM source (host
-   endpoint, same eviction rule), the quarantine + weekly spot-audit subsystem.
-```
+1. **C2 — the contracts** → now the versioned-schema set + validation harness + golden fixtures
+   (ADR 0010; the full list is in §7).
+2. **Stage 6 idempotency** → the `(video_id, platform)` posted-state ledger, exactly-once (ADR 0003 D1).
+3. **Stage 5 render-differentiation** → per-platform native cuts + concrete deltas (ADR 0005 D4 / D10).
+4. **Stage 5b QC** → the account-safety gate + the 05x vision pass feeding it (ADR 0004 D3 / ADR 0008).
+
+The **live** open-items list (contracts P0, render deltas, numeric tuning, performance residue, the
+post-M1 A/B set, etc.) is maintained in one place — the spec's *"Still open (tracked)"* section
+([`specs/2026-06-07-shorts-creator-poc-design.md`](superpowers/specs/2026-06-07-shorts-creator-poc-design.md))
+— so it doesn't drift across two documents.
