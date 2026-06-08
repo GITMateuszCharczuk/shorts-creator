@@ -24,7 +24,10 @@
 > seams — versioned schemas + validation harness, the Stage SDK + metadata-generated DAG, the
 > distribution/model/layout adapter interfaces, and the fake-backend offline harness + content-
 > addressed stage cache — by
-> **[ADR 0010](decisions/0010-implementation-conventions-and-extensibility-seams.md)**.
+> **[ADR 0010](decisions/0010-implementation-conventions-and-extensibility-seams.md)**; the
+> performance work — the visual∥audio lane-fork, GPU swap minimization, CPU fan-out, and
+> measurement-gated adoption (quality held constant) — by
+> **[ADR 0011](decisions/0011-performance-and-optimization.md)**.
 >
 > **Precedence:** for *tooling* choices, `OPTIONS.md` stands. For *scope*, `POC.md` wins.
 > Where `DESIGN.md §2–§3/§9` describes the older GPU-in-kind / MinIO / monolithic-Stage-1
@@ -107,6 +110,14 @@ architecture — it removes GPU-in-kind (the #1 risk) and hands VRAM management 
 One `CronWorkflow` submits a **single batched DAG per day**. Each stage fans out across the
 day's 2–4 videos *before* the next stage starts, so a model loads once per stage for the
 whole batch (resolves **REVIEW T1**). GPU stages (`→host`) are thin clients to ComfyUI/LLM.
+
+**Two lanes, forked after 00b (ADR 0011).** Past `script.json` the DAG splits into a
+**visual lane** (GPU-bound: 01a→01b→01c→01d) and an **audio lane** (CPU-bound: 02→03→04) that
+**run concurrently and rejoin at 05 render** — the CPU makes narration/captions/music while the GPU
+grinds diffusion, overlapping the two heaviest time sinks. Each lane still stage-batches internally
+(model loads once), and **"never co-resident" holds**: the audio lane is pure CPU, the GPU only ever
+holds one visual-lane model, and the confirm-VRAM-free gate stays between 00b and 01b. The linear
+column below is the *dependency* order; the visual/audio split is the *scheduling* order.
 
 ```
               ┌──────────── per-niche seeds: finance, business ────────────┐

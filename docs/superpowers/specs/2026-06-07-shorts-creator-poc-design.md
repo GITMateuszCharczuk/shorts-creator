@@ -12,7 +12,8 @@
 > [0007 — format-aware layout templates](../../decisions/0007-format-aware-layout-templates.md), and
 > [0008 — output-parity hardening](../../decisions/0008-output-parity-hardening.md), and
 > [0009 — content integrity & account robustness](../../decisions/0009-content-integrity-and-account-robustness.md), and
-> [0010 — implementation conventions & extensibility seams](../../decisions/0010-implementation-conventions-and-extensibility-seams.md).
+> [0010 — implementation conventions & extensibility seams](../../decisions/0010-implementation-conventions-and-extensibility-seams.md), and
+> [0011 — performance & optimization](../../decisions/0011-performance-and-optimization.md).
 > The full topology diagrams live in [`docs/ARCHITECTURE.md`](../../ARCHITECTURE.md).
 >
 > **Precedence:** the ADRs win on runtime topology; `POC.md` wins on scope. This spec is the
@@ -149,7 +150,18 @@ quarantines — never wedges. GPU stages (marked `→host`) are thin clients to 
 
 The day's run is **stage-batched** (ADR 0001 / REVIEW T1): each stage fans out across the day's
 2–4 videos *before* the next stage starts, so a model loads **once per stage for the whole
-batch** rather than once per video. CPU stages overlap GPU work.
+batch** rather than once per video.
+
+**The run is also lane-forked for throughput (ADR 0011).** Past 00b the DAG splits into a
+**visual lane** (GPU-bound: 01a→01b→01c→01d) and an **audio lane** (CPU-bound: 02→03→04) that run
+**concurrently and rejoin at 05** — narration/captions/music are built on the CPU while the GPU
+grinds diffusion, overlapping the two heaviest time sinks at zero quality cost. "Never co-resident"
+still holds (the audio lane is CPU-only; the GPU holds one visual model at a time). Within stages,
+CPU work fans out **per-video across cores**, the LLM **reuses its prompt/KV-cache** across the
+batch + best-of-N candidates, and the `(stage, input_hash, seed)` **stage-cache** (ADR 0010) makes
+partial-batch retries cheap. The table below is *dependency* order; the lane split is *scheduling*
+order. Quality-critical stages are **deliberately not optimized** — the post-render gates 05x/05b/05c
+stay split (perceive→judge), and best-of-N / the vision pass / stills-over-AI-video are untouched.
 
 | Stage | Compute | Purpose | Output |
 |---|---|---|---|
@@ -595,7 +607,7 @@ not land within the PoC, and the DoD does not depend on it.
 | **M1** | Vertical slice: `00a (seeded job + numeric grounding) → 00b (Qwen: treatment + best-of-N + judge) → 02 (Kokoro) → 03 (WhisperX, forced-aligned to script) → 05 (ffmpeg, stills + Ken Burns)` → a real `final.mp4` for **finance**. Proves the shape end-to-end. |
 | **M2** | Visuals for real: `01a` stock-first **(CLIP relevance + dedup, format-aware media zones)** + `01b` FLUX fill + `01c` LTX img→video + `01d` upscale/restore + **`01e` data-viz**; **lock the composition engine** (MIT-clean vs Remotion-solo) and stand up the **format-aware compositor** (ADR 0007) — the "not obviously AI" look + the finance signature visual dialed in. |
 | **M3** | The **8 format layout templates** (ADR 0007), audio performance layer (normalization/prosody/music taxonomy/SFX), **caption design**, the **`05c` creative-QC gate** backed by the **`05x` vision pass** (Qwen2.5-VL, ADR 0008), persona + brand kit, **business** profile — proving the two-niche abstraction, the format→layout binding, *and* the quality bar. |
-| **M4** | Orchestration: `WorkflowTemplate` + **both entry points** (`CronWorkflow` scheduled / `scripts/trigger.sh` manual, same template; `concurrencyPolicy: Forbid`), the **one-command `scripts/up.sh` lifecycle** (host GPU + Ollama + kind/Argo, idempotent + health-gated) + `down.sh`, **per-video failure domains**, GPU lease + confirm-evicted gate, retries/timeouts, artifacts, **stage-batching**, the phased daily batch. |
+| **M4** | Orchestration: `WorkflowTemplate` + **both entry points** (`CronWorkflow` scheduled / `scripts/trigger.sh` manual, same template; `concurrencyPolicy: Forbid`), the **one-command `scripts/up.sh` lifecycle** (host GPU + Ollama + kind/Argo, idempotent + health-gated) + `down.sh`, **per-video failure domains**, GPU lease + confirm-evicted gate, retries/timeouts, artifacts, **stage-batching + the visual∥audio lane-fork & per-video CPU fan-out** (ADR 0011, behind the timing metric), the phased daily batch. |
 | **M5** | Account-safety gate (`05b`) + distribution (`06`, per-platform adapters + the `posts.jsonl` exactly-once ledger) to YouTube + TikTok; private-first **plus ≥1 public** (YouTube-led; TikTok public audit-gated, ADR 0009); disclosure on; **account provisioning + warming** then the **human-at-publish ramp**; affiliate fields wired (can ship disabled); platform audits submitted in parallel. |
 | **M6** | Hardening + alerts/GC/credential pre-flight wired, then the **1–2 week unattended run** (post-ramp) that satisfies the Chapter 1 definition of done. |
 
@@ -653,6 +665,15 @@ with **profiles/formats as validated config**; and the **feedback data contract 
 the deferred analytics loop starts warm. Set *before the first stage is written* (repo is currently
 docs-only — the cheapest moment).
 
+**Decided since (the performance review → ADR 0011, quality held constant):** the DAG is
+**lane-forked** after 00b into a concurrent **visual lane (GPU)** and **audio lane (CPU)** rejoining
+at 05 — overlapping the two heaviest time sinks without touching "never co-resident"; plus
+**GPU swap minimization + RAM pre-staging**, **per-video CPU fan-out**, **LLM prompt/KV-cache
+reuse**, the **production stage-cache**, **NVENC pipelining**, and **I/O hygiene** — each adopted
+behind a **per-stage/per-batch timing metric** off the M1 baseline. The post-render gates
+(05x/05b/05c) are **deliberately left split** (a gate-collapse onto one model was considered and
+rejected — wrong place to trade quality for one swap/day).
+
 **Still open (tracked):**
 
 1. **Contracts + M0 conventions (P0).** Write
@@ -694,7 +715,10 @@ docs-only — the cheapest moment).
     boundary for seeded-but-nondeterministic stages; the **fake-backend fidelity bar** (fixture
     replay vs lightweight CI models); whether the **feature record** lives in the ledger or a
     separate metrics store.
-12. **Post-M1 A/B (non-blocking)** — LTX vs Wan2.1/CogVideoX; Kokoro vs Orpheus/Chatterbox;
+12. **Performance residue (ADR 0011)** — the **timing-metric** shape + M1 baseline numbers; the
+    lane-fork **CPU/RAM bounds** (so the audio lane doesn't starve the host serving the GPU plane);
+    whether RAM pre-staging / NVENC pipelining clear the measurement bar at PoC batch sizes.
+13. **Post-M1 A/B (non-blocking)** — LTX vs Wan2.1/CogVideoX; Kokoro vs Orpheus/Chatterbox;
     FLUX-schnell vs photoreal SDXL/SD3.5; **Qwen-32B with RAM offload for 00b** (the script stage
     is where model quality matters most).
 
