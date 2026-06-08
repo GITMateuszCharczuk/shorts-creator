@@ -311,11 +311,12 @@ shorts-creator/
 │   └── fakes/                     #    fixture-returning host backends → GPU-free local/CI runs + content-addressed (stage,input_hash,seed) cache
 ├── deploy/
 │   ├── kind/                      # cluster config — NO GPU device-plugin needed anymore
-│   ├── argo/                      # install + WorkflowTemplate (batched DAG) + CronWorkflow
+│   ├── argo/                      # install + WorkflowTemplate (batched DAG) + CronWorkflow (scheduled) — manual trigger reuses the template
 │   └── storage/                   # the single shared PVC (NO minio/)
 ├── music/                         # strike-safe local library + index.json (mood→tracks)
 ├── tests/                         # schema validation + golden fixtures + GPU-free full-DAG run via shared/fakes (ADR 0010)
-├── Makefile                       # host-up · cluster-up · build · submit-batch · dry-run
+├── scripts/                       # ⭐ one-command lifecycle: up.sh (turn it all on) · trigger.sh (manual run) · down.sh
+├── Makefile                       # up · trigger · down · host-up · cluster-up · build · wire · test
 └── README.md
 ```
 
@@ -334,28 +335,39 @@ shorts-creator/
 
 ---
 
-## 8. How you actually run it (the "not one command" answer)
+## 8. How you actually run it
 
-Two distinct moments — don't conflate them:
-
-**One-time setup (heavier, multi-step — paid once per machine):**
+**The one-command path (convenience):**
 ```
-make host-up        # start ComfyUI + pull FLUX/LTX/ESRGAN/RIFE/GFPGAN; start LLM endpoint
+scripts/up.sh        # turn the WHOLE system on: host ComfyUI → Ollama → kind+Argo+PVC, then a wire check
+scripts/trigger.sh   # run a batch now by hand (manual trigger; --dry-run / --profiles / --count / --watch)
+scripts/down.sh      # stop it (host-backed data persists; --purge also deletes the cluster)
+```
+`up.sh` is idempotent — it skips anything already healthy and waits on each plane's health endpoint
+before moving on — so it doubles as "resume after a reboot." `make up` / `make trigger` / `make down`
+are equivalent wrappers.
+
+**What it does under the hood** — the same two moments as before, just sequenced for you:
+
+**One-time setup (heavier — paid once per machine; `up.sh` calls these in order):**
+```
+make host-up        # start ComfyUI + pull FLUX/LTX/ESRGAN/RIFE/GFPGAN; start the Ollama LLM endpoint
 make cluster-up     # kind cluster + Argo + the shared PVC   (no GPU device-plugin)
 make build          # build stage images, kind-load them
 make wire           # verify pods can reach host ComfyUI/LLM over the gateway (§6)
 ```
 
-**Per run (light — effectively one command, or fully hands-off):**
+**Per run — two equal entry points to the *same* `shorts-batch` WorkflowTemplate:**
 ```
-make submit-batch PROFILES=finance,business     # Argo runs the batched DAG for today
-make dry-run        PROFILES=finance,business     # stage all metadata, post nothing
-# …or do nothing: the CronWorkflow fires the daily batch on schedule.
+scripts/trigger.sh --profiles finance,business     # MANUAL: on-demand, today's batch
+scripts/trigger.sh --dry-run                         # stage all metadata, post nothing
+# …or do nothing: the CronWorkflow fires the daily batch on schedule (SCHEDULED).
 ```
-
-So day-to-day it *is* ~one command (and unattended via the cron); the multi-step part is the
-one-time bring-up. That is the deliberate trade in ADR 0001: heavier setup, lighter steady
-state, and the GPU's VRAM managed for you with full visibility when something breaks.
+Manual and scheduled runs are byte-identical except for what triggered them, and `CronWorkflow
+concurrencyPolicy: Forbid` (ADR 0003) means a manual kick that overlaps a running batch is rejected,
+never co-resident. So day-to-day it is genuinely one command (or zero, via cron); the multi-step
+part is the one-time bring-up. That is the deliberate trade in ADR 0001: heavier setup, lighter
+steady state, the GPU's VRAM managed for you with full visibility when something breaks.
 
 ---
 

@@ -521,11 +521,17 @@ opportunistic spot cloud (only past ~30/day).
   unattended stall.
 
 **Operations — run flow**
-- **One-time setup (multi-step):** `make host-up` (ComfyUI + models + LLM) · `make cluster-up`
-  (kind + Argo + the host-backed PVC; *no GPU device-plugin*) · `make build` (build + `kind load`
-  stage images) · `make wire` (verify pods reach the host endpoint).
-- **Per run (light / hands-off):** `make submit-batch PROFILES=finance,business` · `make dry-run`
-  (stage metadata, post nothing) · or the `CronWorkflow` fires the daily batch automatically.
+- **One command to turn it all on:** `scripts/up.sh` (= `make up`) sequences the whole bring-up —
+  host ComfyUI → Ollama (+ model pull) → kind/Argo/PVC → a pod→host wire check — and is
+  **idempotent** (skips healthy pieces, health-gates each plane), so it doubles as resume-after-
+  reboot. `scripts/down.sh` stops it (host-backed data persists; `--purge` deletes the cluster).
+  Under the hood it calls the granular targets `make host-up · cluster-up · build · wire`.
+- **Three ways to run a batch, all the *same* `shorts-batch` WorkflowTemplate:**
+  **(a) manual / on-demand** — `scripts/trigger.sh [--profiles … --count … --dry-run --watch]`
+  (= `make trigger`); **(b) scheduled** — the `CronWorkflow` fires the daily batch automatically;
+  **(c) dry-run** — `scripts/trigger.sh --dry-run` stages all metadata and posts nothing. Manual and
+  scheduled runs are identical bar the trigger, and `concurrencyPolicy: Forbid` (ADR 0003) rejects a
+  manual kick that would overlap a running batch rather than letting two go co-resident.
 
 **Testing (`POC §6`)**
 - Schema validation on `job.json` and every stage output.
@@ -589,7 +595,7 @@ not land within the PoC, and the DoD does not depend on it.
 | **M1** | Vertical slice: `00a (seeded job + numeric grounding) → 00b (Qwen: treatment + best-of-N + judge) → 02 (Kokoro) → 03 (WhisperX, forced-aligned to script) → 05 (ffmpeg, stills + Ken Burns)` → a real `final.mp4` for **finance**. Proves the shape end-to-end. |
 | **M2** | Visuals for real: `01a` stock-first **(CLIP relevance + dedup, format-aware media zones)** + `01b` FLUX fill + `01c` LTX img→video + `01d` upscale/restore + **`01e` data-viz**; **lock the composition engine** (MIT-clean vs Remotion-solo) and stand up the **format-aware compositor** (ADR 0007) — the "not obviously AI" look + the finance signature visual dialed in. |
 | **M3** | The **8 format layout templates** (ADR 0007), audio performance layer (normalization/prosody/music taxonomy/SFX), **caption design**, the **`05c` creative-QC gate** backed by the **`05x` vision pass** (Qwen2.5-VL, ADR 0008), persona + brand kit, **business** profile — proving the two-niche abstraction, the format→layout binding, *and* the quality bar. |
-| **M4** | Orchestration: `WorkflowTemplate` + `CronWorkflow` (`concurrencyPolicy: Forbid`), **per-video failure domains**, GPU lease + confirm-evicted gate, retries/timeouts, artifacts, **stage-batching**, the phased daily batch. |
+| **M4** | Orchestration: `WorkflowTemplate` + **both entry points** (`CronWorkflow` scheduled / `scripts/trigger.sh` manual, same template; `concurrencyPolicy: Forbid`), the **one-command `scripts/up.sh` lifecycle** (host GPU + Ollama + kind/Argo, idempotent + health-gated) + `down.sh`, **per-video failure domains**, GPU lease + confirm-evicted gate, retries/timeouts, artifacts, **stage-batching**, the phased daily batch. |
 | **M5** | Account-safety gate (`05b`) + distribution (`06`, per-platform adapters + the `posts.jsonl` exactly-once ledger) to YouTube + TikTok; private-first **plus ≥1 public** (YouTube-led; TikTok public audit-gated, ADR 0009); disclosure on; **account provisioning + warming** then the **human-at-publish ramp**; affiliate fields wired (can ship disabled); platform audits submitted in parallel. |
 | **M6** | Hardening + alerts/GC/credential pre-flight wired, then the **1–2 week unattended run** (post-ramp) that satisfies the Chapter 1 definition of done. |
 
