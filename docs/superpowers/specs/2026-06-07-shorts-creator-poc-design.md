@@ -118,7 +118,7 @@ batch** rather than once per video. CPU stages overlap GPU work.
 | Stage | Compute | Purpose | Output |
 |---|---|---|---|
 | **00a research/ingest** | CPU | Market data (Alpha Vantage/Yahoo/FRED) **+ recent news via free RSS, ≤3 days old**. Fetch failure = first-class DAG state. | `data.json {market, news[]}` |
-| **00b script** | CPU →host LLM | Qwen2.5-14B → hook-first 60–90s script: hook variants, narration beats, on-screen captions, per-scene visual keywords, music mood, per-platform title/desc/hashtags. **YMYL:** mandatory "educational, not financial advice" disclaimer, no buy/sell/price calls, on-screen source citations, accuracy self-check. **Dedup:** query `history/ledger.jsonl` (cross-run) **and reserve the chosen topic/source-URLs in `batch.json`** (intra-batch, so two same-day videos can't pick the same story — ADR 0003 D5), reject/repick repeats. Optional affiliate CTA + disclosure fields (ADR 0004 D5). | `script.json` |
+| **00b script** | CPU →host LLM | Qwen2.5-14B → **selects + rotates a format template** (Chapter 6) → hook-first 60–90s script: hook variants, narration beats, on-screen captions, per-scene visual keywords, music mood, per-platform title/desc/hashtags. **YMYL:** mandatory "educational, not financial advice" disclaimer, no buy/sell/price calls, on-screen source citations, accuracy self-check. **Dedup:** query `history/ledger.jsonl` (cross-run) **and reserve the chosen topic/source-URLs in `batch.json`** (intra-batch, so two same-day videos can't pick the same story — ADR 0003 D5), reject/repick repeats. Optional affiliate CTA + disclosure fields (ADR 0004 D5). | `script.json` |
 | **01a stock-fetch** | CPU | Real vertical clips/photos from Pexels/Pixabay/Mixkit/Coverr/Videvo (license verified, source logged). Real footage is the backbone. | `scenes/` + provenance |
 | **01b image-gen** | →host ComfyUI | FLUX.1-schnell photoreal stills for the un-stockable only. | `scenes/` fills |
 | **01c img2vid** | →host ComfyUI | LTX-Video (img→video on real frames) / Ken Burns. AI motion kept to short fill clips. | `scenes/` clips |
@@ -141,9 +141,10 @@ every stage boundary:
 
 - **`job.schema.json`** — the spine threaded through every stage: `batch_id`, `video_id`, niche,
   profile, platform targets, per-stage status, and the run's file paths.
-- **`script.schema.json`** — Stage 00b output: hook variants, narration beats, on-screen
-  captions, per-scene visual keywords, music mood, per-platform metadata, claims + citations,
-  disclaimer, and **optional affiliate fields** (link / CTA / disclosure — ADR 0004 D5).
+- **`script.schema.json`** — Stage 00b output: the chosen **`format`** (Chapter 6), hook
+  variants, narration beats, on-screen captions, per-scene visual keywords, music mood,
+  per-platform metadata, claims + citations, disclaimer, and **optional affiliate fields**
+  (link / CTA / disclosure — ADR 0004 D5).
 - **`assets.schema.json`** — Stage 01d output: the final scene manifest (one normalized clip per
   beat).
 - **`provenance.schema.json`** — per asset: `source`, `url`, `license`, `fetch_date`.
@@ -192,7 +193,7 @@ article text and skip paywalled sources. A fetch failure is a first-class DAG st
 volume records one entry per produced video:
 
 ```
-{ id, date, niche, topic, title, hook, source_urls:[...], keywords:[...], embedding: null }
+{ id, date, niche, topic, title, hook, format, source_urls:[...], keywords:[...], embedding: null }
 ```
 
 Stage `00b` queries the ledger before committing a topic and **rejects/repicks** if any
@@ -208,8 +209,47 @@ the **compliance lever** against repetitious/inauthentic-content demotion.
 A **starved** batch degrades gracefully rather than wedging or silently yielding zero output:
 **widen window → relax threshold → same-topic-different-angle → skip-with-WARN** (ADR 0003 D5).
 
+### Format templates — supercharging the 00b prompt
+
+A bare "write a 60–90s finance short" prompt drifts toward the same generic talking-head every
+time. Instead, Stage `00b` selects from a **library of short-form *format templates*** — each a
+proven retention structure with its own hook pattern, body shape, and pacing — and the chosen
+`format` is injected into the LLM prompt to steer structure, while the **recent-news topic**
+(Stage 00a) supplies substance. Format × topic is what makes 50 videos feel distinct.
+
+The PoC ships these archetypes (finance/business framing shown; the same shapes carry to any
+niche):
+
+| `format` | Hook pattern | Body shape | Example title |
+|---|---|---|---|
+| `ranked_list` | "The #N worst/best …" countdown | N punchy items, escalating to #1 | *Top 5 worst money decisions in your 20s* |
+| `myth_buster` | "Stop believing this about …" | Claim → why it's wrong → the truth | *No, a credit card isn't free money* |
+| `explainer` | "Here's how X actually works" | One concept, one concrete number worked through | *How compound interest quietly doubles your money* |
+| `news_reaction` | "X just happened — here's what it means for you" | Fresh event → 2–3 implications → takeaway | *The Fed just cut rates — what it means for your savings* |
+| `cautionary_tale` | "This one mistake cost people …" | Illustrative (third-person) story → lesson | *The 401(k) mistake that quietly costs you six figures* |
+| `head_to_head` | "X vs Y in 60 seconds" | A vs B → when each wins → verdict | *Roth vs Traditional, settled in 60 seconds* |
+| `surprising_stat` | "Did you know …?" (one number) | Counterintuitive stat → unpack → so-what | *90% of day traders lose money — here's why* |
+| `how_to_steps` | "How to X in N steps" | Numbered, actionable mini-guide | *Build a 6-month emergency fund in 4 steps* |
+
+Rules that keep this honest and non-repetitive:
+
+- **Config-driven, not hardcoded.** Templates live in a versioned `formats/` library (hook
+  pattern + structure + length target + any format-specific QC notes), so adding/retiring a
+  format is **data, not a code change**.
+- **`news_reaction` is freshness's natural home** — it consumes the highest-recency RSS item
+  from 00a directly; the others lean on topic + market data.
+- **Format is part of the novelty signal.** The ledger records `format`, and the dedup check
+  treats **topic × format** as the unit — so the same story can be revisited through a *different*
+  format, but the same story in the same format is a repeat (also the starvation ladder's
+  "same-topic-different-angle" rung). 00b also **rotates formats within a batch** so a day's 2–4
+  videos aren't all `ranked_list`.
+- **YMYL still binds every template.** All formats inherit the mandatory disclaimer, no
+  buy/sell/price calls, and on-screen citations; `cautionary_tale` is **illustrative/third-person**
+  (never a fabricated personal "I lost $X") to stay truthful under the account-safety gate.
+
 **Open (tracked):** the per-niche RSS source list; the overlap threshold default; the embedding
-model for the post-M1 tier.
+model for the post-M1 tier; the starting **format library** per niche (which archetypes, hook
+copy, length targets).
 
 ## Chapter 7 — GPU / VRAM & throughput
 

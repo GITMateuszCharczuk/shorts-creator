@@ -202,7 +202,7 @@ runs because it persists — a plain in-cluster PVC would be wiped on every clus
  └── history/
      └── ledger.jsonl                    # ⭐ append-only novelty ledger (ADR 0002): one record
                                          #   per produced video {id,date,niche,topic,title,hook,
-                                         #   source_urls,keywords,embedding=null}. 00b queries it
+                                         #   format,source_urls,keywords,embedding=null}. 00b queries it
                                          #   to reject repeats; 06 appends after a successful post.
      └── posts.jsonl                     # ⭐ posted-state ledger (ADR 0003): (video_id,platform)
                                          #   intent→confirmed records — Stage 06 exactly-once.
