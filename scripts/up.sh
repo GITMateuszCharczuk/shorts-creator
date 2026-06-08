@@ -30,6 +30,7 @@ HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"   # seconds to wait for each service
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+RUNDIR="$ROOT/.run"; mkdir -p "$RUNDIR"   # pidfiles so down.sh can stop exactly what we started
 
 log()  { printf '\033[1;34m▸ %s\033[0m\n' "$*"; }
 ok()   { printf '\033[1;32m✓ %s\033[0m\n' "$*"; }
@@ -74,19 +75,25 @@ if curl -fsS -o /dev/null "http://${OLLAMA_HOST}:${OLLAMA_PORT}/api/version" 2>/
 else
   log "starting Ollama (host LLM plane)"
   if command -v ollama >/dev/null 2>&1; then
-    nohup ollama serve >/tmp/ollama.log 2>&1 &
+    nohup ollama serve >"$RUNDIR/ollama.log" 2>&1 &
+    echo $! > "$RUNDIR/ollama.pid"         # so down.sh stops this exact process
   else
     make host-llm-up                       # M0: fallback bring-up if ollama not on PATH
   fi
   wait_http "http://${OLLAMA_HOST}:${OLLAMA_PORT}/api/version" "Ollama"
 fi
 log "ensuring model present: ${OLLAMA_MODEL}"
-# Match the full name:tag — grepping the bare name would accept any qwen2.5 variant and skip the pull.
-ollama list 2>/dev/null | awk '{print $1}' | grep -qx "${OLLAMA_MODEL}" || ollama pull "${OLLAMA_MODEL}"
+# Capture first so a real `ollama list` failure (daemon down) isn't masked as "model absent";
+# match the full name:tag — grepping the bare name would accept any qwen2.5 variant.
+installed_models="$(ollama list 2>/dev/null | awk 'NR>1 {print $1}')" || true
+grep -qx "${OLLAMA_MODEL}" <<<"${installed_models}" || ollama pull "${OLLAMA_MODEL}"
 ok "LLM model ready"
 
 # ---------- 3. control plane: kind + Argo + PVC -----------------------------
 if kind get clusters 2>/dev/null | grep -qx "${KIND_CLUSTER}"; then
+  # NB: "exists" only skips cluster *creation*; it does not repair a half-installed
+  # Argo/PVC from a prior failed run. If the wire check below fails, `scripts/down.sh
+  # --purge` then re-run is the clean path.
   ok "kind cluster '${KIND_CLUSTER}' already exists"
 else
   log "creating kind cluster + Argo + host-backed PVC"

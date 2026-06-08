@@ -32,9 +32,12 @@ adopted behind a measurement gate.
 
    The lanes **fork after 00b and join at 05 render**, running concurrently — the CPU produces all
    narration/captions/music while the GPU grinds the diffusion block. Each lane still
-   **stage-batches internally** (model loads once), and **"never co-resident" is preserved**: the
-   audio lane is pure CPU, the GPU only ever holds one visual-lane model, and the confirm-VRAM-free
-   gate stays between 00b and 01b. This revises the strictly-linear ARCHITECTURE §3 ordering.
+   **stage-batches internally** (model loads once). **"Never co-resident" is enforced by the single
+   host GPU lease (ADR 0003 D2), not by batch ordering** — every GPU call in *either* lane must
+   acquire the one lease first, so the rule holds by construction even if an audio-lane stage is
+   later promoted to the GPU (e.g. a GPU Kokoro/WhisperX). Today the audio lane is pure CPU and the
+   GPU only ever holds one visual-lane model; the confirm-VRAM-free gate stays between 00b and 01b.
+   This revises the strictly-linear ARCHITECTURE §3 ordering.
 
 2. **Minimize GPU model swaps + RAM pre-stage.** Order the visual lane so each big model loads
    exactly once (already the intent), and while model *k* computes on the GPU, **warm model *k+1*'s

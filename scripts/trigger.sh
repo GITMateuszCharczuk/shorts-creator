@@ -19,22 +19,25 @@ set -euo pipefail
 PROFILES="${PROFILES:-finance,business}"
 COUNT="${COUNT:-2}"
 DRY_RUN="false"
-WATCH=""
+WATCH=()                                # array so it expands cleanly under `set -u`
 TEMPLATE="${TEMPLATE:-shorts-batch}"   # the WorkflowTemplate name (deploy/argo)
 NAMESPACE="${NAMESPACE:-argo}"
 
+die() { echo "✗ $*" >&2; exit 1; }
+need_val() { [ $# -ge 2 ] || die "$1 needs a value"; }
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    --profiles) PROFILES="$2"; shift 2 ;;
-    --count)    COUNT="$2";    shift 2 ;;
+    --profiles) need_val "$@"; PROFILES="$2"; shift 2 ;;
+    --count)    need_val "$@"; COUNT="$2";    shift 2 ;;
     --dry-run)  DRY_RUN="true"; shift ;;
-    --watch)    WATCH="--watch"; shift ;;
-    -h|--help)  grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --watch)    WATCH=(--watch); shift ;;
+    -h|--help)  grep '^#[^!]' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
 
-command -v argo >/dev/null 2>&1 || { echo "✗ argo CLI not found" >&2; exit 1; }
+command -v argo >/dev/null 2>&1 || die "argo CLI not found"
 
 echo "▸ submitting '${TEMPLATE}' — profiles=${PROFILES} count=${COUNT} dry_run=${DRY_RUN}"
 argo submit --from "workflowtemplate/${TEMPLATE}" \
@@ -43,4 +46,5 @@ argo submit --from "workflowtemplate/${TEMPLATE}" \
   -p count="${COUNT}" \
   -p dry_run="${DRY_RUN}" \
   --generate-name "shorts-manual-" \
-  ${WATCH}
+  "${WATCH[@]}" \
+  || die "argo submit failed — overlapping batch (concurrencyPolicy: Forbid)? see 'argo list -n ${NAMESPACE}'"

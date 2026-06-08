@@ -45,7 +45,10 @@ on inspection.
 4. **Judge independence + calibration (#6).** Best-of-N picker, 05c quality gate, and the 05x VLM
    are all the model grading itself — biased and uncalibrated. Mitigation: prefer a **different
    model family for the judge** where practical, and seed the quality floor against a **small
-   human-labeled calibration set** rather than an absolute score. Recorded as a **known weakness**
+   human-labeled calibration set** rather than an absolute score. To keep this affordable under
+   "never co-resident," the independent judge should run on a **separate CPU / small-model endpoint**
+   (different family, no GPU contention with the diffusion plane) — so adopting it is a config swap
+   via the per-stage judge backend (ADR 0010 D3), not a VRAM fight. Recorded as a **known weakness**
    either way — the floor is a guess until analytics + labels exist.
 
 ### Licensing & posture honesty

@@ -610,7 +610,7 @@ not land within the PoC, and the DoD does not depend on it.
 | **M1** | Vertical slice: `00a (seeded job + numeric grounding) → 00b (Qwen: treatment + best-of-N + judge) → 02 (Kokoro) → 03 (WhisperX, forced-aligned to script) → 05 (ffmpeg, stills + Ken Burns)` → a real single render (`renders/youtube.mp4`, pre per-platform parity) for **finance**. Proves the shape end-to-end. |
 | **M2** | Visuals for real: `01a` stock-first **(CLIP relevance + dedup, format-aware media zones)** + `01b` FLUX fill + `01c` LTX img→video + `01d` upscale/restore + **`01e` data-viz**; **lock the composition engine** (MIT-clean vs Remotion-solo) and stand up the **format-aware compositor** (ADR 0007) — the "not obviously AI" look + the finance signature visual dialed in. |
 | **M3** | The **8 format layout templates** (ADR 0007), audio performance layer (normalization/prosody/music taxonomy/SFX), **caption design**, the **`05c` creative-QC gate** backed by the **`05x` vision pass** (Qwen2.5-VL, ADR 0008), persona + brand kit, **business** profile — proving the two-niche abstraction, the format→layout binding, *and* the quality bar. |
-| **M4** | Orchestration: `WorkflowTemplate` + **both entry points** (`CronWorkflow` scheduled / `scripts/trigger.sh` manual, same template; `concurrencyPolicy: Forbid`), the **one-command `scripts/up.sh` lifecycle** (host GPU + Ollama + kind/Argo, idempotent + health-gated) + `down.sh`, **per-video failure domains**, GPU lease + confirm-evicted gate, retries/timeouts, artifacts, **stage-batching + the visual∥audio lane-fork & per-video CPU fan-out** (ADR 0011, behind the timing metric), the phased daily batch. |
+| **M4** | Orchestration: `WorkflowTemplate` + **both entry points** (`CronWorkflow` scheduled / `scripts/trigger.sh` manual, same template; `concurrencyPolicy: Forbid`), the **one-command `scripts/up.sh` lifecycle** (host GPU + Ollama + kind/Argo, idempotent + health-gated) + `down.sh`, **per-video failure domains**, GPU lease + confirm-evicted gate, retries/timeouts, artifacts, **stage-batching + the visual∥audio lane-fork & per-video CPU fan-out** (ADR 0011, behind the timing metric), the phased daily batch. **Gate:** the **end-to-end throughput reconciliation on the real box** (open #9) must confirm a full batch fits its overnight window *before M4 is done* — the unattended DoD rests on this single number, which has been deferred across ADRs 0005–0008 and must not trail into M6. |
 | **M5** | Account-safety gate (`05b`) + distribution (`06`, per-platform adapters + the `posts.jsonl` exactly-once ledger) to YouTube + TikTok; private-first **plus ≥1 public** (YouTube-led; TikTok public audit-gated, ADR 0009); disclosure on; **account provisioning + warming** then the **human-at-publish ramp**; affiliate fields wired (can ship disabled); platform audits submitted in parallel. |
 | **M6** | Hardening + alerts/GC/credential pre-flight wired, then the **1–2 week unattended run** (post-ramp) that satisfies the Chapter 1 definition of done. |
 
@@ -713,11 +713,11 @@ rejected — wrong place to trade quality for one swap/day).
     set** for the floor; per-platform **music libraries** + verified terms; **warming duration** +
     provisioning checklist; per-API **budget numbers** + cache TTLs; the **corroboration threshold**
     + reputable-source list per niche.
-11. **Extensibility-seam residue (ADR 0010)** — the **stage-metadata format + DAG generator**
-    (hand-written vs generated Argo templates); the **cache backend + eviction/TTL** and the key
-    boundary for seeded-but-nondeterministic stages; the **fake-backend fidelity bar** (fixture
-    replay vs lightweight CI models); whether the **feature record** lives in the ledger or a
-    separate metrics store.
+11. **Extensibility-seam residue (ADR 0010)** — the **stage-metadata manifest format** (the DAG
+    *generator* is deferred — PoC ships hand-written templates + a drift-catcher test, ADR 0010 D2);
+    the **cache backend + eviction/TTL** (generative-stage keys now include model+graph version);
+    the **fake-backend fidelity bar** (fixture replay vs lightweight CI models); whether the
+    **feature record** lives in the ledger or a separate metrics store.
 12. **Performance residue (ADR 0011)** — the **timing-metric** shape + M1 baseline numbers; the
     lane-fork **CPU/RAM bounds** (so the audio lane doesn't starve the host serving the GPU plane);
     whether RAM pre-staging / NVENC pipelining clear the measurement bar at PoC batch sizes.

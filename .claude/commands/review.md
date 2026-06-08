@@ -71,7 +71,8 @@ Dispatch these lenses over the target docs (+ the ADR log / ARCHITECTURE for con
 
 ## If the material is CODE
 
-Dispatch **N per-unit generalists** (one per `TOUCHED_UNITS` member) — each reads the unit's
+*(In PR mode, skip the per-unit generalists unless the PR is checked out locally — they need the
+head-branch files, per §1.)* Dispatch **N per-unit generalists** (one per `TOUCHED_UNITS` member) — each reads the unit's
 conventions doc, its entry/handler/store files, and the scoped diff, judging: diff correctness vs
 local conventions; scope drift / cohesion; abstraction churn (justified? still earning keep?);
 design fit; **project-pattern adherence** (whatever the repo's `CLAUDE.md`/conventions mandate);
