@@ -1,5 +1,9 @@
 # Architecture & Tooling Options — Decision Matrix
 
+> ⚠️ **Scope note:** this matrix predates the narrowing to the proof-of-concept. The locked
+> tooling stands, but niches/platforms/upload posture are governed by **[POC.md](POC.md)** (active
+> scope) and **[DESIGN.md §2](DESIGN.md)** (decisions). Where this doc and those disagree, they win.
+
 Pick one option per decision. ⭐ = my recommendation (and the documented default if you
 don't choose otherwise). All options are free; commercial/monetization-safe noted per
 row. GPU figures assume your **RTX 5070 Ti 16 GB (Blackwell sm_120, CUDA 12.8+)**.
@@ -29,8 +33,8 @@ Legend: 💰 commercial-safe · ⚠️ caveat · ❌ disqualified for monetized 
 
 | Option | License | Notes |
 |---|---|---|
-| ⭐ **Qwen2.5 7B Instruct** | Apache-2.0 | Strong instruction-following + JSON adherence; clean commercial license. |
-| **Llama 3.1 8B Instruct** | Llama Community | Excellent quality; license has >700M-MAU clause (irrelevant to you) — fine. |
+| ⭐ **Qwen2.5-14B Instruct** | Apache-2.0 | **Locked pick.** Strong instruction-following + JSON adherence; clean commercial license. Upgraded from 7B — script quality is the highest-leverage lever on perceived video quality; fits 16 GB at Q4/Q5 (`research/03 §5`). |
+| **Qwen2.5 7B / Llama 3.1 8B** | Apache-2.0 / Llama Community | Lighter, faster fallbacks if 14B inference is ever too slow for the batch. |
 | **Mistral 7B / Nemo 12B** | Apache-2.0 | Solid, permissive; 12B fits 16 GB quantized. |
 | **Gemma 2 9B** | Gemma terms | Good, but extra use-policy terms. |
 
@@ -121,11 +125,21 @@ Legend: 💰 commercial-safe · ⚠️ caveat · ❌ disqualified for monetized 
 ---
 
 ## Cross-cutting defaults already settled
-- **Categories:** history, geopolitics, moving story, **tech news**, horror story.
-- **Upload:** render + upload as **private draft only**, never auto-publish (`--dry-run` supported).
+- **Niches:** **Finance + Business** (active PoC); **True Crime dropped** (`research/04` R3). Full
+  vision adds a third niche later. *(The old `history/geopolitics/moving-story/tech-news/horror`
+  list was a superseded relic.)*
+- **Platforms:** **YouTube + TikTok** (PoC); FB/IG deferred. See `POC.md`.
+- **Upload:** **auto + safety-net**, **private-first** — public is a per-platform config flag gated
+  by the platform compliance audits, not by code; `--dry-run` stages metadata without posting.
 - **Monetization-safe:** all ❌ rows excluded.
 
-## Suggested "safe default" stack (if you just want my full pick)
-Argo · Ollama+Qwen2.5-7B · Pexels+Pixabay · FLUX.1-schnell · Ken Burns→LTX-Video ·
-Real-ESRGAN+RIFE · Kokoro · WhisperX · Pixabay/YT-Audio music · ffmpeg+NVENC · MinIO+PVC ·
-GPU-in-kind.
+## Confirmed stack (decisions locked)
+Argo Workflows · **GPU-in-kind** · Ollama + **Qwen2.5-14B** · **real-footage-first**
+(Pexels + Pixabay + Mixkit + Coverr + Videvo) · FLUX.1-schnell (gap fill) · **LTX-Video**
+img→video (+ Ken Burns) · Real-ESRGAN + RIFE + **GFPGAN/CodeFormer** · **finishing polish**
+(color grade + film grain + motion blur) · Kokoro · WhisperX · Pixabay/YT-Audio music ·
+ffmpeg + NVENC · MinIO + PVC.
+
+**Post-M1 A/B (decide on real output):** video model LTX vs **Wan2.1/CogVideoX**; voice
+Kokoro vs **Orpheus/Chatterbox**; image model FLUX-schnell vs photoreal SDXL (RealVisXL/
+Juggernaut) / SD3.5-Large. Verify each candidate's weight license before adopting.

@@ -1,18 +1,34 @@
 # Shorts Creator — Design & Implementation Plan
 
 A Kubernetes-native (Kind-compatible) data pipeline that automatically produces and
-publishes YouTube Shorts for five content categories using free, self-hostable AI tools.
+publishes short-form vertical video across multiple niches and platforms using free,
+self-hostable AI tools.
 
 > Status: **Plan / pre-implementation**. This document is the agreed blueprint. No
 > pipeline code exists yet.
+>
+> ⚠️ **Scope note:** this doc describes the broader 3-niche / 4-platform vision. The
+> **current build is narrowed** to a proof-of-concept — **Finance + Business** on
+> **YouTube + TikTok**, private-first. See **[POC.md](POC.md)**, which is authoritative on
+> present scope; treat true-crime / FB / IG / tech-news mentions here as future vision.
 
 ---
 
 ## 1. Goals & non-goals
 
+> **Strategy note:** the content/monetization fundamentals — niches, platforms, earnings,
+> automation policy, compliance — live in **`STRATEGY.md`**. This doc covers architecture.
+
 **Goals**
-- Generate full, ready-to-publish vertical (9:16) Shorts end-to-end with no manual editing.
-- Five categories: **history, geopolitics, moving story, tech news, horror story**.
+- Generate full, ready-to-publish vertical (9:16) videos end-to-end, **auto + safety-net**
+  (full automation gated by automated QC, phased ramp, weekly spot-audit — see STRATEGY §4).
+- **3 channels / niches:** **Finance**, **True crime**, **Business** (high-RPM cluster).
+- **Length per-format, two lanes, ~60% monetization** (ADR 0006): **~61–90s** monetization lane
+  (over 60s for TikTok payouts) + **~20–35s** reach lane (completion rate); hook-first,
+  retention-optimized.
+- **Multi-platform distribution:** YouTube Shorts + TikTok + Facebook Reels + Instagram
+  Reels, with **distinct native renders per platform** (no foreign watermarks; dodges
+  duplicate-content penalties). FB/TikTok are the earners; YT/IG are reach/funnel.
 - Visuals that look polished and **not obviously AI-generated** (hybrid real footage + AI).
 - Subtitles, AI narration (dub), and fitting background music per video.
 - Optional automated upload to YouTube.
@@ -24,7 +40,9 @@ publishes YouTube Shorts for five content categories using free, self-hostable A
 - Multi-account / multi-channel management.
 - A web UI (CLI + Argo UI is enough to start).
 - Cloud GPU autoscaling (single local GPU box assumed).
-- Cross-posting to TikTok/Reels (architecture won't preclude it, but out of scope).
+
+> *(Removed an obsolete non-goal that listed "cross-posting to TikTok/Reels" as out of
+> scope — multi-platform distribution is now a core goal; see §1 Goals and Stage 6.)*
 
 ---
 
@@ -32,11 +50,21 @@ publishes YouTube Shorts for five content categories using free, self-hostable A
 
 | Topic | Decision |
 |---|---|
+| Niches / channels | **Finance · True crime · Business** (3 channels) — see STRATEGY §2. |
+| Monetization | **Ad-share, multi-platform** (FB Reels + TikTok primary earners) — STRATEGY §1. |
+| Distribution | **YouTube + TikTok + Facebook + Instagram**, native per-platform renders. |
+| Video length | **Per-format (ADR 0006):** ~61–90s monetization lane (>60s, TikTok payout) + ~20–35s reach lane; ~60% monetization mix. |
+| Automation | **Auto + safety-net** (QC gate + phased ramp + spot-audit) — STRATEGY §4. |
 | GPU | **RTX 5070 Ti, 16 GB VRAM** available locally. |
-| Visual style | Hybrid: prefer **real stock footage**, use AI to fill gaps + add motion. Must not look "fully AI". |
+| Visual style | **Real-footage-first hybrid**: real 4K stock is the backbone; AI fills only genuine gaps; prefer **img→video on real frames** over text→video. AI video always carries an "AI look", so it is used sparingly. |
+| Script LLM | **Qwen2.5-14B-Instruct** (Apache-2.0, fits 16 GB) — upgraded from 7B for quality. |
 | Monetization | **Yes** → strict commercial-safe licenses only. |
-| Orchestration | **Argo Workflows** on `kind` (under evaluation vs Dagster — see OPTIONS §A). |
+| Orchestration | **Argo Workflows** on `kind` — confirmed. |
+| GPU exposure | **GPU inside kind** (NVIDIA Container Toolkit + k8s device plugin) — confirmed. |
 | Image generation | **FLUX.1-schnell** (Apache-2.0) — confirmed. |
+| Motion | **LTX-Video** (img→video) wired in from the start — confirmed (A/B vs Wan2.1/CogVideoX after M1). |
+| Voice | **Kokoro-82M** for M1 (A/B vs Orpheus/Chatterbox after M1). |
+| Finishing polish | **GFPGAN/CodeFormer** face restoration + color grade + film grain + motion blur in render — baked in. |
 | First deliverable | This plan document. |
 
 ### 2.1 Hardware caveat — Blackwell (sm_120)
@@ -109,13 +137,18 @@ Each stage = one container image, one Argo template. Inputs/outputs are files in
 run workdir, described by `job.json`.
 
 ### Stage 0 — Script & storyboard (CPU)
-- **Purpose:** From `category` (+ optional topic/seed), produce a Short script: hook,
-  3–6 narration beats, on-screen caption text, per-scene **visual search keywords**,
-  music **mood**, title/description/hashtags. Output `script.json`.
-- **Tool:** **Ollama** running as an in-cluster service (Deployment + Service), models
-  **Llama 3.1 8B / Qwen 2.5 7B** (Apache/community licenses, commercial-OK). The 16 GB
-  GPU comfortably serves an 8B model, but to keep the GPU free for media work we can run
-  the LLM quantized or accept slower CPU inference — script gen is tiny vs. video work.
+- **Purpose:** From `channel` (+ optional topic/seed), produce a **hook-first** script at the
+  **format's target length** (~20–35s reach / ~61–90s monetization — ADR 0006): **multiple scroll-stopping hook variants** (first 1–2s is the whole ballgame),
+  narration beats with a retention curve, on-screen captions, per-scene **visual keywords**,
+  music **mood**, and **per-platform** title/description/hashtags. For Finance/Business it
+  also fetches **real data** (Alpha Vantage / Yahoo Finance / FRED) for original charts and
+  injects the mandatory **"educational, not financial advice"** disclaimer. Output
+  `script.json`.
+- **Tool:** **Ollama** running as an in-cluster service (Deployment + Service), model
+  **Qwen2.5-14B-Instruct** (Apache-2.0; fits 16 GB at Q4/Q5). Upgraded from 7B because
+  script quality is the highest-leverage lever on perceived video quality. Since the LLM
+  runs as a distinct stage, the GPU is free for media work the rest of the time; 32B is a
+  possible future bump with RAM offload (6/day absorbs the slower inference).
 - **Prompting:** per-category system prompts + a strict JSON schema (validated before
   the stage exits). Templates live in `prompts/<category>.md`.
 - **Risk control:** for **history / geopolitics**, add a "claims" field and a
@@ -126,18 +159,22 @@ run workdir, described by `job.json`.
 This is the differentiator. Strategy: **real footage first, AI to fill gaps, GPU for
 motion & polish.**
 
-1. **Stock-first retrieval.** For each scene's keywords, pull **real** vertical clips/
-   photos from **Pexels API** and **Pixabay API** (both free, generous quota, license
-   permits commercial use, **no attribution legally required** — we still log source).
-   Real B-roll is what keeps it from looking AI.
-2. **AI fill for the un-stockable.** Categories like *history* and *horror* need scenes
-   no stock library has ("a Roman legion at dusk"). For those scenes generate stills with
-   **FLUX.1-schnell** or **SDXL** (GPU), tuned for photoreal, not "AI art".
-3. **Add motion (GPU).** Turn stills into living shots with **image-to-video**
-   (**LTX-Video** or **Stable Video Diffusion**) for subtle parallax, OR apply
-   **Ken Burns** pan/zoom/slide via `ffmpeg zoompan` when img2vid is overkill.
-4. **Polish (GPU).** **Real-ESRGAN** upscale + **RIFE** frame interpolation for smooth
-   60fps motion → reduces the tell-tale AI/stutter look.
+**Real-footage-first.** The decided strategy weights real stock heavily; AI fills only
+genuine gaps. AI video always carries an "AI look", so we minimise it.
+
+1. **Stock-first retrieval (primary source).** For each scene's keywords, pull **real**
+   vertical clips/photos from **Pexels, Pixabay, Mixkit, Coverr, Videvo** (all free; each
+   license verified for commercial use; source logged regardless). Real 4K B-roll is the
+   backbone and the main reason output looks real, not AI.
+2. **AI fill for the un-stockable only.** Categories like *history* and *horror* need
+   scenes no stock library has ("a Roman legion at dusk"). For those, generate photoreal
+   stills with **FLUX.1-schnell** (Apache-2.0), tuned for realism, not "AI art".
+3. **Add motion (GPU) — prefer animating real frames.** Favour **img→video on a real
+   stock frame or photoreal still** (stays real) over text→video (drifts into AI-land).
+   **LTX-Video** for M1; apply **Ken Burns** (`ffmpeg zoompan`) when img2vid is overkill.
+   (Wan2.1 / CogVideoX A/B vs LTX after M1.)
+4. **Polish (GPU).** **Real-ESRGAN** upscale + **RIFE** interpolation (smooth 60fps), plus
+   **GFPGAN/CodeFormer** face restoration on any AI frames → kills the AI/stutter tells.
 - **Output:** `scenes/` (one clip per beat, normalized to 1080×1920) + `assets.json`.
 - **License:** Pexels/Pixabay ✅ commercial. FLUX.1-schnell weights **Apache-2.0** ✅.
   SDXL base **CreativeML OpenRAIL++** (commercial-OK, use-restrictions only) ✅. SVD has
@@ -175,40 +212,57 @@ motion & polish.**
 - **Output:** `music.wav` (trimmed/looped to video length).
 - **License:** ✅ commercial. We store provenance per track for auditability.
 
-### Stage 5 — Render / mux (CPU, GPU optional)
-- **Purpose:** Compose scenes + burn captions + mix VO & music → final 9:16 MP4.
-- **Tool:** **ffmpeg** (concat scenes, overlay `.ass`, audio mix, 1080×1920, ~30–45s,
-  H.264/AAC, faststart). NVENC available on the 5070 Ti for fast encode if we want it.
+### Stage 5 — Render / mux (CPU compositor + GPU NVENC)
+- **Purpose:** **Format-aware compositor** (ADR 0007) — bind the format's `layout` template
+  (regions/animation/transitions, all 8 archetypes) via a headless-Chromium engine, then mix
+  VO & music + **finishing polish** → final 9:16 MP4. Engine shared with data-viz; encode on NVENC.
+- **Tool:** **headless-Chromium HTML/CSS** (MIT-clean default; Remotion solo-only — ADR 0007) +
+  **ffmpeg/`h264_nvenc`** (overlay `.ass`, audio mix, 1080×1920, **per-format
+  length** ~20–35s/~61–90s, H.264/AAC, faststart). NVENC on the 5070 Ti for fast encode.
+- **Per-platform native renders:** emit a **distinct cut per platform** (YouTube/TikTok/FB/
+  IG) — no foreign watermarks, platform-specific caption style / hook / sound / length — to
+  avoid duplicate-content penalties (STRATEGY §5). Output `renders/<platform>.mp4`.
+- **Finishing polish (baked in):** unified **color grade** (LUT/curves), subtle **film
+  grain** and **motion blur**, and consistent contrast/saturation across scenes so real
+  stock and AI fills match — this "real edit" pass is what most separates polished output
+  from AI slop. (Face restoration GFPGAN/CodeFormer runs upstream in Stage 1.)
 - **Output:** `final.mp4` + `thumbnail.jpg`.
 - **License:** ✅ (LGPL/GPL ffmpeg build).
 
-### Stage 6 — Upload (CPU, optional & gated)
-- **Purpose:** Publish to YouTube with title/description/tags from Stage 0.
-- **Tool:** **YouTube Data API v3** `videos.insert` via google-api-python-client, OAuth2
-  refresh token mounted as a K8s Secret.
-- **v1 behavior (resolved):** the stage **renders and uploads, but never publishes**.
-  It uploads with `privacyStatus=private` (a draft only the channel owner sees) and
-  supports a `--dry-run` that stages title/description/tags without calling YouTube at
-  all. Going public is always a deliberate, manual action — keeps us clear of the
-  API-audit gate and YT inauthentic-content risk.
-- **Hard constraints (see §7):** unaudited API projects upload as **private only**
-  anyway; quota ≈ **6 uploads/day**.
-- **License/policy:** ✅ technically; policy risk handled in §6.
+### Stage 5b — Automated QC gate (CPU/GPU) — the safety-net
+- **Purpose:** Auto-reject bad/risky videos **before** they post (STRATEGY §4.3). Functions
+  as the "human replacement" so the system stays hands-off but compliant.
+- **Checks:** second-pass LLM fact/sanity + hallucination flag; claims/profanity filter;
+  **finance/business YMYL** check (disclaimer present, no buy/sell calls, sources cited);
+  render integrity (no dead audio / black frames / clipped loudness).
+- **Output:** pass → continue to distribution; fail → quarantine + log for the spot-audit.
+
+### Stage 6 — Multi-platform distribution (CPU, gated)
+- **Purpose:** Post the per-platform renders to **YouTube, TikTok, Facebook, Instagram** with
+  per-platform title/description/tags/hashtags from Stage 0.
+- **Tools:** **YouTube Data API v3** `videos.insert`; **TikTok Content Posting API**;
+  **Facebook/Instagram Graph API** (Reels). OAuth/refresh tokens per channel as K8s Secrets.
+- **Auto + safety-net behavior:** posting is automated but gated by Stage 5b QC and a
+  **phased volume ramp** (start 1–2/day/channel → scale to 5/day). YouTube uses
+  `privacyStatus` controllable per phase; a `--dry-run` stages metadata without posting.
+- **Hard constraints (see §7):** YouTube API quota ≈ **6 uploads/day/project** (1 project per
+  channel = fine); each platform's posting API needs its own app review/approval; unaudited
+  YouTube projects upload **private only** until audited.
+- **Policy:** YMYL + inauthentic-content + duplicate-content handled in §6 / STRATEGY §5.
 
 ---
 
-## 5. Per-category configuration
+## 5. Per-channel configuration
 
-The pipeline is one DAG; a **category profile** parameterizes it. Profiles live in
-`profiles/<category>.yaml`:
+The pipeline is one DAG; a **channel profile** parameterizes it. Profiles live in
+`profiles/<channel>.yaml` (visual style, voice, music mood, hook templates, data sources).
+See STRATEGY §2 for rationale.
 
-| Category | Visual sourcing bias | Voice tone | Music mood | Special risk |
+| Channel | Visual sourcing bias | Voice tone | Music mood | Special risk |
 |---|---|---|---|---|
-| history | AI-gen scenes + archival-style stock | calm narrator | cinematic/epic | factual accuracy |
-| geopolitics | real news/map stock, charts | authoritative | tense/neutral | accuracy, bias, defamation |
-| moving story | real human B-roll + AI fill | warm/emotive | emotional piano | low |
-| tech news | product/UI stock + AI fill, charts | upbeat/clear | modern/electronic | accuracy, brand trademarks |
-| horror story | AI-gen atmospheric scenes | low/whisper | dark ambient/drone | low |
+| **Finance** | real-data **charts/viz** + stock B-roll + AI fill | clear/authoritative | modern/neutral | **YMYL** — disclaimer, no buy/sell calls, cite sources, accuracy |
+| **True crime** | cinematic stock + AI atmospheric fill | low/tense narrator | dark ambient/tension | sensitivity, factual accuracy, no defamation |
+| **Business** | clean corporate stock + charts + AI fill | upbeat/confident | modern/upbeat | **YMYL**-adjacent — accuracy, no get-rich-quick claims |
 
 ---
 
@@ -240,10 +294,12 @@ The pipeline is one DAG; a **category profile** parameterizes it. Profiles live 
 - **Mass-produced / repetitious AI content** can be demonetized or removed under YT's
   inauthentic-content and "reused content" policies. Mitigations: per-video variety,
   quality bar, human-in-the-loop before public, reasonable upload cadence.
-- **Decision (resolved):** "celebrity news" is **dropped** for v1 due to likeness/
-  defamation/AI-of-real-people risk; replaced with **tech news**. Tech news still avoids
-  unlicensed brand logos/product footage (use stock + generic AI scenes + charts) and
-  must stay factually careful.
+- **Decision (resolved):** the **True Crime** niche is **dropped** from the active build due
+  to catastrophic defamation/privacy risk on real, named people (see `research/04` R3:
+  $17.5M verdict, May 2026; an AI true-crime channel terminated by YouTube). Active niches are
+  **Finance + Business** (PoC); both are YMYL and kept strictly educational/non-advisory.
+  *(Earlier relics — "celebrity news", "tech news", history/geopolitics/horror — are obsolete
+  category names from prior iterations and no longer part of the design.)*
 
 **Factual accuracy (history/geopolitics)**
 - LLMs hallucinate. Add a claims-extraction + optional retrieval/self-check step, and
