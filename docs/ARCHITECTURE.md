@@ -11,7 +11,9 @@
 > commercial posture + account-safety gate by
 > **[ADR 0004](decisions/0004-poc-commercial-posture-and-account-safety.md)**; the editorial
 > quality layer (treatment, best-of-N, the `01e` data-viz + `05c` creative-QC stages) by
-> **[ADR 0005](decisions/0005-editorial-quality-layer.md)**.
+> **[ADR 0005](decisions/0005-editorial-quality-layer.md)**; per-format length, loops, keyword
+> placement + the closing follow CTA by
+> **[ADR 0006](decisions/0006-algorithm-fit-and-format-tuning.md)**.
 >
 > **Precedence:** for *tooling* choices, `OPTIONS.md` stands. For *scope*, `POC.md` wins.
 > Where `DESIGN.md §2–§3/§9` describes the older GPU-in-kind / MinIO / monolithic-Stage-1
@@ -281,7 +283,7 @@ shorts-creator/
 │   ├── 02-voice/                  #   CPU — Kokoro-82M (text-normalization + prosody)
 │   ├── 03-subtitles/              #   CPU — WhisperX int8 (designed captions)
 │   ├── 04-music/                  #   CPU — taxonomy-matched track + SFX, ducked mix
-│   ├── 05-render/                 #   CPU — ffmpeg, word-timed cuts, per-platform cuts + CTA bump
+│   ├── 05-render/                 #   CPU — ffmpeg, word-timed cuts, per-platform cuts, CTA bump + loop + end-card
 │   ├── 05b-qc/                    #   safety gate (pass → continue / fail → quarantine)
 │   ├── 05c-creative-qc/           #   quality gate — judge score vs floor (ADR 0005)
 │   └── 06-distribute/             #   CPU — exactly-once, private-first, AI-disclosure;

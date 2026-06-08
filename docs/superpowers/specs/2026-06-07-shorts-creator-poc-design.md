@@ -7,7 +7,8 @@
 > [0002 — recency & novelty](../../decisions/0002-recency-and-novelty-ledger.md),
 > [0003 — resilience, concurrency & observability](../../decisions/0003-resilience-concurrency-observability.md),
 > [0004 — commercial posture & account-safety](../../decisions/0004-poc-commercial-posture-and-account-safety.md),
-> and [0005 — editorial quality layer](../../decisions/0005-editorial-quality-layer.md).
+> [0005 — editorial quality layer](../../decisions/0005-editorial-quality-layer.md), and
+> [0006 — algorithm-fit & format tuning](../../decisions/0006-algorithm-fit-and-format-tuning.md).
 > The full topology diagrams live in [`docs/ARCHITECTURE.md`](../../ARCHITECTURE.md).
 >
 > **Precedence:** the ADRs win on runtime topology; `POC.md` wins on scope. This spec is the
@@ -20,8 +21,10 @@
 ## Chapter 1 — Overview & definition of done
 
 **What it is.** A free, self-hostable, Kubernetes-native (`kind`) pipeline that produces and
-posts 60–90s vertical (9:16) videos for **Finance** and **Business** to **YouTube Shorts** and
-**TikTok**, fully unattended.
+posts **per-format-length** vertical (9:16) videos for **Finance** and **Business** to **YouTube
+Shorts** and **TikTok**, fully unattended. Length is set **per format** (ADR 0006): punchy formats
+run **~20–40s** for completion rate, depth formats up to **~60s** (the lane that stays
+TikTok-monetization-eligible) — superseding the original flat 60–90s.
 
 **What the PoC must prove.** Not revenue. The goal is to prove — with a solidly-engineered
 system — that the **end-to-end produce-and-post loop works reliably and unattended**, on real
@@ -83,6 +86,9 @@ not only which template it filled, and 50 videos read as one channel rather than
 The CTA's second verb is the natural per-platform delta (`youtube`→Subscribe+bell,
 `tiktok`/`instagram`→Follow), drawn at a **seeded constrained-random mid-roll slot** (never the
 hook or outro) so placement varies without ever stepping on the moments that carry the video.
+A separate **closing end-card** then makes the explicit ask with a config-driven **FOMO follow**
+line (default *"Follow — the algorithm only shows us once"*; ADR 0006), placed so it doesn't break
+the seamless loop.
 
 **Carry-forward (designed-in, not built):** third niche → add a profile + prompts; FB/IG → add
 per-platform render cuts + distribution adapters; long-form/affiliate + analytics → future phases.
@@ -130,19 +136,19 @@ batch** rather than once per video. CPU stages overlap GPU work.
 | Stage | Compute | Purpose | Output |
 |---|---|---|---|
 | **00a research/ingest** | CPU | Market data (Alpha Vantage/Yahoo/FRED) **+ recent news via free RSS, ≤3 days old**. Fetch failure = first-class DAG state. | `data.json {market, news[]}` |
-| **00b script** | CPU →host LLM | Qwen2.5-14B writing **in the channel persona** (ADR 0005 D9) → **selects + rotates a format template** (Chapter 6) → emits a **treatment** (thesis/angle/tone, per-beat visual motif, energy curve — the through-line every later stage renders against) → **best-of-N** scripts, **judge picks the winner** (ADR 0005 D1/D2). Output: a first-class **hook composite** {spoken, on-screen text, first-frame visual, ≤2s}, narration beats with **prosody + emphasis markup**, on-screen captions with **emphasis-word tags**, per-beat visual motif, music **mood+energy**, per-platform title/desc/hashtags. **YMYL:** mandatory disclaimer, no buy/sell/price calls, on-screen citations, accuracy self-check. **Dedup:** `history/ledger.jsonl` (cross-run) **+ reserve the pick in `batch.json`** (intra-batch — ADR 0003 D5). Optional affiliate fields (ADR 0004 D5). | `script.json` (+ `treatment`) |
+| **00b script** | CPU →host LLM | Qwen2.5-14B writing **in the channel persona** (ADR 0005 D9) → **selects + rotates a format template** (Chapter 6) → emits a **treatment** (thesis/angle/tone, per-beat visual motif, energy curve — the through-line every later stage renders against) → **best-of-N** scripts, **judge picks the winner** (ADR 0005 D1/D2). Output: a first-class **hook composite** {spoken, on-screen text, first-frame visual, ≤2s}, narration beats with **prosody + emphasis markup**, on-screen captions with **emphasis-word tags**, per-beat visual motif, music **mood+energy**, a **primary keyword** (for caption/on-screen/spoken placement) and the **per-format target length** (~20–40s punchy / ≤60s depth — ADR 0006), per-platform title/desc/hashtags. **YMYL:** mandatory disclaimer, no buy/sell/price calls, on-screen citations, accuracy self-check. **Dedup:** `history/ledger.jsonl` (cross-run) **+ reserve the pick in `batch.json`** (intra-batch — ADR 0003 D5). Optional affiliate fields (ADR 0004 D5). | `script.json` (+ `treatment`) |
 | **01a stock-fetch** | CPU | Real vertical clips/photos from Pexels/Pixabay/Mixkit/Coverr/Videvo (license verified, source logged). **Pulls N candidates per beat, ranks by image-text similarity (e.g. CLIP) against the beat's visual motif, dedups against clips used in other batch videos + the ledger** (ADR 0005 D5) — below-threshold beats fall through to 01b/01e. Real footage is the backbone. | `scenes/` + provenance |
 | **01b image-gen** | →host ComfyUI | FLUX.1-schnell photoreal stills for the un-stockable only. | `scenes/` fills |
 | **01c img2vid** | →host ComfyUI | LTX-Video (img→video on real frames) / Ken Burns. AI motion kept to short fill clips. | `scenes/` clips |
 | **01d upscale-restore** | →host ComfyUI | Real-ESRGAN upscale + RIFE interpolation + GFPGAN/CodeFormer face restore on AI frames. | `assets.json` |
 | **01e data-viz** | CPU | **Branded animated charts / counters / stat reveals** rendered from `data.json` numbers (ADR 0005 D5) — deterministic, artifact-free, license-free; the finance niche's signature visual *and* a citation surface. Fills beats stock can never match. | `scenes/` viz clips |
-| **02 voice** | CPU | Kokoro-82M narration, driven by a **finance text-normalization + pronunciation lexicon** (`$1.5M`, `401(k)`, `FOMC`…) and **per-beat prosody/emphasis/pause markup** incl. a deliberate hook delivery (ADR 0005 D6). | `narration.wav` |
-| **03 subtitles** | CPU | WhisperX `int8` word-level alignment → **designed** karaoke captions: brand font, ≤N words on-screen, stroke/shadow, **emphasis-word styling**, animation, **per-platform vertical safe zones** (ADR 0005 D7). | `captions.ass/.srt` |
+| **02 voice** | CPU | Kokoro-82M narration, driven by a **finance text-normalization + pronunciation lexicon** (`$1.5M`, `401(k)`, `FOMC`…) and **per-beat prosody/emphasis/pause markup** incl. a deliberate hook delivery (ADR 0005 D6); the **primary keyword is spoken in the opening lines** (ADR 0006). | `narration.wav` |
+| **03 subtitles** | CPU | WhisperX `int8` word-level alignment → **designed** karaoke captions: brand font, ≤N words on-screen, stroke/shadow, **emphasis-word styling**, animation, **per-platform vertical safe zones** (ADR 0005 D7); the **primary keyword appears as on-screen text in the first 2–3s** (ADR 0006). | `captions.ass/.srt` |
 | **04 music** | CPU | Strike-safe track from a **curated library, selected by a closed mood/energy taxonomy tied to the format** (anti-repeat across the batch) + a **transition-SFX layer** (whoosh/tick/reveal), ducked under VO (sidechain), **per-platform LUFS** (ADR 0005 D6). | `music.wav` + sfx |
-| **05 render** | CPU (ffmpeg) | Editorial compose: **word-timed cuts + visual-change-rate target** (no slideshow), **per-clip color *matching* before** the unifying grade, **brand overlay** system incl. a **per-platform animated engagement-CTA bump** (`Like` + `Subscribe`/`Follow`) at a **seeded constrained-random mid-roll slot** (ADR 0005 D10), designed **thumbnail/cover** (TikTok cover = frame 1) → **distinct native cuts for YouTube + TikTok** (ADR 0005 D4). | `renders/{youtube,tiktok}.mp4`, `thumbnail.jpg` |
+| **05 render** | CPU (ffmpeg) | Editorial compose: **word-timed cuts + visual-change-rate target** (no slideshow), **per-clip color *matching* before** the unifying grade, **brand overlay** system incl. a **per-platform animated engagement-CTA bump** (`Like` + `Subscribe`/`Follow`) at a **seeded constrained-random mid-roll slot** (ADR 0005 D10), designed **thumbnail/cover** (TikTok cover = frame 1), a **seamless loop bridge** (last beat → hook, for replay-driven AVD) and a **closing FOMO follow end-card** (ADR 0006) → **distinct native cuts for YouTube + TikTok** (ADR 0005 D4). | `renders/{youtube,tiktok}.mp4`, `thumbnail.jpg` |
 | **05b safety gate** | CPU +host LLM | The always-on **account-safety gate** (Chapter 8, ADR 0004 D3): YMYL disclaimer present, no buy/sell calls, sources cited, AI-disclosure set, profanity/claims clear, repetitious-content check vs ledger, render integrity — **+ aesthetic/artifact checks** (morphing hands, temporal warp, garbled AI text) **and audio-defect checks** (hook dead-air, loudness window, synth-duration match) (ADR 0005 D8). Pass → continue; fail → quarantine. | `qc.json` |
 | **05c creative-QC** | CPU →host LLM | The **quality gate** (ADR 0005 D2), distinct from safety: judge scores the assembled video (hook strength, non-obvious take, visual↔script coherence, payoff) vs a **quality floor**. Above floor → distribute; below → **quarantine, not post**. | `creative_qc.json` |
-| **06 distribute** | CPU | Per-platform **distribution adapters** (YouTube Data API v3 + TikTok Content Posting API), **exactly-once** via the `(video_id, platform)` **posted-state ledger** (`history/posts.jsonl`, ADR 0003 D1), **private-first / ≥1 public**, **AI-disclosure on every call**, emits affiliate description when enabled. Append the novelty ledger via the batch's single fan-in commit step. | post receipts |
+| **06 distribute** | CPU | Per-platform **distribution adapters** (YouTube Data API v3 + TikTok Content Posting API), **exactly-once** via the `(video_id, platform)` **posted-state ledger** (`history/posts.jsonl`, ADR 0003 D1), **private-first / ≥1 public**, **AI-disclosure on every call**, the **primary keyword leads the caption's first ~150 chars** (ADR 0006), emits affiliate description when enabled. Append the novelty ledger via the batch's single fan-in commit step. | post receipts |
 
 All clips are normalized to **1080×1920**. The scene manifest (`assets.json`) plus the
 `job.json` spine make any video reconstructable.
@@ -229,7 +235,7 @@ A **starved** batch degrades gracefully rather than wedging or silently yielding
 
 ### Format templates — supercharging the 00b prompt
 
-A bare "write a 60–90s finance short" prompt drifts toward the same generic talking-head every
+A bare "write a finance short" prompt drifts toward the same generic talking-head every
 time. Instead, Stage `00b` selects from a **library of short-form *format templates*** — each a
 proven retention structure with its own hook pattern, body shape, and pacing — and the chosen
 `format` is injected into the LLM prompt to steer structure, while the **recent-news topic**
@@ -254,6 +260,19 @@ Rules that keep this honest and non-repetitive:
 - **Config-driven, not hardcoded.** Templates live in a versioned `formats/` library (hook
   pattern + structure + length target + any format-specific QC notes), so adding/retiring a
   format is **data, not a code change**.
+- **Length is per-format (ADR 0006).** Punchy formats (`news_reaction`, `surprising_stat`,
+  `myth_buster`) target **~20–40s** for completion rate; depth formats (`explainer`,
+  `ranked_list`, `how_to_steps`, `head_to_head`, `cautionary_tale`) run up to **~60s** (the lane
+  that stays TikTok-monetization-eligible). Completion rate is the craft target (~70% aspiration),
+  **not** a DoD metric (ADR 0004 D1) — we shape for retention, we don't gate "done" on views.
+- **Discoverability built in (ADR 0006).** 00b emits a **primary keyword** threaded three ways:
+  the caption's first ~150 chars (Stage 06 metadata), on-screen text in the first 2–3s (Stage 03),
+  and the spoken opening (Stage 02) — so the video is *found*, not just recommended.
+- **Loop + closing CTA (ADR 0006).** Where the format allows, the last line/frame **bridges back
+  to the hook** for a seamless loop (replays lift AVD); a short **end-card** then makes the closing
+  ask — a **FOMO follow** line (default *"Follow — the algorithm only shows us once"*, platform-
+  aware Subscribe/Follow, config-driven & rotatable) placed so it doesn't break the loop. Some
+  formats may run as a **series** (Part N) so the CTA becomes "follow so you don't miss Part 2."
 - **`news_reaction` is freshness's natural home** — it consumes the highest-recency RSS item
   from 00a directly; the others lean on topic + market data.
 - **Format is part of the novelty signal.** The ledger records `format`, and the dedup check
@@ -337,7 +356,7 @@ layer (ADR 0005) **re-opens this baseline**: best-of-N adds N−1 LLM passes and
 must be **re-measured**, not assumed.
 
 **Choke points — what a 16 GB 5070 Ti *cannot* do (the binding constraints):**
-- **Full-length AI video.** Generating the whole 60–90s as img2vid collapses throughput to
+- **Full-length AI video.** Generating the whole runtime as img2vid collapses throughput to
   ~2–4/day *or worse* and looks "AI." **Mitigation (architectural, not tuning):** real-footage-
   first; AI motion is short fill (<20–30% of runtime).
 - **Two heavy models at once** → OOM. Enforced away by serialization.
@@ -488,6 +507,12 @@ audio performance layer (normalization / prosody / music taxonomy / SFX); captio
 persona + brand kit in profiles. *(Human-at-treatment considered and declined; human stays at
 publish.)*
 
+**Decided since (the algorithm-fit scan → ADR 0006):** **per-format length** (~20–40s punchy /
+≤60s depth, superseding the flat 60–90s) with completion rate as a craft target (not a DoD
+metric); **seamless loop** construction; **save/share** CTA framing; **primary-keyword** placement
+across caption/on-screen/voiceover; a **closing FOMO follow end-card** (config-driven, rotatable);
+**series / multi-part** capability.
+
 **Still open (tracked):**
 
 1. **Contracts (P0).** Write `schemas/{job,script,assets,provenance,qc,creative_qc,posts}.schema.json`
@@ -504,7 +529,10 @@ publish.)*
    selection + disclosure wording (kept disabled until decided).
 6. **Quality-layer residue (ADR 0005)** — CLIP relevance model + data-viz tech; curated music +
    SFX libraries; the pronunciation lexicon; per-niche persona + brand kit.
-7. **Post-M1 A/B (non-blocking)** — LTX vs Wan2.1/CogVideoX; Kokoro vs Orpheus/Chatterbox;
+7. **Algorithm-fit residue (ADR 0006)** — exact per-format second-ranges + which formats must
+   loop; the end-card phrase library + rotation policy; whether `05c` factors a predicted-
+   completion heuristic; revisit all against **real** retention data when analytics lands.
+8. **Post-M1 A/B (non-blocking)** — LTX vs Wan2.1/CogVideoX; Kokoro vs Orpheus/Chatterbox;
    FLUX-schnell vs photoreal SDXL/SD3.5; **Qwen-32B with RAM offload for 00b** (the script stage
    is where model quality matters most).
 
