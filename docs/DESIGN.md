@@ -212,10 +212,12 @@ genuine gaps. AI video always carries an "AI look", so we minimise it.
 - **Output:** `music.wav` (trimmed/looped to video length).
 - **License:** ✅ commercial. We store provenance per track for auditability.
 
-### Stage 5 — Render / mux (CPU, GPU optional)
-- **Purpose:** Compose scenes + burn captions + mix VO & music + **finishing polish** →
-  final 9:16 MP4.
-- **Tool:** **ffmpeg** (concat scenes, overlay `.ass`, audio mix, 1080×1920, **per-format
+### Stage 5 — Render / mux (CPU compositor + GPU NVENC)
+- **Purpose:** **Format-aware compositor** (ADR 0007) — bind the format's `layout` template
+  (regions/animation/transitions, all 8 archetypes) via a headless-Chromium engine, then mix
+  VO & music + **finishing polish** → final 9:16 MP4. Engine shared with data-viz; encode on NVENC.
+- **Tool:** **headless-Chromium HTML/CSS** (MIT-clean default; Remotion solo-only — ADR 0007) +
+  **ffmpeg/`h264_nvenc`** (overlay `.ass`, audio mix, 1080×1920, **per-format
   length** ~20–35s/~61–90s, H.264/AAC, faststart). NVENC on the 5070 Ti for fast encode.
 - **Per-platform native renders:** emit a **distinct cut per platform** (YouTube/TikTok/FB/
   IG) — no foreign watermarks, platform-specific caption style / hook / sound / length — to

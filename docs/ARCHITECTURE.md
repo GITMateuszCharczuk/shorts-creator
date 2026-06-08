@@ -13,7 +13,9 @@
 > quality layer (treatment, best-of-N, the `01e` data-viz + `05c` creative-QC stages) by
 > **[ADR 0005](decisions/0005-editorial-quality-layer.md)**; per-format length, loops, keyword
 > placement + the closing follow CTA by
-> **[ADR 0006](decisions/0006-algorithm-fit-and-format-tuning.md)**.
+> **[ADR 0006](decisions/0006-algorithm-fit-and-format-tuning.md)**; the per-format **layout
+> templates** + the headless-Chromium composition engine (Stage 05 / 01e) by
+> **[ADR 0007](decisions/0007-format-aware-layout-templates.md)**.
 >
 > **Precedence:** for *tooling* choices, `OPTIONS.md` stands. For *scope*, `POC.md` wins.
 > Where `DESIGN.md §2–§3/§9` describes the older GPU-in-kind / MinIO / monolithic-Stage-1
@@ -279,11 +281,11 @@ shorts-creator/
 │   ├── 01b-image-gen/             #   client → host ComfyUI (FLUX)
 │   ├── 01c-img2vid/               #   client → host ComfyUI (LTX / Ken Burns)
 │   ├── 01d-upscale-restore/       #   client → host ComfyUI (ESRGAN/RIFE/GFPGAN)
-│   ├── 01e-dataviz/               #   CPU — branded animated charts/counters from data.json (ADR 0005)
+│   ├── 01e-dataviz/               #   CPU — branded charts/counters via the shared compositor (ADR 0005/0007)
 │   ├── 02-voice/                  #   CPU — Kokoro-82M (text-normalization + prosody)
 │   ├── 03-subtitles/              #   CPU — WhisperX int8 (designed captions)
 │   ├── 04-music/                  #   CPU — taxonomy-matched track + SFX, ducked mix
-│   ├── 05-render/                 #   CPU — ffmpeg, word-timed cuts, per-platform cuts, CTA bump + loop + end-card
+│   ├── 05-render/                 #   format-aware compositor (headless-Chromium layouts) + NVENC; cuts, CTA, loop, end-card (ADR 0007)
 │   ├── 05b-qc/                    #   safety gate (pass → continue / fail → quarantine)
 │   ├── 05c-creative-qc/           #   quality gate — judge score vs floor (ADR 0005)
 │   └── 06-distribute/             #   CPU — exactly-once, private-first, AI-disclosure;
