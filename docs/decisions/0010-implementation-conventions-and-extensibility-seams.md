@@ -56,7 +56,7 @@ add runtime capability — no new stage, model, or platform — it shapes how th
      degrades to SELF_ONLY/private as *data*, not a code branch — ADR 0009 D3), rather than a coarse
      boolean.
    - **Model capability backends** (`generate_image(prompt, seed)`, `img2vid(…)`, `tts(…)`,
-     `vlm_judge(…)`, `llm(…)`) — splits today's single host client into per-capability interfaces
+     `vlm_judge(…)`, `llm(…)`, `restore(…)` — 01d upscale/restore) — splits today's single host client into per-capability interfaces
      so every A/B swap on the open list is a **config swap**, not stage surgery. Backend choice
      resolves **per-stage** (00b can run Qwen-32B while 05b runs 14B), and the **judge backend can
      point at a separate CPU/small-model endpoint** so an independent non-Qwen judge (ADR 0009 D4) is

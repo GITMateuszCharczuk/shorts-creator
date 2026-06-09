@@ -234,6 +234,9 @@ the contracts is the work), built to the primitives + acceptance checklist in **
   Validates region/bbox/animation names and — at resolve time — that every `bind` exists in that
   format's typed beat contract, so **adding a format stays data, not code**. The Stage 05 resolve
   step emits a `render_manifest` the Remotion `LayoutEngine` renders as a **pure function** (ADR 0009).
+  The resolve output has its own **`render_manifest.schema.json`**; both `layout.schema.json` and
+  `render_manifest.schema.json` are authored in **M2** (the compositor milestone), not M0 — hence
+  neither appears in the 11-schema M0 list above.
 - **`feature_record.schema.json`** — a **stable per-video record** (chosen format / seed / hook
   variant + judge scores + a reserved metrics slot) written from the first run, so the deferred
   analytics loop (ADR 0002/0005) starts *warm* instead of cold (ADR 0010 D6).

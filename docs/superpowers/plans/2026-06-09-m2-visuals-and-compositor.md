@@ -13,7 +13,7 @@
 - **Data-viz tech (01e): Remotion**, the *same* engine as the compositor (ADR 0007 "one engine, shared by 05 and 01e"). Rejected matplotlib/Plotly→frames: it would be a second rendering stack to maintain and wouldn't share the brand-kit/animation libraries. So 01e and 05 share `remotion/` components.
 - **Determinism bar (ADR 0007a §1/§9):** in the **pinned toolchain image**, the CPU raster of a fixed manifest is asserted **byte-identical** (sha256 of frame PNGs) as a regression tripwire; on any other host the test asserts **SSIM ≥ 0.99** (advisory, not a gate). The golden test auto-detects the pinned image via an env stamp.
 - **`layout.schema.json` is authored here** (M0 deferred it); M2 ships the `ranked_list` + `head_to_head` region specs as data (the ADR 0007a exemplars). The other 6 formats are M3. The region model follows ADR 0007a §3/§4/§7 **verbatim**: inclusive `colA–colB`, vertical = named-anchor **or** `{y,h}` fraction, format-extensible `anchors{}`, the **8-primitive** enum (`MediaZone/TextCard/Badge/KaraokeCaption/DataVizSlot/CitationChip/CTABump/BrandOverlay`), and `bind:"static"` (+ `primitive.params.content`).
-- **`render_manifest.schema.json` is authored here too** — ADR 0007a §2 nominally said "authored M0," but M0 deferred the compositor, so both compositor contracts land in M2. `resolve()`'s output validates against it.
+- **`render_manifest.schema.json` is authored here too** — both compositor contracts (`layout` + `render_manifest`) land in M2 (ADR 0007a §2 and spec Ch.5 now place them here, since M0 deferred the compositor). `resolve()`'s output validates against it.
 - **Generative-stage cache keys include `model_id + graph_version`** (ADR 0010 D4 / 0012 §1) so a model/graph bump is a miss, never a stale hit.
 
 ---

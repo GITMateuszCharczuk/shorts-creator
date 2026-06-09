@@ -52,8 +52,9 @@ insets + CTA verb/icon — same `<Composition>`, three manifests; the ADR 0005 D
 This **refines the ADR 0010 D3 seam** from `render(format_layout, structured_data, brand_kit) →
 frames` to `render(render_manifest) → frames`: resolve is the new pre-engine step that merges those
 three inputs (plus timings + seed) into the manifest, so the engine carries *no* unresolved or
-stochastic input. The manifest gets its own `render_manifest.schema.json` (authored M0) — the
-resolve step's output contract, sibling to `layout.schema.json`. It carries **projected pixel
+stochastic input. The manifest gets its own `render_manifest.schema.json` (**authored in M2**
+alongside `layout.schema.json` — M0 deferred the compositor's contracts, so both land in the M2
+compositor milestone, not M0) — the resolve step's output contract, sibling to `layout.schema.json`. It carries **projected pixel
 bboxes** (post-grid, §7a) plus resolved style values and the SFX/marker frame-indices, so the
 renderer is pure painting with **no geometry of its own**.
 
