@@ -58,8 +58,9 @@ only the primitives the schemas and SDK all depend on.
    `.confirm_posted(video_id, platform) -> PostReceipt | None`;
    `.allowed_visibility(audit_state) -> set[Visibility]`. Model backends:
    `generate_image(prompt, seed) -> Path`, `img2vid(image, seed) -> Path`, `tts(text) -> Path`,
-   `llm(prompt) -> str`, `vlm_judge(frames, script) -> Judgment`. `LayoutEngine.render(layout,
-   data, brand_kit) -> Frames`. The base owns the ledger write protocol; adapters own confirm/
+   `llm(prompt) -> str`, `vlm_judge(frames, script) -> Judgment`. `LayoutEngine.render(render_manifest)
+   -> Frames` (refined by ADR 0007a §2; resolve merges layout/data/brand kit/timings/seed into the
+   manifest). The base owns the ledger write protocol; adapters own confirm/
    reconcile (ADR 0010 D3).
 
 7. **Fakes + golden fixtures.** A fake backend resolves a request to a fixture by

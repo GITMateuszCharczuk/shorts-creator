@@ -54,8 +54,10 @@ Example — `ranked_list` repeating "item card":
 
 3. **The 00b → 05 contract becomes structured, not prose.** `script.json` / the treatment emit
    **typed per-beat layout data** keyed to the format (e.g. `ranked_list` → an ordered
-   `items[]` of `{rank, title, body, media_query}`; `head_to_head` → `{side_a, side_b, verdict}`),
-   so each template has typed fields to bind. This is a real contract change (Ch.5).
+   `items[]` of `{rank, title, body, media_query, stat?}`; `head_to_head` → `{side_a, side_b,
+   verdict, round[]}` with `side_*: {media_query, label}`, `verdict: {text}`, `round: {metrics}`),
+   so each template has typed fields to bind. This is a real contract change (Ch.5). *(Field set
+   pinned + extended by ADR 0007a §7b — `stat?`/`round[]`/sub-shapes added there.)*
 
 4. **One composition engine, shared by 05 (layouts) and 01e (data-viz) — chosen for the
    5070 Ti + 7800X3D.** The technique is **headless-Chromium HTML/CSS templating**: the GPU is

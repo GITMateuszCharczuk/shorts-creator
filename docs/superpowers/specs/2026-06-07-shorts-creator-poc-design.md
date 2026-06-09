@@ -199,7 +199,8 @@ the contracts is the work), built to the primitives + acceptance checklist in **
   (ADR 0009) the generative stages derive from, so best-of-N / FLUX / LTX re-runs are reproducible.
 - **`script.schema.json`** — Stage 00b output: the chosen **`format`** (Chapter 6); **structured
   per-beat layout data keyed to the format** (e.g. `ranked_list` → ordered `items[]` of
-  `{rank, title, body, media_query}`; `head_to_head` → `{side_a, side_b, verdict}`) that the
+  `{rank, title, body, media_query, stat?}`; `head_to_head` → `{side_a, side_b, verdict, round[]}`
+  with `side_*: {media_query, label}`, `verdict: {text}`, `round: {metrics}`) that the
   Stage 05 layout template binds to (ADR 0007); a **`treatment`** block (thesis/angle/tone,
   per-beat visual motif, energy curve — ADR 0005 D1);
   a first-class **`hook`** composite (`{spoken, on_screen_text, first_frame_visual, duration}`)

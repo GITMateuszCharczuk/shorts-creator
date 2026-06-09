@@ -61,11 +61,14 @@ add runtime capability — no new stage, model, or platform — it shapes how th
      resolves **per-stage** (00b can run Qwen-32B while 05b runs 14B), and the **judge backend can
      point at a separate CPU/small-model endpoint** so an independent non-Qwen judge (ADR 0009 D4) is
      a config swap, not a VRAM fight under never-co-resident.
-   - **`LayoutEngine`** (`render(format_layout, structured_data, brand_kit) → frames`) — abstracts
-     the still-unpicked composition engine (Playwright/Motion-Canvas/Remotion, ADR 0007). Note all
-     three candidates share the **same DOM/CSS paradigm**, so this seam is honestly a **license
-     hedge** (deferring the Remotion paid-license question) more than a true engine-portability
-     layer — cheap insurance given the license is genuinely unresolved.
+   - **`LayoutEngine`** (`render(render_manifest) → frames` — refined by ADR 0007a §2 from the
+     earlier 3-arg `render(format_layout, structured_data, brand_kit)`; a pure resolve step now
+     merges layout + data + brand kit + word timings + seed into the manifest, so the engine takes
+     no unresolved input) — abstracts the composition engine (**Remotion**, locked ADR 0007 §4 D4;
+     Playwright/Motion-Canvas remain the tripwire fallback). Note all three candidates share the
+     **same DOM/CSS paradigm**, so this seam is honestly a **license hedge** (the Remotion free
+     ≤3-person terms could reopen on headcount) more than a true engine-portability layer — cheap
+     insurance.
 
 4. **An offline dev harness + content-addressed stage cache.** Because the topology is already
    thin HTTP clients → host (ADR 0001), `HOST_GPU_ENDPOINT` can point at **fake backends that
