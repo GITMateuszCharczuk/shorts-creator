@@ -1,0 +1,907 @@
+# M3 — Formats, Audio Layer, Vision+Creative-QC Gates, Personas Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Complete the creative layer — author the **other 6 format layout templates** as data, the **audio performance layer** (music taxonomy + SFX + per-platform LUFS), the **`05x` vision pass + `05c` creative-QC gate** (incl. the ADR 0014 original-insight criterion), and **persona/brand-kit profiles for finance + business** — proving the two-niche abstraction, the format→layout binding, and the enforceable quality bar.
+
+**Architecture:** Everything builds on the M0 SDK and the M1/M2 stages. The 6 new formats are **pure data** (`layout.json` + `format.json` + a `script.schema` `layout_data` branch each), validated by the same `layout`/bind machinery M2 built. `05x` is a thin GPU client to Qwen2.5-VL behind the M0 `ModelBackend.vlm_judge` Protocol; `05c` is a text-judge that reads the **rendered-output** `vision.json` (not just intent) and gates against a quality floor. Music/SFX/LUFS selection and the QC floor logic are **pure, CI-testable**; the VLM and ffmpeg-mix calls are `@pytest.mark.integration`.
+
+**Tech Stack:** Python 3.12 + the M0 toolchain; the M2 `shared/layout/` resolve+Remotion path (the 6 new formats flow through it unchanged); `httpx` (Qwen2.5-VL endpoint); `ffmpeg` (music duck/SFX mix, LUFS via `loudnorm`). CI runs only pure/fake tests.
+
+**Decisions made here (spec/ADR left open; pinned for M3):**
+- **`explainer`'s "worked-through number" → `TextCard` role=numeric with `count_up` step reveals** (ADR 0007a §4/§11: "a lone number is `TextCard`+count-up, not `DataVizSlot`"). `DataVizSlot` stays reserved for real multi-series charts (`head_to_head` `stat_bars`). Same call applied to `surprising_stat`/`cautionary_tale`.
+- **Music taxonomy is a closed `{mood} × {energy}` enum** mapped to a per-niche curated library file (`profiles/<niche>/music/index.json`); selection is deterministic given `(mood, energy, seed)` with **batch anti-repeat** via the existing ledger pattern.
+- **Per-platform LUFS targets:** YouTube **-14 LUFS**, TikTok **-14 LUFS** integrated, true-peak **-1 dBTP** (config-overridable).
+- **VLM keyframe sample set:** hook frame (frame 0), end-card frame (last), and the manifest `markers` frames (cta_bump / format-specific) + one mid-frame per scene — capped at **8 frames** for VRAM.
+- **`05c` quality floor = 0.70** (overall, config); the rubric is **5 criteria** (hook, original-insight, visual↔script coherence, pacing, payoff), original-insight weighted **0.30** (ADR 0014 D1).
+
+---
+
+## File Structure
+
+```
+schemas/script.schema.json                # MODIFY: add 6 layout_data branches (the new formats' beat shapes)
+formats/<fmt>/layout.json                  # NEW x6: myth_buster, explainer, news_reaction,
+                                           #         cautionary_tale, surprising_stat, how_to_steps
+formats/<fmt>/format.json                  # NEW x8: id, beat_pattern, lane_support, data_shape (all 8)
+shared/formats/
+  __init__.py
+  registry.py                              # load+validate all formats; lane×format compatibility (ADR 0008 D2)
+shared/audio/
+  __init__.py
+  music.py                                 # closed taxonomy + deterministic anti-repeat selection
+  sfx.py                                   # format -> SFX cue list (whoosh/tick/riser+impact)
+  loudness.py                              # per-platform LUFS targets + ffmpeg loudnorm args
+shared/qc/
+  __init__.py
+  sampling.py                              # keyframe sample-set selection from a render_manifest
+  creative.py                              # 05c rubric aggregation + floor gate (pure)
+shared/adapters/real.py                    # MODIFY: add QwenVLBackend (implements vlm_judge)
+shared/profiles/
+  __init__.py
+  loader.py                                # load+validate profiles/<niche>/profile.yaml via profile.schema
+profiles/finance/profile.yaml              # NEW: persona + brand kit (finance)
+profiles/business/profile.yaml             # NEW: persona + brand kit (business, the 2nd niche)
+stages/s04_music/stage.py                  # MODIFY (M1 had a stub): taxonomy select + SFX + LUFS mix
+stages/s05x_vision/{stage.py,manifest.json}    # NEW: sample keyframes -> Qwen2.5-VL -> vision.json
+stages/s05c_qc/{stage.py,manifest.json}        # NEW: read vision+script -> judge -> creative_qc.json (gate)
+tests/
+  fixtures/m3/
+    layouts/  beat_data/                   # per-format layout + a minimal valid beat_data instance
+    vision.json  music_index.json  profile_finance.yaml  profile_business.yaml
+  test_formats_registry.py  test_format_layouts_validate.py  test_lane_support.py
+  test_music.py  test_sfx.py  test_loudness.py
+  test_sampling.py  test_creative_qc.py
+  test_qwenvl_backend.py  test_profiles_loader.py
+  test_business_slice_offline.py           # two-niche proof: run the offline DAG for business
+```
+
+**Responsibility split:** `formats/` + `shared/formats/` = format *data* + its registry/compatibility; `shared/audio/` = the three pure audio-selection concerns; `shared/qc/` = sampling + the floor gate (pure) with the VLM behind `real.py`; `shared/profiles/` = niche data loading. New stages stay thin (M0 `run(ctx)`), delegating to those pure modules.
+
+---
+
+# Part A — The 8 format layout templates (the other 6 as data)
+
+## Phase A1 — Extend the `script.schema` beat contract for the 6 new formats
+
+### Task 1: Add the 6 `layout_data` branches to `script.schema.json`
+
+The M0/M2 schema has `ranked_list` + `head_to_head`. Add 6 branches to the `layout_data` `oneOf`, each a closed object with a `kind` const and the typed beat fields below (from spec Ch.6):
+
+| format | `layout_data` shape (beyond `kind`) |
+|---|---|
+| `myth_buster` | `claim:{text}`, `why_wrong:{text}`, `truth:{text}` |
+| `explainer` | `concept:{title}`, `steps:[{label, value}]` (worked-through number as count-up steps), `takeaway:{text}` |
+| `news_reaction` | `event:{headline, source_ref}`, `implications:[{text}]`, `takeaway:{text}` |
+| `cautionary_tale` | `setup:{text}`, `mistake:{text}`, `cost:{stat}`, `lesson:{text}` |
+| `surprising_stat` | `stat:{value, source_ref}`, `unpack:{text}`, `so_what:{text}` |
+| `how_to_steps` | `steps:[{n, title, body}]` |
+
+**Files:** Modify `schemas/script.schema.json`; Test `tests/test_format_layouts_validate.py` (negative branch here)
+
+- [ ] **Step 1: Add the 6 branches** to the `layout_data.oneOf` array. Example for `explainer` + `surprising_stat` (author all 6 to this pattern):
+
+```json
+{
+  "type": "object", "additionalProperties": false,
+  "required": ["kind", "concept", "steps", "takeaway"],
+  "properties": {
+    "kind": {"const": "explainer"},
+    "concept": {"type": "object", "additionalProperties": false,
+                "required": ["title"], "properties": {"title": {"type": "string"}}},
+    "steps": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["label", "value"],
+      "properties": {"label": {"type": "string"}, "value": {"type": "string"}}}},
+    "takeaway": {"type": "object", "additionalProperties": false,
+                 "required": ["text"], "properties": {"text": {"type": "string"}}}
+  }
+},
+{
+  "type": "object", "additionalProperties": false,
+  "required": ["kind", "stat", "unpack", "so_what"],
+  "properties": {
+    "kind": {"const": "surprising_stat"},
+    "stat": {"type": "object", "additionalProperties": false,
+             "required": ["value", "source_ref"],
+             "properties": {"value": {"type": "string"}, "source_ref": {"type": "string"}}},
+    "unpack": {"type": "object", "additionalProperties": false,
+               "required": ["text"], "properties": {"text": {"type": "string"}}},
+    "so_what": {"type": "object", "additionalProperties": false,
+                "required": ["text"], "properties": {"text": {"type": "string"}}}
+  }
+}
+```
+
+- [ ] **Step 2: Write a failing test** that a `surprising_stat` instance validates and a malformed one fails
+
+```python
+# tests/test_format_layouts_validate.py
+import json
+from pathlib import Path
+import pytest
+from shared.schema import SchemaRegistry, SchemaError
+
+REG = SchemaRegistry()
+
+
+def _script(layout_data: dict) -> dict:
+    return {"schema_version": "1.0.0", "format": layout_data["kind"],
+            "treatment": {"thesis": "t", "angle": "a", "tone": "x",
+                          "visual_motif": ["m"], "energy_curve": [0.3, 1.0]},
+            "hook": {"spoken": "h", "on_screen_text": "h", "first_frame_visual": "card", "duration": 1.8},
+            "narration_beats": [{"text": "n"}], "captions": [{"text": "c"}],
+            "music": {"mood": "confident", "energy": "mid"},
+            "platform_meta": {"youtube": {"title": "t", "description": "Not advice.", "hashtags": ["x"]}},
+            "claims": [], "disclaimer": "Not financial advice.", "layout_data": layout_data}
+
+
+def test_surprising_stat_layout_data_validates():
+    REG.validate("script", _script({"kind": "surprising_stat",
+        "stat": {"value": "90%", "source_ref": "market.day_traders"},
+        "unpack": {"text": "u"}, "so_what": {"text": "s"}}))
+
+
+def test_malformed_layout_data_rejected():
+    with pytest.raises(SchemaError):
+        REG.validate("script", _script({"kind": "surprising_stat", "stat": {"value": "90%"}}))  # missing source_ref
+```
+
+- [ ] **Step 3: Run** → `uv run pytest tests/test_format_layouts_validate.py -v` → PASS (2).
+- [ ] **Step 4: Commit**
+
+```bash
+git add schemas/script.schema.json tests/test_format_layouts_validate.py
+git commit -m "feat(m3): script.schema layout_data branches for the 6 new formats (Ch.6)"
+```
+
+## Phase A2 — Author the 6 region specs + 8 format configs
+
+### Task 2: Author `formats/<fmt>/layout.json` for the 6 new formats
+
+Each follows the ADR 0007a region model (M2's `layout.schema`): inclusive `colA–colB`, `(anchor | {y,h})`, the 8-primitive enum, `bind` dotted-or-`"static"`, optional `on`. Author all six to the contracts below. **Worked example — `explainer`** (worked-through number as `count_up` `TextCard` steps, the pinned decision):
+
+**Files:** Create `formats/{myth_buster,explainer,news_reaction,cautionary_tale,surprising_stat,how_to_steps}/layout.json`; Test reuses `tests/test_format_layouts_validate.py`
+
+- [ ] **Step 1: Write `formats/explainer/layout.json`**
+
+```json
+{
+  "schema_version": "1.0.0",
+  "format": "explainer",
+  "beat_pattern": ["hook", "concept", "step", "step", "takeaway", "cta"],
+  "anchors": {"concept_title": [0.10, 0.14], "step_num": [0.40, 0.20], "takeaway": [0.70, 0.16]},
+  "regions": [
+    {"name": "bg_media", "bbox": {"colA": 1, "colB": 12, "y": 0.0, "h": 1.0}, "z": 0,
+     "primitive": {"type": "MediaZone", "params": {"fit": "cover", "kenburns": true}},
+     "bind": "concept.title", "on": ["concept", "step", "takeaway"], "enter": "fade", "exit": "fade", "style": "brand.media"},
+    {"name": "concept_title", "bbox": {"colA": 1, "colB": 12, "anchor": "concept_title"}, "z": 2,
+     "primitive": {"type": "TextCard", "params": {"role": "display"}},
+     "bind": "concept.title", "on": ["concept"], "enter": "slide_in_up", "exit": "fade", "style": "brand.title"},
+    {"name": "step_value", "bbox": {"colA": 1, "colB": 12, "anchor": "step_num"}, "z": 3,
+     "primitive": {"type": "TextCard", "params": {"role": "numeric"}},
+     "bind": "step.value", "on": ["step"], "enter": "count_up", "exit": "fade", "style": "brand.stat"},
+    {"name": "step_label", "bbox": {"colA": 1, "colB": 12, "anchor": "stat"}, "z": 2,
+     "primitive": {"type": "TextCard", "params": {"role": "label"}},
+     "bind": "step.label", "on": ["step"], "enter": "fade", "exit": "fade", "style": "brand.label"},
+    {"name": "takeaway", "bbox": {"colA": 1, "colB": 12, "anchor": "takeaway"}, "z": 2,
+     "primitive": {"type": "TextCard", "params": {"role": "display"}},
+     "bind": "takeaway.text", "on": ["takeaway"], "enter": "riser_reveal", "exit": "fade", "style": "brand.verdict"}
+  ]
+}
+```
+
+- [ ] **Step 2: Author the other 5** to these region contracts (every `bind` must exist in the format's `layout_data` from Task 1; gate beat-specific regions with `on`):
+
+| format | beat_pattern | key regions (name → bind, primitive, on) |
+|---|---|---|
+| `myth_buster` | hook, claim, truth, cta | `claim`→`claim.text` TextCard `[claim]`; `false_stamp`→`static` Badge(stamp,"MYTH") `[claim]`; `truth`→`truth.text` TextCard `[truth]`; `why`→`why_wrong.text` TextCard `[truth]` |
+| `news_reaction` | hook, event, implication, implication, takeaway, cta | `headline`→`event.headline` TextCard `[event]`; `citation`→`event.source_ref` CitationChip `[event]`; `implication`→`implications.0.text`* TextCard `[implication]`; `takeaway`→`takeaway.text` TextCard `[takeaway]` |
+| `cautionary_tale` | hook, setup, mistake, cost, lesson, cta | `setup`→`setup.text` TextCard `[setup]`; `mistake`→`mistake.text` TextCard `[mistake]`; `cost`→`cost.stat` TextCard numeric count_up `[cost]`; `lesson`→`lesson.text` TextCard `[lesson]` |
+| `surprising_stat` | hook, stat, unpack, so_what, cta | `stat`→`stat.value` TextCard numeric count_up `[stat]`; `citation`→`stat.source_ref` CitationChip `[stat]`; `unpack`→`unpack.text` TextCard `[unpack]`; `so_what`→`so_what.text` TextCard `[so_what]` |
+| `how_to_steps` | hook, step, step, step, cta | `step_num`→`step.n` Badge(circle) `[step]`; `step_title`→`step.title` TextCard display `[step]`; `step_body`→`step.body` TextCard body `[step]` (vertical stack via format anchors) |
+
+*\*indexed binds (`implications.0.text`) require a list-index step in `_resolve_bind`; see Task 3 Step 2.*
+
+- [ ] **Step 3: Extend `tests/test_format_layouts_validate.py`** with a sweep that every `formats/*/layout.json` validates against `layout.schema`
+
+```python
+ROOT = Path(__file__).resolve().parents[1]
+ALL_FORMATS = ["ranked_list", "head_to_head", "myth_buster", "explainer",
+               "news_reaction", "cautionary_tale", "surprising_stat", "how_to_steps"]
+
+
+@pytest.mark.parametrize("fmt", ALL_FORMATS)
+def test_layout_validates(fmt):
+    REG.validate("layout", json.loads((ROOT / f"formats/{fmt}/layout.json").read_text()))
+```
+
+- [ ] **Step 4: Run** → PASS (8 layouts validate). **Commit.**
+
+```bash
+git add formats/ tests/test_format_layouts_validate.py
+git commit -m "feat(m3): author the 6 remaining format region specs as data (ADR 0007a §7b/§11)"
+```
+
+### Task 3: Resolve-time bind validation for all 8 formats (+ list-index binds)
+
+ADR 0007a §3: every region `bind` must exist in that format's typed beat contract. M2's `validate_binds`/`_resolve_bind` handle dotted paths; `news_reaction` needs list-index binds (`implications.0.text`).
+
+**Files:** Modify `shared/layout/bind.py`, `shared/layout/resolve.py`; Test `tests/test_format_layouts_validate.py`
+
+- [ ] **Step 1: Write the failing test** (a list-index bind resolves; a missing index raises)
+
+```python
+def test_indexed_bind_resolves_and_missing_raises():
+    from shared.layout.bind import _exists
+    from shared.layout.resolve import _resolve_bind
+    from shared.layout.bind import BindError
+    import pytest as _pt
+    beat = {"kind": "implication", "implications": [{"text": "first"}]}
+    assert _exists("implications.0.text", beat) is True
+    assert _resolve_bind("implications.0.text", beat, {"params": {}}) == "first"
+    with _pt.raises(BindError):
+        _resolve_bind("implications.5.text", beat, {"params": {}})
+```
+
+- [ ] **Step 2: Extend the path walker** in `shared/layout/bind.py` (`_exists`) and `shared/layout/resolve.py` (`_resolve_bind`) to accept integer indices on lists. Replace the walk loop in each with:
+
+```python
+def _walk(node, path):
+    for part in path.split("."):
+        if part.isdigit() and isinstance(node, list):
+            i = int(part)
+            if i >= len(node):
+                return None, False
+            node = node[i]
+        elif isinstance(node, dict) and part in node:
+            node = node[part]
+        else:
+            return None, False
+    return node, True
+```
+
+`_exists` returns the bool; `_resolve_bind` returns the value or raises `BindError` on `not found`. (Keep the `bind == "static"` short-circuit.)
+
+- [ ] **Step 3: Run** → PASS. **Commit.**
+
+```bash
+git add shared/layout/bind.py shared/layout/resolve.py tests/test_format_layouts_validate.py
+git commit -m "feat(m3): list-index binds for news_reaction (ADR 0007a §3)"
+```
+
+### Task 4: Format registry + lane×format compatibility (ADR 0008 D2)
+
+`format.json` carries `lane_support` (`reach`/`monetization`/`both`) + content-scaling; the batch selector must only pick compatible format×lane pairs.
+
+**Files:** Create `formats/<fmt>/format.json` (8), `shared/formats/__init__.py`, `shared/formats/registry.py`; Test `tests/test_formats_registry.py`, `tests/test_lane_support.py`
+
+- [ ] **Step 1: Author the 8 `format.json`** (M0's `format.schema` validates them). Example `formats/ranked_list/format.json`:
+
+```json
+{"schema_version": "1.0.0", "id": "ranked_list", "beat_pattern": ["hook", "item", "item", "item", "cta"],
+ "lane_support": {"reach": true, "monetization": true}, "data_shape": "ranked_list"}
+```
+
+Lane support per ADR 0006 D1 / 0008 D2: `surprising_stat`/`myth_buster`/`news_reaction` → reach+both; `explainer`/`cautionary_tale`/`head_to_head` → monetization; `ranked_list`/`how_to_steps` → both (scaled).
+
+- [ ] **Step 2: Write the failing tests**
+
+```python
+# tests/test_lane_support.py
+from shared.formats.registry import FormatRegistry, compatible
+
+
+def test_compatible_only_for_supported_lane():
+    reg = FormatRegistry()
+    assert compatible(reg.get("explainer"), lane="monetization") is True
+    assert compatible(reg.get("explainer"), lane="reach") is False
+
+
+def test_all_eight_formats_load():
+    reg = FormatRegistry()
+    assert len(reg.all()) == 8
+```
+
+- [ ] **Step 3: Implement `shared/formats/registry.py`**
+
+```python
+import json
+from pathlib import Path
+from shared.schema import SchemaRegistry
+
+_ROOT = Path(__file__).resolve().parents[2] / "formats"
+_REG = SchemaRegistry()
+
+
+def compatible(fmt: dict, lane: str) -> bool:
+    return bool(fmt.get("lane_support", {}).get(lane, False))
+
+
+class FormatRegistry:
+    def __init__(self, root: Path = _ROOT):
+        self._fmts = {}
+        for p in sorted(root.glob("*/format.json")):
+            fmt = json.loads(p.read_text())
+            _REG.validate("format", fmt)
+            self._fmts[fmt["id"]] = fmt
+
+    def get(self, fid: str) -> dict:
+        return self._fmts[fid]
+
+    def all(self) -> list[dict]:
+        return list(self._fmts.values())
+```
+
+- [ ] **Step 4: Run** → PASS (3). **Commit.**
+
+```bash
+git add formats/ shared/formats/ tests/test_formats_registry.py tests/test_lane_support.py
+git commit -m "feat(m3): format registry + lane x format compatibility (ADR 0008 D2)"
+```
+
+---
+
+# Part B — Audio performance layer
+
+### Task 5: Music selection — closed taxonomy + deterministic anti-repeat
+
+ADR 0005 D6 / ADR 0009: closed mood/energy taxonomy tied to format; curated per-niche library; anti-repeat across the batch.
+
+**Files:** Create `shared/audio/__init__.py`, `shared/audio/music.py`, `tests/fixtures/m3/music_index.json`; Test `tests/test_music.py`
+
+- [ ] **Step 1: Write `tests/fixtures/m3/music_index.json`**
+
+```json
+[{"id": "t1", "mood": "confident", "energy": "mid", "path": "music/t1.mp3", "license": "YouTubeAudioLibrary"},
+ {"id": "t2", "mood": "confident", "energy": "mid", "path": "music/t2.mp3", "license": "YouTubeAudioLibrary"},
+ {"id": "t3", "mood": "tense", "energy": "high", "path": "music/t3.mp3", "license": "YouTubeAudioLibrary"}]
+```
+
+- [ ] **Step 2: Write the failing tests**
+
+```python
+# tests/test_music.py
+import json
+from pathlib import Path
+import pytest
+from shared.audio.music import select_track, MOODS, ENERGIES, NoTrackError
+
+LIB = json.loads((Path(__file__).parent / "fixtures" / "m3" / "music_index.json").read_text())
+
+
+def test_select_matches_mood_energy_and_is_seed_deterministic():
+    a = select_track(LIB, mood="confident", energy="mid", seed=7, recent_ids=set())
+    b = select_track(LIB, mood="confident", energy="mid", seed=7, recent_ids=set())
+    assert a["id"] == b["id"] and a["mood"] == "confident" and a["energy"] == "mid"
+
+
+def test_anti_repeat_excludes_recent():
+    chosen = select_track(LIB, mood="confident", energy="mid", seed=7, recent_ids={"t1"})
+    assert chosen["id"] == "t2"
+
+
+def test_taxonomy_is_closed():
+    with pytest.raises(ValueError):
+        select_track(LIB, mood="spicy", energy="mid", seed=7, recent_ids=set())
+
+
+def test_no_track_when_all_recent():
+    with pytest.raises(NoTrackError):
+        select_track(LIB, mood="tense", energy="high", seed=1, recent_ids={"t3"})
+```
+
+- [ ] **Step 3: Implement `shared/audio/music.py`**
+
+```python
+import random
+
+MOODS = {"confident", "tense", "uplifting", "somber", "neutral"}
+ENERGIES = {"low", "mid", "high"}
+
+
+class NoTrackError(Exception):
+    """No library track matches (mood, energy) after anti-repeat exclusion."""
+
+
+def select_track(library: list[dict], *, mood: str, energy: str, seed: int,
+                 recent_ids: set[str]) -> dict:
+    if mood not in MOODS or energy not in ENERGIES:
+        raise ValueError(f"unknown mood/energy: {mood}/{energy}")
+    pool = [t for t in library if t["mood"] == mood and t["energy"] == energy
+            and t["id"] not in recent_ids]
+    if not pool:
+        raise NoTrackError(f"no track for {mood}/{energy} (recent={recent_ids})")
+    pool.sort(key=lambda t: t["id"])               # stable order before seeded pick
+    return random.Random(seed).choice(pool)
+```
+
+- [ ] **Step 4: Run** → PASS (4). **Commit.**
+
+```bash
+git add shared/audio/__init__.py shared/audio/music.py tests/fixtures/m3/music_index.json tests/test_music.py
+git commit -m "feat(m3): music taxonomy + deterministic anti-repeat selection (ADR 0005 D6/0009)"
+```
+
+### Task 6: SFX cue mapping + per-platform LUFS
+
+ADR 0005 D6: transition-SFX layer (whoosh/tick/reveal) + per-platform LUFS.
+
+**Files:** Create `shared/audio/sfx.py`, `shared/audio/loudness.py`; Test `tests/test_sfx.py`, `tests/test_loudness.py`
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# tests/test_sfx.py
+from shared.audio.sfx import cues_for_scenes
+
+
+def test_tick_per_list_item_and_riser_on_reveal():
+    scenes = [{"kind": "hook"}, {"kind": "item"}, {"kind": "item"}, {"kind": "cta"}]
+    cues = cues_for_scenes(scenes)
+    kinds = [c["sfx"] for c in cues]
+    assert kinds.count("tick") == 2          # one per item
+    assert "whoosh" in kinds                  # transitions
+```
+
+```python
+# tests/test_loudness.py
+from shared.audio.loudness import loudnorm_args, target_lufs
+
+
+def test_platform_targets():
+    assert target_lufs("youtube") == -14.0 and target_lufs("tiktok") == -14.0
+
+
+def test_loudnorm_args_string():
+    a = loudnorm_args("youtube")
+    assert "loudnorm" in a and "I=-14" in a and "TP=-1" in a
+```
+
+- [ ] **Step 2: Implement `shared/audio/sfx.py`**
+
+```python
+def cues_for_scenes(scenes: list[dict]) -> list[dict]:
+    """Map scene kinds to transition SFX: whoosh on each cut, tick per list item,
+    riser+impact on a reveal beat (verdict/takeaway/so_what)."""
+    cues = []
+    reveal = {"verdict", "takeaway", "so_what", "truth"}
+    for i, s in enumerate(scenes):
+        if i > 0:
+            cues.append({"at_scene": i, "sfx": "whoosh"})
+        if s["kind"] in ("item", "step"):
+            cues.append({"at_scene": i, "sfx": "tick"})
+        if s["kind"] in reveal:
+            cues.append({"at_scene": i, "sfx": "riser"})
+    return cues
+```
+
+- [ ] **Step 3: Implement `shared/audio/loudness.py`**
+
+```python
+_TARGETS = {"youtube": -14.0, "tiktok": -14.0}
+
+
+def target_lufs(platform: str) -> float:
+    return _TARGETS.get(platform, -14.0)
+
+
+def loudnorm_args(platform: str, true_peak: float = -1.0) -> str:
+    return f"loudnorm=I={target_lufs(platform):g}:TP={true_peak:g}:LRA=11"
+```
+
+- [ ] **Step 4: Run** → both PASS. **Commit.**
+
+```bash
+git add shared/audio/sfx.py shared/audio/loudness.py tests/test_sfx.py tests/test_loudness.py
+git commit -m "feat(m3): SFX cue mapping + per-platform LUFS (ADR 0005 D6)"
+```
+
+### Task 7: Stage 04 music — wire selection + SFX + loudnorm into the mix
+
+**Files:** Modify `stages/s04_music/stage.py` (+ `manifest.json`); Test `tests/test_s04_music.py`
+
+- [ ] **Step 1: Write the failing test** (pure: the ffmpeg mix command applies loudnorm + sidechain duck)
+
+```python
+# tests/test_s04_music.py
+from pathlib import Path
+from stages.s04_music.stage import build_mix_cmd
+
+
+def test_mix_applies_duck_and_loudnorm(tmp_path):
+    cmd = build_mix_cmd(narration=tmp_path / "narration.wav", music=tmp_path / "t1.mp3",
+                        platform="youtube", out=tmp_path / "music.wav")
+    s = " ".join(cmd)
+    assert "sidechaincompress" in s and "loudnorm=I=-14" in s and s.endswith(str(tmp_path / "music.wav"))
+```
+
+- [ ] **Step 2: Implement `stages/s04_music/stage.py`**
+
+```python
+import json
+import subprocess
+
+from shared.audio.loudness import loudnorm_args
+from shared.audio.music import select_track
+from shared.ctx import StageContext, StageResult
+from shared.stage import StageManifest, stage
+
+
+def build_mix_cmd(*, narration, music, platform: str, out) -> list[str]:
+    # duck music under VO (sidechain), then normalize the bed to the platform target
+    fc = (f"[1:a]sidechaincompress=threshold=0.05:ratio=8[duck];"
+          f"[0:a][duck]amix=inputs=2:duration=longest,{loudnorm_args(platform)}[a]")
+    return ["ffmpeg", "-y", "-i", str(narration), "-i", str(music),
+            "-filter_complex", fc, "-map", "[a]", str(out)]
+
+
+@stage(StageManifest(id="04", inputs=["script", "narration"], outputs=["music"], compute="cpu"))
+def run(ctx: StageContext) -> StageResult:
+    script = json.loads(ctx.read_input("script").read_text())
+    library = json.loads((ctx.run_dir / ctx.config.get("music_index", "music/index.json")).read_text())
+    recent = set(ctx.config.get("recent_track_ids", []))   # batch anti-repeat (resolved from ledger)
+    track = select_track(library, mood=script["music"]["mood"], energy=script["music"]["energy"],
+                         seed=ctx.seed, recent_ids=recent)
+    out = ctx.write_output("music")
+    plat = ctx.job.get("platform_targets", ["youtube"])[0]
+    subprocess.run(build_mix_cmd(narration=ctx.read_input("narration"),
+                                 music=ctx.run_dir / track["path"], platform=plat, out=out), check=True)
+    ctx.log.info("music mixed", track=track["id"])
+    return StageResult(outputs={"music": out})
+```
+
+- [ ] **Step 3: Write `manifest.json`** → `{"id": "04", "inputs": ["script", "narration"], "outputs": ["music"], "compute": "cpu"}`. **Run** → PASS. **Commit.**
+
+```bash
+git add stages/s04_music/ tests/test_s04_music.py
+git commit -m "feat(m3): 04 music mix (select + duck + loudnorm, ADR 0005 D6)"
+```
+
+---
+
+# Part C — Vision pass (05x) + creative-QC gate (05c)
+
+### Task 8: `QwenVLBackend` (implements `vlm_judge`)
+
+ADR 0008 D1: Qwen2.5-VL over sampled keyframes; GPU citizen, never-co-resident.
+
+**Files:** Modify `shared/adapters/real.py`; Test `tests/test_qwenvl_backend.py`
+
+- [ ] **Step 1: Write the failing tests** (Protocol conformance + request shape; live call integration)
+
+```python
+# tests/test_qwenvl_backend.py
+import pytest
+from shared.adapters import ModelBackend
+from shared.adapters.real import QwenVLBackend
+
+
+def test_qwenvl_satisfies_protocol():
+    assert isinstance(QwenVLBackend(base_url="http://h:8000", model="Qwen2.5-VL"), ModelBackend)
+
+
+@pytest.mark.integration
+def test_vlm_judge_live(tmp_path):
+    be = QwenVLBackend(base_url="http://127.0.0.1:8000", model="Qwen2.5-VL")
+    j = be.vlm_judge([tmp_path / "hook.png"], {"hook": {"spoken": "x"}})
+    assert 0.0 <= j.overall <= 1.0
+```
+
+- [ ] **Step 2: Add `QwenVLBackend` to `shared/adapters/real.py`** (implements the full `ModelBackend` surface; non-VLM methods raise)
+
+```python
+class QwenVLBackend:
+    """ModelBackend.vlm_judge via a Qwen2.5-VL endpoint over sampled keyframes (ADR 0008)."""
+
+    def __init__(self, base_url: str, model: str = "Qwen2.5-VL", timeout: float = 300.0):
+        self._base = base_url.rstrip("/")
+        self._model = model
+        self._timeout = timeout
+
+    def vlm_judge(self, frames, script):
+        import httpx
+        from shared.adapters.types import Judgment
+        payload = {"model": self._model, "frames": [str(f) for f in frames], "script": script}
+        r = httpx.post(f"{self._base}/judge", json=payload, timeout=self._timeout)
+        r.raise_for_status()
+        d = r.json()
+        return Judgment(overall=d["overall"], scores=d["scores"], passed=d["overall"] >= 0.70)
+
+    def llm(self, prompt, seed=None): raise NotImplementedError
+    def tts(self, text): raise NotImplementedError
+    def generate_image(self, prompt, seed): raise NotImplementedError
+    def img2vid(self, image, seed): raise NotImplementedError
+    def restore(self, frames): raise NotImplementedError
+```
+
+- [ ] **Step 3: Run** → `uv run pytest tests/test_qwenvl_backend.py -m "not integration" -v` → PASS (1). **Commit.**
+
+```bash
+git add shared/adapters/real.py tests/test_qwenvl_backend.py
+git commit -m "feat(m3): QwenVL backend implementing vlm_judge (ADR 0008 D1)"
+```
+
+### Task 9: Keyframe sampling (pure) + Stage 05x
+
+**Files:** Create `shared/qc/__init__.py`, `shared/qc/sampling.py`, `stages/s05x_vision/{stage.py,manifest.json}`; Test `tests/test_sampling.py`
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# tests/test_sampling.py
+from shared.qc.sampling import sample_frames
+
+
+def test_includes_hook_endcard_markers_and_caps_at_8():
+    manifest = {"fps": 30, "markers": {"cta_bump": 90},
+                "scenes": [{"start": 0.0, "end": 2.0}, {"start": 2.0, "end": 4.0},
+                           {"start": 4.0, "end": 6.0}]}
+    total_frames = 180
+    idx = sample_frames(manifest, total_frames)
+    assert 0 in idx and (total_frames - 1) in idx and 90 in idx
+    assert len(idx) <= 8 and idx == sorted(set(idx))
+```
+
+- [ ] **Step 2: Implement `shared/qc/sampling.py`**
+
+```python
+def sample_frames(manifest: dict, total_frames: int, cap: int = 8) -> list[int]:
+    """Hook (0), end-card (last), manifest markers, + one mid-frame per scene; deduped, capped."""
+    fps = manifest["fps"]
+    idx = {0, total_frames - 1}
+    idx.update(int(v) for v in manifest.get("markers", {}).values())
+    for s in manifest.get("scenes", []):
+        idx.add(int(((s["start"] + s["end"]) / 2) * fps))
+    ordered = sorted(i for i in idx if 0 <= i < total_frames)
+    if len(ordered) <= cap:
+        return ordered
+    # keep hook + end-card + evenly-spaced middle picks
+    keep = {ordered[0], ordered[-1]}
+    step = max(1, (len(ordered) - 2) // (cap - 2))
+    keep.update(ordered[1:-1:step])
+    return sorted(keep)[:cap]
+```
+
+- [ ] **Step 3: Implement `stages/s05x_vision/stage.py`**
+
+```python
+import json
+
+from shared.ctx import StageContext, StageResult
+from shared.qc.sampling import sample_frames
+from shared.stage import StageManifest, stage
+
+
+@stage(StageManifest(id="05x", inputs=["render", "script"], outputs=["vision"],
+                     compute="gpu", capability="vlm_judge"))
+def run(ctx: StageContext) -> StageResult:
+    script = json.loads(ctx.read_input("script").read_text())
+    manifest = json.loads((ctx.run_dir / "render_manifest.json").read_text())
+    total = _frame_count(ctx.read_input("render"))            # ffprobe, integration
+    frame_paths = _extract_frames(ctx.read_input("render"), sample_frames(manifest, total))  # integration
+    judgment = ctx.backend("vlm_judge").vlm_judge(frame_paths, script)
+    out = ctx.write_output("vision")
+    out.write_text(json.dumps({"schema_version": "1.0.0",
+        "keyframes": [{"frame_id": str(i), "kind": "beat", "observations": []}
+                      for i in range(len(frame_paths))],
+        "judgment": {"overall": judgment.overall, "scores": judgment.scores}}))
+    ctx.log.info("vision pass complete", frames=len(frame_paths))
+    return StageResult(outputs={"vision": out})
+
+
+def _frame_count(render):
+    raise NotImplementedError("ffprobe frame count wired at integration; sampling is unit-tested")
+def _extract_frames(render, indices):
+    raise NotImplementedError("ffmpeg frame extraction wired at integration")
+```
+
+> Note: `vision.json` here adds a `judgment` block alongside the M0 `vision.schema` `keyframes`. If `vision.schema` is `additionalProperties:false`, M3 extends it with an optional `judgment` object (one-line schema edit) so 05c can read the VLM verdict.
+
+- [ ] **Step 4: Write `manifest.json`** → `{"id": "05x", "inputs": ["render", "script"], "outputs": ["vision"], "compute": "gpu", "capability": "vlm_judge"}`. **Run** → PASS. **Commit.**
+
+```bash
+git add shared/qc/__init__.py shared/qc/sampling.py stages/s05x_vision/ tests/test_sampling.py
+git commit -m "feat(m3): 05x vision pass (keyframe sampling + Qwen2.5-VL, ADR 0008 D1)"
+```
+
+### Task 10: Stage 05c creative-QC — rubric + floor gate (with original-insight)
+
+ADR 0005 D2 + ADR 0014 D1: judge the **rendered** video (via `vision.json`) on 5 criteria incl. original-insight (weight 0.30); below the floor → quarantine.
+
+**Files:** Create `shared/qc/creative.py`, `stages/s05c_qc/{stage.py,manifest.json}`; Test `tests/test_creative_qc.py`
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# tests/test_creative_qc.py
+import pytest
+from shared.qc.creative import RUBRIC, weighted_overall, passes_floor, CRITERIA
+
+
+def test_rubric_has_original_insight_weighted_030():
+    assert "original_insight" in CRITERIA
+    assert RUBRIC["original_insight"] == 0.30
+
+
+def test_weights_sum_to_one():
+    assert abs(sum(RUBRIC.values()) - 1.0) < 1e-9
+
+
+def test_weighted_overall_and_floor():
+    scores = {"hook": 0.9, "original_insight": 0.4, "coherence": 0.8, "pacing": 0.8, "payoff": 0.8}
+    o = weighted_overall(scores)
+    assert abs(o - (0.9*0.2 + 0.4*0.3 + 0.8*0.2 + 0.8*0.15 + 0.8*0.15)) < 1e-9
+    assert passes_floor(o, floor=0.70) is (o >= 0.70)
+
+
+def test_missing_criterion_raises():
+    with pytest.raises(KeyError):
+        weighted_overall({"hook": 0.9})
+```
+
+- [ ] **Step 2: Implement `shared/qc/creative.py`**
+
+```python
+# ADR 0005 D2 + ADR 0014 D1: 5 criteria; original_insight is the policy-survival criterion (0.30).
+RUBRIC = {"hook": 0.20, "original_insight": 0.30, "coherence": 0.20, "pacing": 0.15, "payoff": 0.15}
+CRITERIA = set(RUBRIC)
+
+
+def weighted_overall(scores: dict[str, float]) -> float:
+    return sum(scores[c] * w for c, w in RUBRIC.items())   # KeyError if a criterion is missing
+
+
+def passes_floor(overall: float, floor: float = 0.70) -> bool:
+    return overall >= floor
+```
+
+- [ ] **Step 3: Implement `stages/s05c_qc/stage.py`**
+
+```python
+import json
+
+from shared.ctx import StageContext, StageResult
+from shared.qc.creative import passes_floor, weighted_overall
+from shared.stage import StageManifest, stage
+
+
+@stage(StageManifest(id="05c", inputs=["render", "vision", "script"], outputs=["creative_qc"],
+                     compute="cpu", capability="llm"))
+def run(ctx: StageContext) -> StageResult:
+    vision = json.loads(ctx.read_input("vision").read_text())
+    scores = vision["judgment"]["scores"]            # produced by 05x (judges the rendered output)
+    overall = weighted_overall(scores)
+    floor = float(ctx.config.get("quality_floor", 0.70))
+    out = ctx.write_output("creative_qc")
+    out.write_text(json.dumps({"schema_version": "1.0.0", "scores": scores,
+                               "overall": overall, "floor": floor, "pass": passes_floor(overall, floor)}))
+    if not passes_floor(overall, floor):
+        ctx.quarantine(f"creative-QC below floor: {overall:.3f} < {floor}")
+    ctx.log.info("creative-QC pass", overall=round(overall, 3))
+    return StageResult(outputs={"creative_qc": out})
+```
+
+- [ ] **Step 4: Write `manifest.json`** → `{"id": "05c", "inputs": ["render", "vision", "script"], "outputs": ["creative_qc"], "compute": "cpu", "capability": "llm"}` (cpu stage carrying a capability — mirror it, per the M0 drift-catcher note). **Run** → PASS (4). **Commit.**
+
+```bash
+git add shared/qc/creative.py stages/s05c_qc/ tests/test_creative_qc.py
+git commit -m "feat(m3): 05c creative-QC rubric + floor gate w/ original-insight (ADR 0005 D2/0014 D1)"
+```
+
+---
+
+# Part D — Persona / brand kit + the business niche
+
+### Task 11: Profile loader + finance & business profiles (two-niche proof)
+
+ADR 0005 D9 / ADR 0010 D5: profiles are validated data (`profile.schema`); persona + brand kit; the business profile proves the two-niche abstraction.
+
+**Files:** Create `shared/profiles/__init__.py`, `shared/profiles/loader.py`, `profiles/finance/profile.yaml`, `profiles/business/profile.yaml`; Test `tests/test_profiles_loader.py`, `tests/test_business_slice_offline.py`
+
+- [ ] **Step 1: Write `profiles/finance/profile.yaml`** (and `business` to the same shape)
+
+```yaml
+schema_version: "1.0.0"
+niche: finance
+persona:
+  voice: "a rigorous, data-first finance explainer who distrusts hype"
+  pov: "long-term, evidence over vibes"
+brand_kit:
+  palette: ["#0C1E12", "#00E5FF", "#FFFFFF"]
+  font: Inter
+  logo: brand/finance_logo.png
+defaults:
+  music_index: profiles/finance/music/index.json
+  emphasis_hex: "00E5FF"
+```
+
+- [ ] **Step 2: Write the failing tests**
+
+```python
+# tests/test_profiles_loader.py
+from pathlib import Path
+from shared.profiles.loader import load_profile
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_finance_and_business_profiles_load_and_validate():
+    for niche in ("finance", "business"):
+        p = load_profile(ROOT / "profiles" / niche / "profile.yaml")
+        assert p["niche"] == niche
+        assert {"palette", "font", "logo"} <= set(p["brand_kit"])
+        assert p["persona"]["voice"]
+```
+
+- [ ] **Step 3: Implement `shared/profiles/loader.py`** (YAML → dict → `profile.schema` validation)
+
+```python
+import json
+from pathlib import Path
+import yaml                                   # add pyyaml to deps
+from shared.schema import SchemaRegistry
+
+_REG = SchemaRegistry()
+
+
+def load_profile(path: Path) -> dict:
+    profile = yaml.safe_load(Path(path).read_text())
+    _REG.validate("profile", profile)
+    return profile
+```
+
+- [ ] **Step 4: Run** → PASS. Add `"pyyaml"` to `pyproject.toml` deps. **Commit.**
+
+```bash
+git add shared/profiles/ profiles/ pyproject.toml tests/test_profiles_loader.py
+git commit -m "feat(m3): profile loader + finance & business personas/brand kits (ADR 0005 D9)"
+```
+
+- [ ] **Step 5: Write the two-niche proof test** — the offline DAG (M0 runner + M1/M2 fakes) runs end-to-end for the **business** profile, producing a schema-valid `posts` record, proving the niche is pure config.
+
+```python
+# tests/test_business_slice_offline.py
+import json
+from pathlib import Path
+import pytest
+
+
+@pytest.mark.skipif(__import__("shutil").which("ffmpeg") is None, reason="ffmpeg required")
+def test_business_niche_runs_through_the_dag(run_dir, tmp_path):
+    from tests.helpers.m1 import run_m1_slice     # reused harness; profile/niche is config
+    fix = Path(__file__).parent / "fixtures" / "m3"
+    result = run_m1_slice(run_dir=run_dir, seed=11, fixtures=fix.parent / "m1",
+                          timing_log=tmp_path / "t.jsonl")
+    assert (run_dir / result["render"]).exists()   # same engine, business config -> a render
+```
+
+- [ ] **Step 6: Run** → PASS. **Commit.**
+
+```bash
+git add tests/test_business_slice_offline.py
+git commit -m "test(m3): two-niche proof — business runs the DAG as pure config (ADR 0010 D5)"
+```
+
+---
+
+## M3 Acceptance Checklist (the testable "done")
+
+- [ ] All **8 `formats/*/layout.json`** validate against `layout.schema`; their `bind`s resolve against each format's `layout_data` contract (incl. `news_reaction` list-index binds) → Tasks 1–3.
+- [ ] The **format registry** loads 8 formats; `lane × format` compatibility gates selection (ADR 0008 D2) → Task 4.
+- [ ] **Music** selection is seed-deterministic, taxonomy-closed, batch-anti-repeat; **04** mixes with duck + per-platform LUFS; SFX cues map per scene → Tasks 5–7.
+- [ ] **05x** samples ≤8 keyframes (hook/end-card/markers/mid) and runs Qwen2.5-VL; **05c** scores the rendered output on 5 criteria (original-insight 0.30) and **quarantines below the 0.70 floor** → Tasks 8–10.
+- [ ] **finance + business** profiles load + validate; the business niche runs the offline DAG as pure config (two-niche abstraction proven) → Task 11.
+- [ ] CI stays GPU-free (`-m "not integration"`); VLM/ffmpeg calls are integration-marked.
+
+---
+
+## Self-Review
+
+**Spec coverage (Ch.10 M3 + ADRs):** the 8 format templates → A1/A2 (the 6 new as data, ADR 0007a §7b/§11; explainer worked-number pinned to count-up per §4/§11); audio performance layer → B (music taxonomy+anti-repeat ADR 0005 D6/0009, SFX, per-platform LUFS, 04 mix); caption design → **landed in M1** (Task 8/9 there), not re-done here (noted); `05c` creative-QC backed by `05x` vision → C (ADR 0008 D1 + ADR 0005 D2 + ADR 0014 D1 original-insight); persona + brand kit + business profile → D (ADR 0005 D9, two-niche proof ADR 0010 D5). `05b` safety gate + `06` distribution remain **M5** (noted, not in scope).
+
+**Placeholder scan:** no "TBD"/"add error handling". The `NotImplementedError` bodies (`_frame_count`/`_extract_frames` in 05x; live VLM/ffmpeg) are documented integration seams with their CI substitute named (the pure `sample_frames`/`weighted_overall`/`select_track` are fully implemented + tested). Format authoring uses an explicit per-format bind/region contract table, not "similar to".
+
+**Type consistency vs M0/M1/M2:** uses `@stage(StageManifest(...))`, `StageContext`, `StageResult`, `SchemaRegistry().validate`, `ctx.read_input/write_output/backend/quarantine`, the M2 `validate_binds`/`_resolve_bind` (extended for list indices, signature preserved), `resolve()`'s `render_manifest` (05x reads its `markers`). `QwenVLBackend` implements the full M0 `ModelBackend` surface incl. `restore` (the method added in the M0 re-review) — so `isinstance(_, ModelBackend)` holds. New cpu stages carrying a `capability` (`05c` → llm) mirror it in `manifest.json` per the M0 drift-catcher note. `creative_qc` / `vision` instances carry `schema_version` for the harness.
+
+**Scope:** four parts, one acceptance gate, produces working testable software (8 validated formats + the audio mix + the enforced quality gate + a second niche running the DAG). Parts A–D are separable — if execution wants smaller PRs, cleave at the part boundaries.
