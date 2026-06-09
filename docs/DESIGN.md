@@ -213,9 +213,11 @@ genuine gaps. AI video always carries an "AI look", so we minimise it.
 - **License:** ✅ commercial. We store provenance per track for auditability.
 
 ### Stage 5 — Render / mux (CPU compositor + GPU NVENC)
-- **Purpose:** **Format-aware compositor** (ADR 0007) — bind the format's `layout` template
-  (regions/animation/transitions, all 8 archetypes) via a headless-Chromium engine, then mix
-  VO & music + **finishing polish** → final 9:16 MP4. Engine shared with data-viz; encode on NVENC.
+- **Purpose:** **Format-aware compositor** (ADR 0007 / **0007a**) — a `pure(render_manifest)`
+  resolve step binds the format's `layout` template (hybrid region data + closed primitive/animation
+  libraries) and the **Remotion** engine paints frames at **30 fps** (CPU raster, deterministic),
+  then mix VO & music + **finishing polish** → final 9:16 MP4. Engine shared with data-viz;
+  encode on NVENC.
 - **Tool:** **Remotion** (headless-Chromium HTML/CSS; **locked** — free ≤3-person tier, ADR 0007) +
   **ffmpeg/`h264_nvenc`** (overlay `.ass`, audio mix, 1080×1920, **per-format
   length** ~20–35s/~61–90s, H.264/AAC, faststart). NVENC on the 5070 Ti for fast encode.

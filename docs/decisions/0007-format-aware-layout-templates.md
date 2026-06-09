@@ -108,6 +108,14 @@ Example — `ranked_list` repeating "item card":
   call.~~ **Resolved (2026-06-09): Remotion**, under its free ≤3-person terms (D4) — the project
   is committed to staying ≤3 people, so the company-license cost does not apply. Playwright/
   Motion-Canvas stay on file as the fallback if that ≤3-person tripwire ever fires.
-- The **per-format region specs + a shared animation/transition library** (8 layouts).
-- **Target fps** (24/30) and the **re-measured throughput** with the compositor + NVENC.
-- How much **GPU-accelerated Chromium** (ANGLE/EGL) helps vs pure-CPU rasterization on this box.
+- ~~The **per-format region specs + a shared animation/transition library** (8 layouts).~~
+  **Resolved in [ADR 0007a](0007a-layout-template-design.md):** the hybrid region model +
+  `layout.schema.json`, the closed **primitive** library (`MediaZone`/`TextCard`/`Badge`/
+  `KaraokeCaption`/`DataVizSlot`/`CitationChip`/`CTABump`/`BrandOverlay`) and **animation/
+  transition** library (6 enter/exit + 4 transitions, feel via params+SFX), and **2 of 8** exemplar
+  templates (`ranked_list`, `head_to_head`); the other 6 authored as data in M3.
+- ~~**Target fps** (24/30)~~ **Resolved: 30** (0007a §8). The **re-measured throughput** has a
+  specified **method** (0007a §9) to *run* on the box in M2, folded into the Ch.7 reconciliation.
+- ~~How much **GPU-accelerated Chromium** (ANGLE/EGL) helps vs pure-CPU rasterization on this box.~~
+  **Resolved: pure-CPU raster + NVENC encode** (0007a §8) — GPU-Chromium (and the pinned-driver
+  middle path) rejected as non-deterministic; revisit only on a measured Stage-05 bottleneck.
