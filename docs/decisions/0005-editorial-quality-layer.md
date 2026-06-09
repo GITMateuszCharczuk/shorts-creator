@@ -45,7 +45,11 @@ slideshow" — the precise slop signature the research says is now an account-su
    picker*. The same judge powers a **new `05c` creative-QC gate** that scores the assembled
    video against a **quality floor**; below floor → **quarantine, not auto-post**. `05c` is the
    **quality** gate; `05b` remains the **safety** gate — two distinct gates. This is what makes
-   the DoD's "genuinely good" clause enforceable.
+   the DoD's "genuinely good" clause enforceable. **The "says-something-non-obvious" criterion is
+   elevated to a first-class, floored, enforceable check — "original insight / authentic
+   perspective," fed by the treatment thesis + persona** — because under the 2026 inauthentic-content
+   policy that property is a **monetization-survival** requirement, not just craft (ADR 0014 D1): a
+   correct-but-generic summary is quarantined, not posted.
 
 3. **The hook is a first-class composite object, not a spoken line.** Variants are **selected**
    (by the judge), not blind-picked; the hook carries `{spoken, on_screen_text,

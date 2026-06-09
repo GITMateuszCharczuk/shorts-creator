@@ -99,6 +99,14 @@ keywords, CTA) is craft we bake in regardless, so it is worth getting right now.
    multi-part arc and the end-card can become "follow so you don't miss Part 2." Multi-part series
    compound traffic and give the FOMO CTA a concrete payoff.
 
+10. **Per-platform scheduled-publish window (Stage 06, ADR 0014 D3).** Because first-hours engagement
+    velocity is a ranking signal (Context), Stage 06 gains an optional **`publish_window`** — a
+    per-platform, per-niche peak-audience slot a finished render is **held for and posted into**,
+    rather than posting at batch-completion time. Resolved through the normal config precedence
+    (global → niche → platform, ADR 0010 D5); **unset = post immediately**, so it is a no-op for M0.
+    The exactly-once posted-state ledger (ADR 0003 D1) makes a deferred post safe. Default windows
+    need real audience data and are an open item until the analytics loop lands.
+
 ## Consequences
 
 **Positive**

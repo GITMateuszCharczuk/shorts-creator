@@ -51,8 +51,11 @@ reproducible, genuine GPU use) is a first-class requirement, equal to the outcom
 2. **Quality bar — owned and enforced.** Output passes the automated **safety gate (05b)** *and*
    the automated **creative-QC quality gate (05c, ADR 0005)** *and* a human spot-check would call
    it "genuinely good," not "AI slop" — real-footage-first visuals, clean narration, synced
-   captions, a coherent script with a real hook. The creative-QC gate is what makes this clause
-   *enforceable* rather than aspirational: a boring-but-safe video is quarantined, not posted.
+   captions, a coherent script with a real hook, **and an original, non-obvious point of view** (not
+   a generic template fill). The creative-QC gate is what makes this clause *enforceable* rather than
+   aspirational: a boring-but-safe video — or a correct-but-generic one — is quarantined, not posted.
+   The **original-insight** criterion is first-class because under the 2026 inauthentic-content policy
+   it is a **monetization-survival** property, not only an aesthetic one (ADR 0014 D1).
 3. **Real posting.** Videos upload through the **real** YouTube Data API v3 and TikTok Content
    Posting API to **real, live, new accounts**, defaulting to private/unlisted.
 4. **Stability.** The system runs **~1–2 weeks** producing its daily batch without manual
@@ -73,8 +76,10 @@ personality creator."* Three ceilings are accepted by design: (1) **faceless + s
 on-camera presence and bounded vocal emotion, a notch below charismatic hosts; (2) **no trending-
 audio jacking** — the strike-safe music rule (Ch.9) structurally blocks riding trending commercial
 sounds, a real TikTok reach cost we trade for account safety; (3) **bounded humor / hot-takes /
-lived experience** — LLM scripting under YMYL stays educational and third-person. These are
-known limits, not surprises.
+lived experience** — LLM scripting under YMYL stays educational and third-person; (4) **no automated
+community engagement** — unattended and faceless, the pipeline can't reply to comments, so it forgoes
+the creator-reply share of first-hours engagement velocity (ADR 0014 D4). These are known limits, not
+surprises.
 
 ## Chapter 2 — Scope
 
@@ -87,7 +92,7 @@ known limits, not surprises.
 | **Pipeline** | Full end-to-end (research → script → visuals → voice → subs → music → render → QC → distribute) | The whole loop on the narrow slice. |
 | **Mode** | **Auto + safety-net** | Automation gated by the QC gate + phased ramp + weekly spot-audit. |
 | **Posting** | **Private-first**; **≥1 public account per platform** (ADR 0004 D4); public = a single per-platform config flag | Decouples engineering from audit timelines we don't control, while still earning a minimum reach/retention signal. |
-| **Cadence** | **1–2 / day / niche** (~2–4/day), phased ramp | Well under YouTube's ~6 uploads/day; the "start small, prove compliance" posture the inauthentic-content policy demands. |
+| **Cadence** | **starts ~1 / day / niche, ramps to 1–2** (~2–4/day ceiling), phased | Well under YouTube's ~6 uploads/day. Cadence is an **enforcement-risk knob**, not just throughput (ADR 0014 D2): the ramp **starts at the low end** and only widens once original-insight output (DoD clause 2) has a track record — fewer, denser, distinctly-original uploads beat volume under the 2026 inauthentic-content policy. |
 | **Hardware** | Single **RTX 5070 Ti, 16 GB** (Blackwell, sm_120) | See Chapter 7 for the GPU budget + toolchain caveat. |
 
 **Out of scope (deferred — architecture must not preclude):**
@@ -716,6 +721,17 @@ percent for this GPU-saturating workload (not the feared 95% loss); the real Win
 Driver discipline (Windows driver only, WSL-Ubuntu CUDA toolkit, cu128, pinned Blackwell Ollama) and
 **data on ext4 not `/mnt/c`** are the setup rules. A thin `scripts/win/shorts.ps1` is the PowerShell
 entry point; the bash scripts stay the single source of truth.
+
+**Decided since (the content-automation best-practice audit → ADR 0014):** benchmarked the design
+against current (2026) short-form practice + the **2026 enforcement climate** (YouTube's
+"inauthentic content" rename + the Jan-2026 mass-termination wave; TikTok's AI-label rules). The
+craft layer already matched best practice; three gaps were folded in — (1) **`05c` enforces
+"original insight / authentic perspective"** and the DoD names it, because the inauthentic-content
+policy makes it a *monetization-survival* property (clause 2); (2) **cadence is enforcement-sensitive**
+— the ramp starts low and widens on a track record, density over volume (Ch.2); (3) a **per-platform
+`publish_window`** captures the first-hours-velocity reach lever (06, config no-op for M0); plus a
+recorded **no-community-engagement** ceiling. Blanket AI-disclosure (ADR 0004/0009) kept as the safe
+choice; granular disclosure deferred.
 
 **Still open (tracked):**
 
