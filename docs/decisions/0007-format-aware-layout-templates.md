@@ -101,8 +101,17 @@ Example — `ranked_list` repeating "item card":
 
 ## Open (tracked)
 
+The **layout design** below is now specified in **[ADR 0007a](0007a-layout-template-design.md)**
+(hybrid data-regions + a closed primitive/animation library on the `LayoutEngine` adapter):
+
 - **Final engine** (MIT-clean Playwright/Motion-Canvas vs Remotion-solo) + the **license** call;
-  locked in the visuals milestone.
-- The **per-format region specs + a shared animation/transition library** (8 layouts).
-- **Target fps** (24/30) and the **re-measured throughput** with the compositor + NVENC.
-- How much **GPU-accelerated Chromium** (ANGLE/EGL) helps vs pure-CPU rasterization on this box.
+  **still open** — locked in the visuals milestone. ADR 0007a is written engine-neutrally so the
+  pick is an implementation of its contract, not a change to it.
+- The **per-format region specs + a shared animation/transition library** — **resolved in 0007a**:
+  the region-spec schema (`layout.schema.json`), the closed primitive + animation/transition
+  libraries, and **2 of 8** exemplar templates (`ranked_list`, `head_to_head`); the other 6 are
+  authored as data in M3.
+- **Target fps** — **resolved: 30** (0007a §8). The **re-measured throughput** has a specified
+  **method** (0007a §9) to *run* on the real box in M2, folded into the Ch.7 reconciliation.
+- **GPU-accelerated Chromium vs pure-CPU** — **resolved: CPU raster** for determinism, **NVENC for
+  the encode** (0007a §8); GPU-Chromium rejected as non-deterministic.

@@ -175,7 +175,7 @@ stay split (perceive→judge), and best-of-N / the vision pass / stills-over-AI-
 | **02 voice** | CPU | Kokoro-82M narration, driven by a **finance text-normalization + pronunciation lexicon** (`$1.5M`, `401(k)`, `FOMC`…) and **per-beat prosody/emphasis/pause markup** incl. a deliberate hook delivery (ADR 0005 D6); the **primary keyword is spoken in the opening lines** (ADR 0006). | `narration.wav` |
 | **03 subtitles** | CPU | WhisperX `int8` **forced-aligned to the known script text** (ADR 0009 — *not* a fresh transcription, which would corrupt `401(k)`/tickers/`$1.5M`; free transcription is a fallback only if alignment fails) → **designed** karaoke captions: brand font, ≤N words on-screen, stroke/shadow, **emphasis-word styling**, animation, **per-platform vertical safe zones** (ADR 0005 D7); the **primary keyword appears as on-screen text in the first 2–3s** (ADR 0006). | `captions.ass/.srt` |
 | **04 music** | CPU | Strike-safe track from a **per-platform curated library** (ADR 0009 — "strike-safe" is platform-scoped: YouTube Audio Library is YouTube-oriented, TikTok pushes non-personal accounts to its Commercial Music Library; cross-platform terms verified, not assumed), **selected by a closed mood/energy taxonomy tied to the format** (anti-repeat across the batch) + a **transition-SFX layer** (whoosh/tick/reveal), ducked under VO (sidechain), **per-platform LUFS** (ADR 0005 D6). | `music.wav` + sfx |
-| **05 render** | CPU compositor + GPU NVENC | **Format-aware compositor** (ADR 0007): binds the format's **`layout`** (named frame regions, per-beat structured data, animation, transitions — all 8 archetypes) via a headless-Chromium HTML/CSS engine on the 7800X3D, **encoded with `h264_nvenc` on the 5070 Ti** (GPU is free at render time). Then **word-timed cuts + visual-change target**, **per-clip color *matching* before** the grade, **brand overlay** + the **mid-roll engagement-CTA bump** (ADR 0005 D10), designed **thumbnail/cover** (TikTok cover = frame 1), a **seamless loop bridge** and a **closing FOMO end-card** (ADR 0006) → **distinct native cuts for YouTube + TikTok** (ADR 0005 D4). | `renders/{youtube,tiktok}.mp4`, `thumbnail.jpg` |
+| **05 render** | CPU compositor + GPU NVENC | **Format-aware compositor** (ADR 0007 / **0007a**): a deterministic **resolve step** binds the format's **`layout`** (named frame regions, per-beat structured data, animation, transitions) + word timings + brand kit + seeded slots into a flat **`render_manifest.json`**, so the render is a **pure function of the manifest** (reproducible, ADR 0009). The `LayoutEngine` paints frames at **30 fps** via **CPU rasterization** on the 7800X3D (deterministic — GPU-Chromium rejected as non-deterministic), **encoded with `h264_nvenc` on the 5070 Ti** (GPU is free at render time; we hash frame PNGs, not the mp4). Per-platform cuts are **manifest deltas, not code paths**. Then **word-timed cuts + visual-change target**, **per-clip color *matching* before** the grade, **brand overlay** + the **mid-roll engagement-CTA bump** (ADR 0005 D10), designed **thumbnail/cover** (TikTok cover = frame 1), a **seamless loop bridge** and a **closing FOMO end-card** (ADR 0006) → **distinct native cuts for YouTube + TikTok** (ADR 0005 D4). | `renders/{youtube,tiktok}.mp4`, `thumbnail.jpg` |
 | **05x vision pass** | →host VLM | **One vision-language pass over sampled keyframes** (hook frame, end-card, per-beat samples) + script + asset manifest — **Qwen2.5-VL** (Apache-2.0), a GPU citizen under the never-co-resident rule, run post-render when FLUX/LTX are evicted (ADR 0008). Feeds **both** gates below so they judge the **rendered output, not just intent**. | `vision.json` |
 | **05b safety gate** | CPU +host LLM | The always-on **account-safety gate** (Chapter 8, ADR 0004 D3): YMYL disclaimer present, no buy/sell calls, sources cited, AI-disclosure set, profanity/claims clear, repetitious-content check vs ledger, render integrity — **+ aesthetic/artifact + audio-defect checks** (morphing hands, temporal warp, garbled AI text, caption occlusion, hook dead-air, loudness, synth-duration), now grounded in the **05x vision pass** (ADR 0005 D8 / ADR 0008). Pass → continue; fail → quarantine. | `qc.json` |
 | **05c creative-QC** | CPU →host LLM | The **quality gate** (ADR 0005 D2), distinct from safety: judge scores the **rendered** video — hook strength, non-obvious take, **visual↔script coherence** and pacing read from the **05x vision pass** (ADR 0008), payoff — vs a **quality floor**. Above floor → distribute; below → **quarantine, not post**. | `creative_qc.json` |
@@ -215,6 +215,13 @@ every stage boundary:
 - **`profile.schema.json` / `format.schema.json`** — niches and format archetypes are **validated
   config, not code** (ADR 0010): adding a niche or a format is a checked data file behind a loader/
   registry, resolved through one precedence layer (**global → niche → batch → per-platform**).
+- **`layout.schema.json`** — the format's **`layout`** recipe (ADR 0007a): named regions
+  (`bbox` in safe-zone-relative 0–1 units, `z`, `bind` to a typed beat-field, `primitive`,
+  `enter`/`exit` animation, `style` token refs) + the beat-composition pattern. Validates region/
+  bbox/animation names and — at resolve time — that every `bind` exists in that format's typed beat
+  contract, so **adding a format stays data, not code**. The Stage 05 **resolve step** emits a
+  `render_manifest` (layout + beat data + word timings + brand kit + seeded slots, fully bound) that
+  the `LayoutEngine` renders as a **pure function** (ADR 0009 reproducibility).
 - **`feature_record.schema.json`** — a **stable per-video record** (chosen format / seed / hook
   variant + judge scores + a reserved metrics slot) written from the first run, so the deferred
   analytics loop (ADR 0002/0005) starts *warm* instead of cold (ADR 0010 D6).
@@ -325,7 +332,10 @@ Rules that keep this honest and non-repetitive:
   per-beat content. E.g. `ranked_list` → a repeating item card (rank badge that ticks in, item
   title ~30% height, background media zone, karaoke body ~60% height, swipe transition). 01a
   fetches the layout's media zones; 03's captions *are* a region; the engine is shared with 01e
-  data-viz.
+  data-viz. The **region model** — a hybrid of declarative region data + a **closed** primitive /
+  animation-transition library on the `LayoutEngine` adapter, with the `ranked_list` + `head_to_head`
+  exemplars and the `layout.schema.json` — is specified in **ADR 0007a**; the other 6 layouts are
+  authored as data in M3.
 - **Length is per-format, two lanes (ADR 0006).** Punchy formats (`news_reaction`,
   `surprising_stat`, `myth_buster`) target **~20–35s** for completion/attention (the **reach
   lane**); depth formats (`explainer`, `ranked_list`, `how_to_steps`, `head_to_head`,
@@ -433,8 +443,12 @@ batches at once** (ADR 0003 D2). Note FLUX (~12 GB) and LTX (~14 GB) are near th
 layer (ADR 0005) **re-opens this baseline**: best-of-N adds N−1 LLM passes and 05c a judge pass
 (both cheap — the LLM is already resident), 01e data-viz adds a CPU stage; the per-video figure
 must be **re-measured**, not assumed. The **format-aware compositor** (ADR 0007) re-opens it
-again — headless-Chromium frame rasterization is new CPU cost, but the GPU is **idle at render
-time** so `h264_nvenc` on the 5070 Ti offsets the encode side. The **05x vision pass** (ADR 0008)
+again — frame rasterization (CPU, **30 fps**, ADR 0007a) is new CPU cost, but the GPU is **idle at
+render time** so `h264_nvenc` on the 5070 Ti offsets the encode side. Because Stage 05 is
+**CPU+NVENC** while the model stages are GPU-compute, it **overlaps** the GPU lane (compositor for
+video *N* while the GPU does diffusion for *N+1*) — a throughput *help*, not a new tax. ADR 0007a §9
+specifies the **re-measurement method** (both duration lanes × 3 platform cuts, the two exemplars as
+fixtures) to *run* on the box and fold in here. The **05x vision pass** (ADR 0008)
 adds one more serialized GPU model. These have re-opened the baseline **four times without ever
 being summed** — so an **end-to-end per-video budget reconciliation** on the real box is now a
 required measurement (the overnight 2–4/day window is probably still fine, but it must be proven).
@@ -606,7 +620,7 @@ not land within the PoC, and the DoD does not depend on it.
 | **M0** | Scaffold & cluster: repo structure, `kind` up, **host GPU verified** (ComfyUI + LLM reachable from a pod — *not* GPU-in-kind, under the host supervisor + lease), Argo installed, **the versioned schemas** (`job/script/assets/provenance/qc/creative_qc/posts/profile/format/feature_record`) + **fail-loud validation harness + golden fixtures**, the **Stage SDK + adapter interfaces** (`DistributionAdapter`/model backends/`LayoutEngine`) and the **fake-backend offline harness + content-addressed stage cache** (ADR 0010), the observability stack bootstrapped, **CI running the full DAG GPU-free**. |
 | **M1** | Vertical slice: `00a (seeded job + numeric grounding) → 00b (Qwen: treatment + best-of-N + judge) → 02 (Kokoro) → 03 (WhisperX, forced-aligned to script) → 05 (ffmpeg, stills + Ken Burns)` → a real `final.mp4` for **finance**. Proves the shape end-to-end. |
 | **M2** | Visuals for real: `01a` stock-first **(CLIP relevance + dedup, format-aware media zones)** + `01b` FLUX fill + `01c` LTX img→video + `01d` upscale/restore + **`01e` data-viz**; **lock the composition engine** (MIT-clean vs Remotion-solo) and stand up the **format-aware compositor** (ADR 0007) — the "not obviously AI" look + the finance signature visual dialed in. |
-| **M3** | The **8 format layout templates** (ADR 0007), audio performance layer (normalization/prosody/music taxonomy/SFX), **caption design**, the **`05c` creative-QC gate** backed by the **`05x` vision pass** (Qwen2.5-VL, ADR 0008), persona + brand kit, **business** profile — proving the two-niche abstraction, the format→layout binding, *and* the quality bar. |
+| **M3** | The **8 format layout templates** (ADR 0007 / **0007a** — region model + closed primitive/animation library already designed with the `ranked_list` + `head_to_head` exemplars; the other 6 authored as **data** against `layout.schema.json`), audio performance layer (normalization/prosody/music taxonomy/SFX), **caption design**, the **`05c` creative-QC gate** backed by the **`05x` vision pass** (Qwen2.5-VL, ADR 0008), persona + brand kit, **business** profile — proving the two-niche abstraction, the format→layout binding, *and* the quality bar. |
 | **M4** | Orchestration: `WorkflowTemplate` + **both entry points** (`CronWorkflow` scheduled / `scripts/trigger.sh` manual, same template; `concurrencyPolicy: Forbid`), the **one-command `scripts/up.sh` lifecycle** (host GPU + Ollama + kind/Argo, idempotent + health-gated) + `down.sh`, **per-video failure domains**, GPU lease + confirm-evicted gate, retries/timeouts, artifacts, **stage-batching + the visual∥audio lane-fork & per-video CPU fan-out** (ADR 0011, behind the timing metric), the phased daily batch. |
 | **M5** | Account-safety gate (`05b`) + distribution (`06`, per-platform adapters + the `posts.jsonl` exactly-once ledger) to YouTube + TikTok; private-first **plus ≥1 public** (YouTube-led; TikTok public audit-gated, ADR 0009); disclosure on; **account provisioning + warming** then the **human-at-publish ramp**; affiliate fields wired (can ship disabled); platform audits submitted in parallel. |
 | **M6** | Hardening + alerts/GC/credential pre-flight wired, then the **1–2 week unattended run** (post-ramp) that satisfies the Chapter 1 definition of done. |
@@ -638,7 +652,12 @@ across caption/on-screen/voiceover; a **closing FOMO follow end-card** (config-d
 becomes a **format-aware compositor** (headless-Chromium HTML/CSS on the 7800X3D + NVENC on the
 5070 Ti) **sharing one engine with 01e data-viz**; the 00b→05 contract becomes **structured
 per-beat data**; 01a stock-fetch becomes **format-aware**; engine stays on the Apache/MIT spine
-(MIT-clean default, Remotion solo-only).
+(MIT-clean default, Remotion solo-only). **The layout design (ADR 0007a)** then fixed the
+**hybrid region model** (declarative region data + a closed primitive / animation-transition library
+on the `LayoutEngine` adapter), the **`layout.schema.json`** contract + a `pure(render_manifest)`
+resolve step, the **`ranked_list` + `head_to_head` exemplars** (other 6 as data in M3), **30 fps**,
+and **CPU rasterization + NVENC** (GPU-Chromium rejected) — leaving only the engine/license lock
+(M2) and the throughput *measurement* open.
 
 **Decided since (the parity review → ADR 0008):** a **shared vision pass** (05x, Qwen2.5-VL) so
 `05b`/`05c` judge the **rendered video, not just intent**; **format↔lane compatibility +
@@ -699,9 +718,12 @@ rejected — wrong place to trade quality for one swap/day).
 7. **Algorithm-fit residue (ADR 0006)** — exact per-format second-ranges + which formats must
    loop; the end-card phrase library + rotation policy; whether `05c` factors a predicted-
    completion heuristic; revisit all against **real** retention data when analytics lands.
-8. **Layout-engine residue (ADR 0007)** — lock the composition engine (MIT-clean Playwright/
-   Motion-Canvas vs Remotion-solo) + the license call; the 8 per-format region specs + shared
-   animation/transition library; target fps; GPU-accelerated Chromium vs pure-CPU on this box.
+8. **Layout-engine residue (ADR 0007 / 0007a)** — **mostly resolved in ADR 0007a**: the hybrid
+   region model + `layout.schema.json`, the closed primitive + animation/transition libraries, the
+   `ranked_list` + `head_to_head` exemplars, **fps = 30**, and **CPU raster + NVENC** (GPU-Chromium
+   rejected). **Still open:** lock the composition engine (MIT-clean Playwright/Motion-Canvas vs
+   Remotion-solo) + the license call (M2); author the other **6 region specs as data** (M3); **run**
+   the 0007a §9 throughput method on the box (rolls into #9's reconciliation).
 9. **Parity residue (ADR 0008)** — the **VLM choice + frame-sampling** strategy and its VRAM cost;
    per-format `lane_support` + content-scaling values; the **end-to-end throughput reconciliation**
    across ADR 0005–0008 on the real box.

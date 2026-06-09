@@ -15,7 +15,9 @@
 > placement + the closing follow CTA by
 > **[ADR 0006](decisions/0006-algorithm-fit-and-format-tuning.md)**; the per-format **layout
 > templates** + the headless-Chromium composition engine (Stage 05 / 01e) by
-> **[ADR 0007](decisions/0007-format-aware-layout-templates.md)**; the shared **vision QC pass**,
+> **[ADR 0007](decisions/0007-format-aware-layout-templates.md)** + its **layout design** (hybrid
+> region model, primitive/animation library, 30fps, CPU raster+NVENC) by
+> **[ADR 0007a](decisions/0007a-layout-template-design.md)**; the shared **vision QC pass**,
 > format↔lane fit, the asset fallback ladder + honest limits by
 > **[ADR 0008](decisions/0008-output-parity-hardening.md)**; deterministic numeric grounding,
 > seed/determinism, forced-aligned captions, per-platform music, account warming + the honest
@@ -309,7 +311,7 @@ shorts-creator/
 │   ├── 02-voice/                  #   CPU — Kokoro-82M (text-normalization + prosody)
 │   ├── 03-subtitles/              #   CPU — WhisperX int8, forced-aligned to script (ADR 0009)
 │   ├── 04-music/                  #   CPU — per-platform taxonomy-matched track + SFX, ducked mix (ADR 0009)
-│   ├── 05-render/                 #   format-aware compositor (headless-Chromium layouts) + NVENC; cuts, CTA, loop, end-card (ADR 0007)
+│   ├── 05-render/                 #   format-aware compositor: pure(render_manifest), 30fps CPU raster + NVENC; cuts, CTA, loop, end-card (ADR 0007/0007a)
 │   ├── 05x-vision/                #   →host Qwen2.5-VL over sampled frames; feeds both gates (ADR 0008)
 │   ├── 05b-qc/                    #   safety gate (pass → continue / fail → quarantine)
 │   ├── 05c-creative-qc/           #   quality gate — judge score vs floor, vision-grounded (ADR 0005/0008)
