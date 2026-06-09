@@ -1418,7 +1418,7 @@ The DAG edges (from spec Ch.4) — each stage's declared inputs→outputs:
 | 01a | script | scenes_stock, provenance | cpu | — |
 | 01b | script, scenes_stock | scenes_gen | gpu | generate_image |
 | 01c | scenes_gen | scenes_motion | gpu | img2vid |
-| 01d | scenes_motion | assets | gpu | generate_image |
+| 01d | scenes_motion | assets | gpu | restore |
 | 01e | data, script | scenes_viz | cpu | — |
 | 02 | script | narration | cpu | tts |
 | 03 | script, narration | captions | cpu | — |
@@ -1508,6 +1508,12 @@ def run(ctx: StageContext) -> StageResult:
                               "format": script["format"], "seed": ctx.seed,
                               "hook_variant_id": "chosen", "judge_scores": {}, "metrics": {}}))
     return StageResult(outputs={"posts": posts, "feature_record": fr})
+```
+
+Its `stages/s06_distribute/manifest.json` **must mirror the `capability`** — a cpu stage does not auto-require one, so the drift-catcher's full `StageManifest` equality fails if it's omitted (same for any cpu stage carrying a capability, e.g. `00b`/`05b`/`05c` with `llm`):
+
+```json
+{"id": "06", "inputs": ["render", "qc", "creative_qc", "script"], "outputs": ["posts", "feature_record"], "compute": "cpu", "capability": "distribution"}
 ```
 
 - [ ] **Step 4: Write `stages/registry.py`** importing every stage module so decorators register

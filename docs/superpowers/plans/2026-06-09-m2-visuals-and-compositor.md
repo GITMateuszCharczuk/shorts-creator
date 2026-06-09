@@ -691,7 +691,7 @@ ADR 0007a: named regions (`bbox` on a 12-col grid + vertical anchors, `z`, `bind
      "bind": "round.metrics", "on": ["round"], "enter": "count_up_stagger", "exit": "fade", "style": "brand.viz"},
     {"name": "verdict", "bbox": {"colA": 2, "colB": 11, "y": 0.42, "h": 0.16}, "z": 5,
      "primitive": {"type": "TextCard", "params": {"role": "display"}},
-     "bind": "verdict.text", "enter": "riser_reveal", "exit": "fade", "style": "brand.verdict"}
+     "bind": "verdict.text", "on": ["verdict"], "enter": "riser_reveal", "exit": "fade", "style": "brand.verdict"}
   ]
 }
 ```
@@ -1248,7 +1248,14 @@ def _beats_from_script(script: dict) -> list[dict]:
     ld = script["layout_data"]
     if ld["kind"] == "ranked_list":
         return [{"kind": "item", "item": it} for it in ld["items"]]
-    return [{"kind": "round", **ld}]  # head_to_head: rounds carry side_a/side_b/verdict
+    # head_to_head: one "round" beat per round (sides + that round's metrics), then a "verdict"
+    # beat — so the beat_pattern arc is real and vs_badge/stat_bars (on:[round]) and verdict
+    # (on:[verdict]) render on their own beats (ADR 0007a §7b).
+    beats = [{"kind": "round", "side_a": ld["side_a"], "side_b": ld["side_b"], "round": rnd}
+             for rnd in ld["round"]]
+    beats.append({"kind": "verdict", "side_a": ld["side_a"], "side_b": ld["side_b"],
+                  "verdict": ld["verdict"]})
+    return beats
 
 
 def _scene_spans(words: list[dict], beat_data: dict) -> list[dict]:
@@ -1279,7 +1286,7 @@ def _safe_rect(platform: str, config: dict) -> dict:
 {"id": "05", "inputs": ["script", "assets", "narration", "captions", "word_timings", "data"], "outputs": ["render"], "compute": "cpu"}
 ```
 
-> Note: `word_timings` is the WhisperX per-word JSON; M1's Stage 03 emits it as a declared output alongside `captions.ass` (a one-line M1 addendum), so 05 consumes it **through the SDK** (`ctx.read_input`) rather than reaching into the run dir.
+> Note: `word_timings` is the WhisperX per-word JSON; M1's Stage 03 now declares it as an output alongside `captions.ass` (landed in the M1 plan), so 05 consumes it **through the SDK** (`ctx.read_input`) rather than reaching into the run dir.
 
 - [ ] **Step 5: Run** → `uv run pytest tests/test_s05_compositor.py -v` → PASS (1); confirm the M0 manifest drift-catcher still passes (the manifest changed, so update the M1 05 manifest expectation if asserted). **Commit.**
 

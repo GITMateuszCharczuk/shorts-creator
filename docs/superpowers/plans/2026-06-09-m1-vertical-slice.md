@@ -377,6 +377,9 @@ class OllamaBackend:
     def vlm_judge(self, frames: list[Path], script: dict) -> Judgment:
         raise NotImplementedError("vlm_judge is an M3 backend")
 
+    def restore(self, frames: list[Path]) -> list[Path]:
+        raise NotImplementedError("restore is an M2 ComfyUI backend")
+
 
 class KokoroBackend:
     """ModelBackend.tts via Kokoro-82M; writes a wav and returns its path."""
@@ -397,7 +400,7 @@ class KokoroBackend:
         sf.write(path, audio, self._sr)
         return path
 
-    def llm(self, prompt: str) -> str:
+    def llm(self, prompt: str, seed: int | None = None) -> str:
         raise NotImplementedError("use OllamaBackend for llm")
 
     def generate_image(self, prompt: str, seed: int) -> Path:
@@ -405,6 +408,8 @@ class KokoroBackend:
     def img2vid(self, image: Path, seed: int) -> Path:
         raise NotImplementedError
     def vlm_judge(self, frames: list[Path], script: dict) -> Judgment:
+        raise NotImplementedError
+    def restore(self, frames: list[Path]) -> list[Path]:
         raise NotImplementedError
 ```
 
@@ -1010,7 +1015,8 @@ def tag_emphasis(aligned: list[dict], emphasis_words: set[str]) -> list[dict]:
     return [{**w, "emphasis": hit(w["word"])} for w in aligned]
 
 
-@stage(StageManifest(id="03", inputs=["script", "narration"], outputs=["captions"], compute="cpu"))
+@stage(StageManifest(id="03", inputs=["script", "narration"], outputs=["captions", "word_timings"],
+                     compute="cpu"))
 def run(ctx: StageContext) -> StageResult:
     script = json.loads(ctx.read_input("script").read_text())
     script_text = " ".join(b["text"] for b in script.get("narration_beats", []))
@@ -1023,8 +1029,10 @@ def run(ctx: StageContext) -> StageResult:
                     safe_bottom_pct=int(ctx.config.get("safe_bottom_pct", 18)))
     out = ctx.write_output("captions")
     out.write_text(ass)
+    wt = ctx.write_output("word_timings")     # word-level timings consumed by Stage 05 (M2 compositor)
+    wt.write_text(json.dumps(words))
     ctx.log.info("captions built", lines=ass.count("Dialogue:"))
-    return StageResult(outputs={"captions": out})
+    return StageResult(outputs={"captions": out, "word_timings": wt})
 
 
 def _align_to_script(narration_wav, script_text: str) -> list[dict]:
@@ -1040,7 +1048,7 @@ def _align_to_script(narration_wav, script_text: str) -> list[dict]:
 - [ ] **Step 4: Write `manifest.json`**
 
 ```json
-{"id": "03", "inputs": ["script", "narration"], "outputs": ["captions"], "compute": "cpu"}
+{"id": "03", "inputs": ["script", "narration"], "outputs": ["captions", "word_timings"], "compute": "cpu"}
 ```
 
 - [ ] **Step 5: Run** → PASS (1). **Commit.**
