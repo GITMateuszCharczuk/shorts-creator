@@ -12,7 +12,8 @@
 - **CLIP relevance model: `open-clip` ViT-B/32 (laion2b_s34b_b79k).** Small, fast on the 5070 Ti, strong enough for beat↔image similarity; bigger ViT-L is deferred A/B (ADR 0005 open). Behind a `ClipRanker` so the model id is a config swap.
 - **Data-viz tech (01e): Remotion**, the *same* engine as the compositor (ADR 0007 "one engine, shared by 05 and 01e"). Rejected matplotlib/Plotly→frames: it would be a second rendering stack to maintain and wouldn't share the brand-kit/animation libraries. So 01e and 05 share `remotion/` components.
 - **Determinism bar (ADR 0007a §1/§9):** in the **pinned toolchain image**, the CPU raster of a fixed manifest is asserted **byte-identical** (sha256 of frame PNGs) as a regression tripwire; on any other host the test asserts **SSIM ≥ 0.99** (advisory, not a gate). The golden test auto-detects the pinned image via an env stamp.
-- **`layout.schema.json` is authored here** (M0 deferred it); M2 ships the `ranked_list` + `head_to_head` region specs as data (the ADR 0007a exemplars). The other 6 formats are M3.
+- **`layout.schema.json` is authored here** (M0 deferred it); M2 ships the `ranked_list` + `head_to_head` region specs as data (the ADR 0007a exemplars). The other 6 formats are M3. The region model follows ADR 0007a §3/§4/§7 **verbatim**: inclusive `colA–colB`, vertical = named-anchor **or** `{y,h}` fraction, format-extensible `anchors{}`, the **8-primitive** enum (`MediaZone/TextCard/Badge/KaraokeCaption/DataVizSlot/CitationChip/CTABump/BrandOverlay`), and `bind:"static"` (+ `primitive.params.content`).
+- **`render_manifest.schema.json` is authored here too** — ADR 0007a §2 nominally said "authored M0," but M0 deferred the compositor, so both compositor contracts land in M2. `resolve()`'s output validates against it.
 - **Generative-stage cache keys include `model_id + graph_version`** (ADR 0010 D4 / 0012 §1) so a model/graph bump is a miss, never a stale hit.
 
 ---
@@ -38,7 +39,7 @@ shared/layout/
   remotion.py                             # Python<->Remotion bridge (write manifest, invoke CLI, collect frames)
   encode.py                               # frames -> h264_nvenc mp4
 remotion/                                  # Node/TS Remotion project (the LayoutEngine + 01e charts)
-  package.json  remotion.config.ts  src/Root.tsx  src/Manifest.tsx
+  package.json  remotion.config.ts  src/index.ts  src/Root.tsx  src/Manifest.tsx
   src/primitives/{Text,Image,Chart,Card,Badge}.tsx
 stages/s01a_stock/{stage.py,manifest.json}
 stages/s01b_imagegen/{stage.py,manifest.json}
@@ -427,6 +428,7 @@ from shared.adapters.real import ComfyUIBackend
 def test_comfy_satisfies_protocol():
     be = ComfyUIBackend(base_url="http://h:8188", graphs={"flux": "g_flux_v3"})
     assert isinstance(be, ModelBackend)
+    assert hasattr(be, "restore")   # restore is part of ModelBackend (added to the M0 Protocol)
 
 
 def test_graph_version_exposed_for_cache_key():
@@ -541,9 +543,9 @@ from shared.layout.remotion import render_component   # shared bridge (Task 11)
 from shared.stage import StageManifest, stage
 
 
-def chart_spec(data: dict, keys: list[str], kind: str, brand: dict) -> dict:
+def chart_spec(data: dict, keys: list[str], kind: str, brand: dict, section: str = "market") -> dict:
     return {"kind": kind, "accent": brand["accent"],
-            "series": [{"label": k, "value": data["market"][k]["value"]} for k in keys]}
+            "series": [{"label": k, "value": data[section][k]["value"]} for k in keys]}
 
 
 @stage(StageManifest(id="01e", inputs=["data", "script"], outputs=["scenes_viz"], compute="cpu"))
@@ -587,6 +589,12 @@ ADR 0007a: named regions (`bbox` on a 12-col grid + vertical anchors, `z`, `bind
     "schema_version": {"type": "string"},
     "format": {"type": "string"},
     "beat_pattern": {"type": "array", "items": {"type": "string"}},
+    "anchors": {
+      "description": "format-local named anchors merged OVER the §7a defaults (name -> [y,h]).",
+      "type": "object",
+      "additionalProperties": {"type": "array", "items": {"type": "number"},
+                               "minItems": 2, "maxItems": 2}
+    },
     "regions": {
       "type": "array",
       "items": {
@@ -595,19 +603,34 @@ ADR 0007a: named regions (`bbox` on a 12-col grid + vertical anchors, `z`, `bind
         "properties": {
           "name": {"type": "string"},
           "bbox": {
+            "description": "ADR 0007a §3/§7a: inclusive colA-colB on a 12-col grid; vertical is EITHER a named anchor OR a literal {y,h} fraction of the safe rect.",
             "type": "object", "additionalProperties": false,
-            "required": ["col", "colspan", "anchor"],
+            "required": ["colA", "colB"],
             "properties": {
-              "col": {"type": "integer", "minimum": 1, "maximum": 12},
-              "colspan": {"type": "integer", "minimum": 1, "maximum": 12},
-              "anchor": {"enum": ["top", "upper", "center", "lower", "bottom"]}
-            }
+              "colA": {"type": "integer", "minimum": 1, "maximum": 12},
+              "colB": {"type": "integer", "minimum": 1, "maximum": 12},
+              "anchor": {"type": "string"},
+              "y": {"type": "number", "minimum": 0, "maximum": 1},
+              "h": {"type": "number", "minimum": 0, "maximum": 1}
+            },
+            "oneOf": [{"required": ["anchor"]}, {"required": ["y", "h"]}]
           },
           "z": {"type": "integer"},
-          "primitive": {"enum": ["Text", "Image", "Chart", "Card", "Badge"]},
-          "bind": {"type": "string"},
-          "enter": {"enum": ["none", "fade", "slide_up", "pop", "count_up"]},
-          "exit": {"enum": ["none", "fade", "slide_down"]},
+          "primitive": {
+            "type": "object", "additionalProperties": false,
+            "required": ["type"],
+            "properties": {
+              "type": {"enum": ["MediaZone", "TextCard", "Badge", "KaraokeCaption",
+                                "DataVizSlot", "CitationChip", "CTABump", "BrandOverlay"]},
+              "params": {"type": "object"}
+            }
+          },
+          "bind": {"type": "string", "description": "dotted beat-field path, or the literal \"static\" (content then from primitive.params.content)"},
+          "on": {"type": "array", "items": {"type": "string"},
+                 "description": "optional: beat kinds this region appears on (gates static regions like vs_badge to round beats)"},
+          "enter": {"enum": ["none", "fade", "slide_in_up", "slide_in_down", "pop",
+                             "count_up", "count_up_stagger", "riser_reveal"]},
+          "exit": {"enum": ["none", "fade", "slide_out_up", "slide_out_down"]},
           "style": {"type": "string"}
         }
       }
@@ -624,14 +647,18 @@ ADR 0007a: named regions (`bbox` on a 12-col grid + vertical anchors, `z`, `bind
   "format": "ranked_list",
   "beat_pattern": ["hook", "item", "item", "item", "cta"],
   "regions": [
-    {"name": "rank_badge", "bbox": {"col": 1, "colspan": 2, "anchor": "upper"}, "z": 2,
-     "primitive": "Badge", "bind": "item.rank", "enter": "pop", "exit": "fade", "style": "brand.badge"},
-    {"name": "media", "bbox": {"col": 1, "colspan": 12, "anchor": "center"}, "z": 0,
-     "primitive": "Image", "bind": "item.media_query", "enter": "fade", "exit": "fade", "style": "brand.media"},
-    {"name": "title", "bbox": {"col": 1, "colspan": 12, "anchor": "lower"}, "z": 2,
-     "primitive": "Text", "bind": "item.title", "enter": "slide_up", "exit": "fade", "style": "brand.title"},
-    {"name": "stat", "bbox": {"col": 8, "colspan": 5, "anchor": "upper"}, "z": 2,
-     "primitive": "Text", "bind": "item.stat", "enter": "count_up", "exit": "fade", "style": "brand.stat"}
+    {"name": "bg_media", "bbox": {"colA": 1, "colB": 12, "y": 0.0, "h": 1.0}, "z": 0,
+     "primitive": {"type": "MediaZone", "params": {"fit": "cover", "kenburns": true}},
+     "bind": "item.media_query", "enter": "fade", "exit": "fade", "style": "brand.media"},
+    {"name": "rank_badge", "bbox": {"colA": 1, "colB": 3, "anchor": "badge"}, "z": 3,
+     "primitive": {"type": "Badge", "params": {"shape": "circle"}},
+     "bind": "item.rank", "enter": "pop", "exit": "fade", "style": "brand.badge"},
+    {"name": "item_title", "bbox": {"colA": 1, "colB": 12, "anchor": "headline"}, "z": 2,
+     "primitive": {"type": "TextCard", "params": {"role": "display"}},
+     "bind": "item.title", "enter": "slide_in_up", "exit": "fade", "style": "brand.title"},
+    {"name": "item_stat", "bbox": {"colA": 1, "colB": 12, "anchor": "stat"}, "z": 2,
+     "primitive": {"type": "TextCard", "params": {"role": "numeric"}},
+     "bind": "item.stat", "enter": "count_up", "exit": "fade", "style": "brand.stat"}
   ]
 }
 ```
@@ -644,14 +671,27 @@ ADR 0007a: named regions (`bbox` on a 12-col grid + vertical anchors, `z`, `bind
   "format": "head_to_head",
   "beat_pattern": ["hook", "round", "round", "verdict", "cta"],
   "regions": [
-    {"name": "side_a_media", "bbox": {"col": 1, "colspan": 6, "anchor": "center"}, "z": 0,
-     "primitive": "Image", "bind": "side_a.media_query", "enter": "slide_up", "exit": "fade", "style": "brand.media"},
-    {"name": "side_b_media", "bbox": {"col": 7, "colspan": 6, "anchor": "center"}, "z": 0,
-     "primitive": "Image", "bind": "side_b.media_query", "enter": "slide_up", "exit": "fade", "style": "brand.media"},
-    {"name": "vs_badge", "bbox": {"col": 5, "colspan": 4, "anchor": "center"}, "z": 3,
-     "primitive": "Badge", "bind": "static:VS", "enter": "pop", "exit": "none", "style": "brand.vs"},
-    {"name": "verdict", "bbox": {"col": 1, "colspan": 12, "anchor": "bottom"}, "z": 2,
-     "primitive": "Text", "bind": "verdict.text", "enter": "fade", "exit": "fade", "style": "brand.verdict"}
+    {"name": "side_a_media", "bbox": {"colA": 1, "colB": 12, "y": 0.0, "h": 0.5}, "z": 0,
+     "primitive": {"type": "MediaZone", "params": {"fit": "cover"}},
+     "bind": "side_a.media_query", "enter": "slide_in_down", "exit": "fade", "style": "brand.media"},
+    {"name": "side_b_media", "bbox": {"colA": 1, "colB": 12, "y": 0.5, "h": 0.5}, "z": 0,
+     "primitive": {"type": "MediaZone", "params": {"fit": "cover"}},
+     "bind": "side_b.media_query", "enter": "slide_in_up", "exit": "fade", "style": "brand.media"},
+    {"name": "side_a_label", "bbox": {"colA": 1, "colB": 8, "y": 0.04, "h": 0.08}, "z": 2,
+     "primitive": {"type": "TextCard", "params": {"role": "label"}},
+     "bind": "side_a.label", "enter": "fade", "exit": "fade", "style": "brand.label"},
+    {"name": "side_b_label", "bbox": {"colA": 1, "colB": 8, "y": 0.88, "h": 0.08}, "z": 2,
+     "primitive": {"type": "TextCard", "params": {"role": "label"}},
+     "bind": "side_b.label", "enter": "fade", "exit": "fade", "style": "brand.label"},
+    {"name": "vs_badge", "bbox": {"colA": 5, "colB": 8, "y": 0.44, "h": 0.12}, "z": 4,
+     "primitive": {"type": "Badge", "params": {"shape": "stamp", "content": "VS"}},
+     "bind": "static", "on": ["round"], "enter": "pop", "exit": "none", "style": "brand.vs"},
+    {"name": "stat_bars", "bbox": {"colA": 2, "colB": 11, "y": 0.40, "h": 0.20}, "z": 3,
+     "primitive": {"type": "DataVizSlot", "params": {"viz": "bars"}},
+     "bind": "round.metrics", "on": ["round"], "enter": "count_up_stagger", "exit": "fade", "style": "brand.viz"},
+    {"name": "verdict", "bbox": {"colA": 2, "colB": 11, "y": 0.42, "h": 0.16}, "z": 5,
+     "primitive": {"type": "TextCard", "params": {"role": "display"}},
+     "bind": "verdict.text", "enter": "riser_reveal", "exit": "fade", "style": "brand.verdict"}
   ]
 }
 ```
@@ -699,7 +739,7 @@ from shared.layout.bind import validate_binds, BindError
 
 
 def test_static_bind_always_ok():
-    validate_binds(["static:VS"], beat_data={})  # no raise
+    validate_binds(["static"], beat_data={})  # no raise (content comes from primitive.params)
 
 
 def test_dotted_bind_must_exist():
@@ -730,7 +770,7 @@ def _exists(path: str, data: dict) -> bool:
 
 def validate_binds(binds: list[str], beat_data: dict) -> None:
     for b in binds:
-        if b.startswith("static:"):
+        if b == "static":            # ADR 0007a §3: literal "static"; content via primitive.params
             continue
         if not _exists(b, beat_data):
             raise BindError(f"region bind {b!r} not in beat data")
@@ -766,27 +806,29 @@ and `brand_kit.json`: `{"accent": "#00E5FF", "font": "Inter", "styles": {"brand.
 import json
 from pathlib import Path
 from shared.layout.resolve import resolve
+from shared.schema import SchemaRegistry
 
 FIX = Path(__file__).parent / "fixtures" / "m2"
+REG = SchemaRegistry()
 
 
 def _load(n): return json.loads((FIX / n).read_text())
 
 
-def test_resolve_emits_flat_manifest_with_a_scene_per_beat():
+def test_resolve_emits_manifest_validating_against_schema():
     m = resolve(layout=_load("layout_ranked_list.json"),
                 beat_data=_load("beat_data_ranked_list.json"),
                 brand_kit=_load("brand_kit.json"),
                 timings=[{"start": 0.0, "end": 2.0}, {"start": 2.0, "end": 4.0}],
                 seed=7)
-    assert m["fps"] == 30 and m["width"] == 1080 and m["height"] == 1920
-    assert m["seed"] == 7
+    REG.validate("render_manifest", m)         # output is a versioned contract (ADR 0007a §2)
+    assert m["fps"] == 30 and m["width"] == 1080 and m["height"] == 1920 and m["seed"] == 7
     assert len(m["scenes"]) == 2
     s0 = m["scenes"][0]
     assert s0["start"] == 0.0 and s0["end"] == 2.0
-    # bound region values are resolved literally into the manifest
-    title = next(r for r in s0["regions"] if r["name"] == "title")
+    title = next(r for r in s0["regions"] if r["name"] == "item_title")
     assert title["value"] == "ACME" and title["style"]["size"] == 72
+    assert set(title["rect"]) == {"x", "y", "w", "h"}     # projected to PIXELS (§7a)
 
 
 def test_resolve_is_pure_deterministic():
@@ -824,52 +866,145 @@ def load_layout(path: Path) -> dict:
     return layout
 ```
 
+- [ ] **Step 3b: Author `schemas/render_manifest.schema.json`** — the resolve step's output contract (ADR 0007a §2 calls for this; M0 deferred the compositor's schemas, so it is authored here alongside `layout.schema.json`). `test_resolve` (Step 2) validates `resolve()`'s output against it.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "render_manifest.schema.json",
+  "schema_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "fps", "width", "height", "seed", "scenes"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "fps": {"type": "integer"}, "width": {"type": "integer"}, "height": {"type": "integer"},
+    "seed": {"type": "integer"}, "accent": {"type": ["string", "null"]},
+    "safe_rect": {"type": "object"}, "markers": {"type": "object"},
+    "scenes": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["start", "end", "kind", "regions"],
+        "properties": {
+          "start": {"type": "number"}, "end": {"type": "number"}, "kind": {"type": "string"},
+          "regions": {
+            "type": "array",
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["name", "primitive", "rect", "z", "value"],
+              "properties": {
+                "name": {"type": "string"}, "primitive": {"type": "object"},
+                "rect": {"type": "object"}, "z": {"type": "integer"},
+                "enter": {"type": "string"}, "exit": {"type": "string"},
+                "value": {}, "style": {"type": "object"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
 - [ ] **Step 4: Implement `shared/layout/resolve.py`**
 
 ```python
 from typing import Any
-from shared.layout.bind import validate_binds
+from shared.layout.bind import BindError, validate_binds
+
+# §7a default named anchors: name -> [y, h] as fractions of the safe rect.
+DEFAULT_ANCHORS = {
+    "badge": [0.06, 0.10], "headline": [0.62, 0.16], "stat": [0.80, 0.12],
+    "label": [0.04, 0.10], "caption": [0.82, 0.12],
+}
 
 
-def _resolve_bind(bind: str, beat: dict) -> Any:
-    if bind.startswith("static:"):
-        return bind[len("static:"):]
+def _standard_regions() -> list[dict]:
+    # §6 standard regions injected into every layout (caption band + brand bug).
+    return [
+        {"name": "caption", "bbox": {"colA": 1, "colB": 12, "anchor": "caption"}, "z": 8,
+         "primitive": {"type": "KaraokeCaption", "params": {}}, "bind": "static",
+         "enter": "none", "exit": "none", "style": "brand.caption"},
+        {"name": "brand_overlay", "bbox": {"colA": 9, "colB": 12, "y": 0.02, "h": 0.06}, "z": 9,
+         "primitive": {"type": "BrandOverlay", "params": {}}, "bind": "static",
+         "enter": "none", "exit": "none", "style": "brand.bug"},
+    ]
+
+
+def _project(bbox: dict, anchors: dict, safe: dict) -> dict:
+    col_w = safe["w"] / 12.0
+    x = safe["x"] + (bbox["colA"] - 1) * col_w
+    w = (bbox["colB"] - bbox["colA"] + 1) * col_w          # colA-colB INCLUSIVE (§7a)
+    if "anchor" in bbox:
+        if bbox["anchor"] not in anchors:
+            raise BindError(f"anchor {bbox['anchor']!r} not in defaults ∪ format anchors (§3)")
+        y_frac, h_frac = anchors[bbox["anchor"]]
+    else:
+        y_frac, h_frac = bbox["y"], bbox["h"]
+    return {"x": round(x), "y": round(safe["y"] + y_frac * safe["h"]),
+            "w": round(w), "h": round(h_frac * safe["h"])}
+
+
+def _applies(region: dict, beat: dict) -> bool:
+    on = region.get("on")
+    if on is not None:                       # explicit beat-kind gate (e.g. vs_badge -> round)
+        return beat["kind"] in on
+    if region["bind"] == "static":           # §6 standard regions ride every beat
+        return True
+    return region["bind"].split(".")[0] in beat   # data-driven: bind root present in this beat
+
+
+def _resolve_bind(bind: str, beat: dict, primitive: dict) -> Any:
+    if bind == "static":
+        return primitive.get("params", {}).get("content")   # §3: content from the primitive
     node: Any = beat
     for part in bind.split("."):
+        if not isinstance(node, dict) or part not in node:
+            raise BindError(f"bind {bind!r} missing in beat {beat.get('kind')!r}")
         node = node[part]
     return node
 
 
-def resolve(*, layout: dict, beat_data: dict, brand_kit: dict,
-            timings: list[dict], seed: int) -> dict:
+def resolve(*, layout: dict, beat_data: dict, brand_kit: dict, timings: list[dict],
+            seed: int, safe_rect: dict | None = None) -> dict:
+    """Pure fn: layout + typed beat data + brand kit + word timings + seed -> render_manifest
+    with PROJECTED PIXEL rects, §6 injected regions, and marker frame-indices (ADR 0007a §2)."""
+    safe = safe_rect or {"x": 0, "y": 0, "w": 1080, "h": 1920}
+    anchors = {**DEFAULT_ANCHORS, **layout.get("anchors", {})}
     beats = beat_data["beats"]
+    all_regions = layout["regions"] + _standard_regions()
     styles = brand_kit.get("styles", {})
-    scenes = []
+    fps = 30
+
+    # author-time bind validation (§3): every non-static bind must exist in the format
+    # contract (union of all beat shapes), regardless of which beat renders it.
+    contract: dict = {}
+    for b in beats:
+        contract.update({k: v for k, v in b.items() if k != "kind"})
+    validate_binds([r["bind"] for r in all_regions], contract)
+
+    scenes, markers = [], {}
     for beat, t in zip(beats, timings):
-        validate_binds([r["bind"] for r in layout["regions"]
-                        if not r["bind"].startswith("static:") and _applies(r, beat)],
-                       beat)
-        regions = []
-        for r in layout["regions"]:
+        regs = []
+        for r in all_regions:
             if not _applies(r, beat):
                 continue
-            regions.append({
-                "name": r["name"], "primitive": r["primitive"], "bbox": r["bbox"],
+            regs.append({
+                "name": r["name"], "primitive": r["primitive"],
+                "rect": _project(r["bbox"], anchors, safe),
                 "z": r["z"], "enter": r.get("enter", "none"), "exit": r.get("exit", "none"),
-                "value": _resolve_bind(r["bind"], beat),
+                "value": _resolve_bind(r["bind"], beat, r["primitive"]),
                 "style": styles.get(r.get("style", ""), {}),
             })
+            if r["name"] in ("cta_bump", "vs_badge"):   # named markers for §10 golden samples
+                markers[r["name"]] = round(t["start"] * fps)
         scenes.append({"start": t["start"], "end": t["end"], "kind": beat["kind"],
-                       "regions": sorted(regions, key=lambda x: x["z"])})
-    return {"fps": 30, "width": 1080, "height": 1920, "seed": seed,
-            "accent": brand_kit.get("accent"), "scenes": scenes}
-
-
-def _applies(region: dict, beat: dict) -> bool:
-    # a region applies to a beat if its (non-static) bind root is present in the beat
-    if region["bind"].startswith("static:"):
-        return True
-    return region["bind"].split(".")[0] in beat
+                       "regions": sorted(regs, key=lambda x: x["z"])})
+    return {"schema_version": "1.0.0", "fps": fps, "width": 1080, "height": 1920, "seed": seed,
+            "accent": brand_kit.get("accent"), "safe_rect": safe, "markers": markers,
+            "scenes": scenes}
 ```
 
 - [ ] **Step 5: Run** → PASS (3). **Commit.**
@@ -885,7 +1020,7 @@ git commit -m "feat(m2): pure resolve step layout+data+brand+timings+seed -> ren
 
 **Files:** Create `remotion/package.json`, `remotion/remotion.config.ts`, `remotion/src/Root.tsx`, `remotion/src/Manifest.tsx`, `remotion/src/primitives/*.tsx`; Create `shared/layout/remotion.py`; Test `tests/test_render_determinism.py` (Task 13 finalizes)
 
-- [ ] **Step 1: Scaffold the Remotion project.** `remotion/src/Manifest.tsx` is a composition that reads `render_manifest.json` (passed as input props) and renders each scene's regions by `primitive` onto a 1080×1920 @30fps canvas using the 5 primitive components (`Text`, `Image`, `Chart`, `Card`, `Badge`), positioning by the 12-col grid + vertical anchor, applying `enter`/`exit` animations. `package.json` pins exact Remotion + Node versions (the determinism contract, ADR 0007a §1).
+- [ ] **Step 1: Scaffold the Remotion project.** `remotion/src/index.ts` is the Remotion entry — it `registerRoot(Root)`; `src/Root.tsx` registers the compositions: `Manifest` (the full `LayoutEngine`) and one per primitive (so 01e can render a single `DataVizSlot` standalone — same components, same engine). `remotion/src/Manifest.tsx` reads `render_manifest.json` (input props) and renders each scene's regions by `primitive.type` onto a 1080×1920 @30fps canvas using the **8 ADR 0007a §4 primitive components** (`MediaZone`, `TextCard`, `Badge`, `KaraokeCaption`, `DataVizSlot`, `CitationChip`, `CTABump`, `BrandOverlay`), positioning from each region's **already-projected pixel `rect`** (resolve did the grid→pixel projection), applying `enter`/`exit` animations by name. `package.json` pins exact Remotion + Node versions (the determinism contract, ADR 0007a §1).
 
 ```json
 // remotion/package.json (excerpt)
@@ -909,16 +1044,31 @@ def render_manifest_to_frames(manifest: dict, out_dir: Path) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = out_dir / "render_manifest.json"
     manifest_path.write_text(json.dumps(manifest, sort_keys=True))
+    raw = out_dir / "raw"
     subprocess.run(
         ["npx", "remotion", "render", "src/index.ts", "Manifest",
-         "--props", str(manifest_path), "--sequence",          # emit PNG frames
-         "--image-format", "png", "--output", str(out_dir / "frames")],
+         "--props", str(manifest_path), "--sequence", "--image-format", "png",
+         "--output", str(raw)],
         cwd=REMOTION_DIR, check=True)
-    return sorted((out_dir / "frames").glob("*.png"))
+    # Remotion --sequence emits element-<n>.png (NOT zero-padded). Renumber to a zero-padded
+    # sequence so ffmpeg's `%05d.png` pattern (encode.py) matches and ordering is numeric
+    # (lexical == numeric once padded) — fixes both the glob mismatch and the sort-order bug.
+    frames_dir = out_dir / "frames"
+    frames_dir.mkdir(exist_ok=True)
+    raws = sorted(raw.glob("*.png"),
+                  key=lambda p: int("".join(c for c in p.stem if c.isdigit()) or 0))
+    out = []
+    for i, src in enumerate(raws):
+        dst = frames_dir / f"{i:05d}.png"
+        dst.write_bytes(src.read_bytes())
+        out.append(dst)
+    return out
 
 
 def render_component(component: str, props: dict, out_dir: Path) -> Path:
-    """Single-component render used by 01e data-viz (shares the Remotion engine, ADR 0007)."""
+    """Renders ONE registered Remotion composition standalone — 01e uses it for the `DataVizSlot`
+    component, the SAME component `Manifest` mounts for the `stat_bars` region — so 01e and 05
+    share the engine AND the chart component, not merely the project (ADR 0007a §1/§4)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     props_path = out_dir / f"{component}.props.json"
     props_path.write_text(json.dumps(props, sort_keys=True))
@@ -1072,19 +1222,20 @@ def platform_delta(manifest: dict, platform: str) -> dict:
     return m
 
 
-@stage(StageManifest(id="05", inputs=["script", "assets", "narration", "captions", "data"],
+@stage(StageManifest(id="05", inputs=["script", "assets", "narration", "captions",
+                                      "word_timings", "data"],
                      outputs=["render"], compute="cpu"))
 def run(ctx: StageContext) -> StageResult:
     script = json.loads(ctx.read_input("script").read_text())
-    data = json.loads(ctx.read_input("data").read_text())
     layout = load_layout(ctx.run_dir / f"formats/{script['format']}/layout.json")
-    timings = json.loads((ctx.run_dir / "aligned_words.json").read_text())  # word timings -> scene spans
+    words = json.loads(ctx.read_input("word_timings").read_text())   # declared input (no SDK bypass)
     brand_kit = json.loads((ctx.run_dir / ctx.config.get("brand_kit", "brand_kit.json")).read_text())
     beat_data = {"beats": _beats_from_script(script)}  # the typed per-beat data 00b emitted
-    manifest = resolve(layout=layout, beat_data=beat_data, brand_kit=brand_kit,
-                       timings=_scene_spans(timings, beat_data), seed=ctx.seed)
-    out = ctx.write_output("render")
     plat = ctx.job.get("platform_targets", ["youtube"])[0]
+    manifest = resolve(layout=layout, beat_data=beat_data, brand_kit=brand_kit,
+                       timings=_scene_spans(words, beat_data), seed=ctx.seed,
+                       safe_rect=_safe_rect(plat, ctx.config))   # per-platform reflow (ADR 0005 D4)
+    out = ctx.write_output("render")
     frames = render_manifest_to_frames(platform_delta(manifest, plat), out.parent)
     subprocess.run(build_nvenc_cmd(frames_glob=str(frames[0].parent / "%05d.png"),
                                    narration=ctx.read_input("narration"),
@@ -1101,15 +1252,34 @@ def _beats_from_script(script: dict) -> list[dict]:
 
 
 def _scene_spans(words: list[dict], beat_data: dict) -> list[dict]:
-    n = len(beat_data["beats"]); total = words[-1]["end"] - words[0]["start"]; per = total / n
-    return [{"start": i * per, "end": (i + 1) * per} for i in range(n)]
+    # word-timed cuts (ADR 0007a §2): partition words into n contiguous groups; each scene
+    # spans its group's first->last word — NOT a flat division.
+    n = len(beat_data["beats"])
+    k, m = divmod(len(words), n)
+    spans, idx = [], 0
+    for s in range(n):
+        size = k + (1 if s < m else 0)
+        grp = words[idx:idx + size]; idx += size
+        spans.append({"start": grp[0]["start"], "end": grp[-1]["end"]} if grp
+                     else {"start": 0.0, "end": 0.0})
+    return spans
+
+
+def _safe_rect(platform: str, config: dict) -> dict:
+    # per-platform safe insets reflow the SAME layout (the load-bearing per-platform delta).
+    insets = {"youtube": {"top": 0.06, "bottom": 0.10}, "tiktok": {"top": 0.08, "bottom": 0.16}}
+    p = insets.get(platform, {"top": 0.06, "bottom": 0.12})
+    return {"x": 0, "y": int(1920 * p["top"]), "w": 1080,
+            "h": int(1920 * (1 - p["top"] - p["bottom"]))}
 ```
 
 - [ ] **Step 4: Update `manifest.json`**
 
 ```json
-{"id": "05", "inputs": ["script", "assets", "narration", "captions", "data"], "outputs": ["render"], "compute": "cpu"}
+{"id": "05", "inputs": ["script", "assets", "narration", "captions", "word_timings", "data"], "outputs": ["render"], "compute": "cpu"}
 ```
+
+> Note: `word_timings` is the WhisperX per-word JSON; M1's Stage 03 emits it as a declared output alongside `captions.ass` (a one-line M1 addendum), so 05 consumes it **through the SDK** (`ctx.read_input`) rather than reaching into the run dir.
 
 - [ ] **Step 5: Run** → `uv run pytest tests/test_s05_compositor.py -v` → PASS (1); confirm the M0 manifest drift-catcher still passes (the manifest changed, so update the M1 05 manifest expectation if asserted). **Commit.**
 
@@ -1139,7 +1309,7 @@ git commit -m "feat(m2): replace 05 ffmpeg interim with Remotion compositor (res
 
 **Placeholder scan:** No "TBD"/"add error handling". The `NotImplementedError` bodies (`StockClient.search`, ComfyUI `_build_graph`/`_await_output`, the 01a/01b/01e `run()` zone-iteration loops, 01c/01d) are **documented host-integration seams** — each names its CI substitute (fixture candidates / the offline-DAG fakes) and its pure-logic sibling that *is* implemented and tested (select_for_beat, chart_spec, graph_version, the ranking/dedup/fallback/resolve/bind/encode functions). This mirrors M1's seam discipline.
 
-**Type consistency vs M0/M1:** Uses M0 names exactly — `@stage(StageManifest(...))`, `StageContext`, `StageResult(outputs=...)`, `SchemaRegistry().validate`, `ctx.read_input/write_output/backend`. New backends implement the M0 `ModelBackend` Protocol (`generate_image/img2vid/tts/llm/vlm_judge`) — `ComfyUIBackend` provides generate_image/img2vid (+restore) and raises on the rest, matching the Protocol surface. `AssetChoice(kind, ref)`, `validate_binds`/`BindError`, `resolve(layout, beat_data, brand_kit, timings, seed)`, `render_manifest_to_frames`/`render_component`, `build_nvenc_cmd` names are consistent between their definition tasks and the stage-wiring tasks. The `LayoutEngine.render(render_manifest)` Protocol (ADR 0012 §6) is realized by `render_manifest_to_frames` (the bridge) — note in code that this is the concrete LayoutEngine.
+**Type consistency vs M0/M1:** Uses M0 names exactly — `@stage(StageManifest(...))`, `StageContext`, `StageResult(outputs=...)`, `SchemaRegistry().validate`, `ctx.read_input/write_output/backend`. New backends implement the M0 `ModelBackend` Protocol (`generate_image/img2vid/tts/llm/vlm_judge/restore` — `restore` was **added to the Protocol in M0** to host 01d's ESRGAN/RIFE/GFPGAN). `ComfyUIBackend` provides `generate_image/img2vid/restore` and raises on `llm/tts/vlm_judge`, fully satisfying the Protocol. `AssetChoice(kind, ref)`, `validate_binds`/`BindError`, `resolve(layout, beat_data, brand_kit, timings, seed)`, `render_manifest_to_frames`/`render_component`, `build_nvenc_cmd` names are consistent between their definition tasks and the stage-wiring tasks. The `LayoutEngine.render(render_manifest)` Protocol (ADR 0012 §6) is realized by `render_manifest_to_frames` (the bridge) — note in code that this is the concrete LayoutEngine.
 
 **Scope:** Two parts, one acceptance gate, produces working testable software (real visuals + the compositor render). Part A (visual-fetch lane) and Part B (compositor) are cleanly separable — if execution wants two PRs, cleave at the Phase A/B boundary. M2 replaces M1's `shared/render/` interim with `shared/layout/`; the swap is contained.
 ```

@@ -357,7 +357,7 @@ class SchemaRegistry:
             schema=schema.get("schema_version", "0.0.0"),
             instance=instance.get("schema_version"),
         )
-        errors = sorted(Draft202012Validator(schema).iter_errors(instance), key=lambda e: e.path)
+        errors = sorted(Draft202012Validator(schema).iter_errors(instance), key=lambda e: e.json_path)
         if errors:
             msgs = "; ".join(f"{list(e.path)}: {e.message}" for e in errors)
             raise SchemaError(f"{name} instance invalid: {msgs}")
@@ -595,6 +595,7 @@ Spec Ch.5: `format`, per-beat structured layout data keyed to format, `treatment
       }
     },
     "disclaimer": {"type": "string"},
+    "primary_keyword": {"type": "string"},
     "affiliate": {"type": "object"},
     "layout_data": {
       "description": "per-beat structured data keyed to the format (ADR 0007 D3 / 0007a §7b)",
@@ -1161,6 +1162,7 @@ class ModelBackend(Protocol):
     def tts(self, text: str) -> Path: ...
     def llm(self, prompt: str) -> str: ...
     def vlm_judge(self, frames: list[Path], script: dict) -> Judgment: ...
+    def restore(self, frames: list[Path]) -> list[Path]: ...   # ESRGAN/RIFE/GFPGAN (01d, M2)
 
 
 @runtime_checkable
@@ -1281,6 +1283,9 @@ class FixtureBackend:
 
     def vlm_judge(self, frames: list[Path], script: dict) -> Judgment:
         return Judgment(overall=0.82, scores={"hook": 0.8, "coherence": 0.85}, passed=True)
+
+    def restore(self, frames: list[Path]) -> list[Path]:
+        return list(frames)  # fake: passthrough
 
 
 class FixtureDistributionAdapter:
@@ -1410,7 +1415,7 @@ The DAG edges (from spec Ch.4) — each stage's declared inputs→outputs:
 |---|---|---|---|---|
 | 00a | (none) | data | cpu | — |
 | 00b | data | script | cpu | llm |
-| 01a | script | scenes_stock | cpu | — |
+| 01a | script | scenes_stock, provenance | cpu | — |
 | 01b | script, scenes_stock | scenes_gen | gpu | generate_image |
 | 01c | scenes_gen | scenes_motion | gpu | img2vid |
 | 01d | scenes_motion | assets | gpu | generate_image |
@@ -1422,7 +1427,7 @@ The DAG edges (from spec Ch.4) — each stage's declared inputs→outputs:
 | 05x | render, script | vision | gpu | vlm_judge |
 | 05b | render, vision, script | qc | cpu | llm |
 | 05c | render, vision, script | creative_qc | cpu | llm |
-| 06 | render, qc, creative_qc, script | posts | cpu | — |
+| 06 | render, qc, creative_qc, script | posts, feature_record | cpu | — |
 
 - [ ] **Step 1: Write the worked `stages/s00b_script/stage.py`** (the pattern every stage follows)
 
@@ -1468,7 +1473,42 @@ def _canonical_script(data: dict, seed: int) -> dict:
 {"id": "00b", "inputs": ["data"], "outputs": ["script"], "compute": "cpu", "capability": "llm"}
 ```
 
-- [ ] **Step 3: Implement the other 14 stages** following the same pattern — read declared inputs, produce a minimal schema-valid output (or pass through a fixture file for binary artifacts like `narration.wav`), write it, return `StageResult`. Each gets a `stage.py` + `manifest.json`. Stages whose output has a schema must write a schema-valid instance (reuse the golden fixtures as the canonical M0 output).
+- [ ] **Step 3: Implement the other 14 stages** following the same pattern — read declared inputs, produce a minimal schema-valid output (or pass through a fixture file for binary artifacts like `narration.wav`), write it, return `StageResult`. Each gets a `stage.py` + `manifest.json`. Stages whose output has a schema must write a schema-valid instance (reuse the golden fixtures as the canonical M0 output). `01a` also emits `provenance` and `06` also emits `feature_record` (so all 11 schemas are *produced* by the DAG, not only golden-validated — closes the ADR 0010 D6 "written from the first run" requirement).
+
+- [ ] **Step 3b: Worked `stages/s06_distribute/stage.py`** — the acceptance-critical exactly-once `posts` record (ADR 0003 D1) gets a worked example, since it is the artifact acceptance #3 asserts:
+
+```python
+import json
+from shared.ctx import StageContext, StageResult
+from shared.adapters import PostMeta, Visibility
+from shared.stage import StageManifest, stage
+
+
+@stage(StageManifest(id="06", inputs=["render", "qc", "creative_qc", "script"],
+                     outputs=["posts", "feature_record"], compute="cpu", capability="distribution"))
+def run(ctx: StageContext) -> StageResult:
+    script = json.loads(ctx.read_input("script").read_text())
+    ad = ctx.backend("distribution")
+    plat = ctx.job["platform_targets"][0]
+    # exactly-once: confirm first; only publish if not already posted (ADR 0003 D1)
+    receipt = ad.confirm_posted(ctx.job["video_id"], plat) or ad.publish(
+        ctx.read_input("render"),
+        PostMeta(title=script["platform_meta"][plat]["title"],
+                 description=script["platform_meta"][plat]["description"],
+                 hashtags=tuple(script["platform_meta"][plat]["hashtags"]),
+                 visibility=Visibility.PRIVATE))
+    posts = ctx.write_output("posts")
+    posts.write_text(json.dumps({"schema_version": "1.0.0", "video_id": receipt.video_id,
+                                 "platform": receipt.platform, "state": "confirmed",
+                                 "visibility": receipt.visibility.value,
+                                 "remote_post_id": receipt.remote_post_id,
+                                 "timestamp": "2026-06-09T00:00:00Z"}))
+    fr = ctx.write_output("feature_record")
+    fr.write_text(json.dumps({"schema_version": "1.0.0", "video_id": receipt.video_id,
+                              "format": script["format"], "seed": ctx.seed,
+                              "hook_variant_id": "chosen", "judge_scores": {}, "metrics": {}}))
+    return StageResult(outputs={"posts": posts, "feature_record": fr})
+```
 
 - [ ] **Step 4: Write `stages/registry.py`** importing every stage module so decorators register
 
@@ -1572,6 +1612,7 @@ from pathlib import Path
 
 from shared.adapters.fakes import FixtureBackend, FixtureDistributionAdapter
 from shared.cache import StageCache
+from shared.config import resolve_config
 from shared.ctx import StageContext, StageResult
 from shared.hashing import cache_key, input_hash, sha256_bytes
 from shared.schema import SchemaRegistry
@@ -1583,8 +1624,9 @@ ORDER = ["00a", "00b", "01a", "01b", "01c", "01d", "01e",
          "02", "03", "04", "05", "05x", "05b", "05c", "06"]
 
 # which declared outputs carry a schema (validated at the boundary)
-OUTPUT_SCHEMA = {"data": None, "script": "script", "assets": "assets",
-                 "vision": "vision", "qc": "qc", "creative_qc": "creative_qc", "posts": "posts"}
+OUTPUT_SCHEMA = {"data": None, "script": "script", "assets": "assets", "provenance": "provenance",
+                 "vision": "vision", "qc": "qc", "creative_qc": "creative_qc", "posts": "posts",
+                 "feature_record": "feature_record"}
 
 REG = SchemaRegistry()
 
@@ -1610,7 +1652,12 @@ def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path) 
 
         digests = {name: sha256_bytes((run_dir / p).read_bytes())
                    for name, p in input_paths.items()}
-        ih = input_hash(declared_input_digests=digests, resolved_config={}, stage_version="m0")
+        # ADR 0012 §1: resolved_config is part of the hash; generative stages also fold
+        # in model_id + graph_version so a model/graph bump is a miss (ADR 0010 D4).
+        resolved = resolve_config(global_defaults={}, niche={}, batch={}, per_platform={})
+        gen = {"model_id": "m0-fake", "graph_version": "m0"} if m.compute == "gpu" else {}
+        ih = input_hash(declared_input_digests=digests, resolved_config=resolved,
+                        stage_version="m0", **gen)
         key = cache_key(sid, ih, seed)
 
         hit = cache.get(key)
@@ -1619,11 +1666,11 @@ def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path) 
             cache_hits += 1
             continue
 
-        ctx = StageContext(stage=sid, run_dir=run_dir, seed=seed, job=job, config={},
+        ctx = StageContext(stage=sid, run_dir=run_dir, seed=seed, job=job, config=resolved,
                            input_paths=input_paths, output_paths=output_paths,
                            backends={"llm": backend, "generate_image": backend,
                                      "img2vid": backend, "tts": backend, "vlm_judge": backend,
-                                     "distribution": dist})
+                                     "restore": backend, "distribution": dist})
         res = reg.fn(ctx) or StageResult()
         for name in m.outputs:
             p = run_dir / output_paths[name]
@@ -1670,8 +1717,9 @@ import re
 from pathlib import Path
 
 STAGES = Path(__file__).resolve().parents[1] / "stages"
-# matches: platform == "...", niche=='...', platform in (...), etc.
-BAD = re.compile(r"\b(platform|niche)\s*(==|!=|\bin\b)")
+# matches the resolver-bypass smell: platform == "...", niche != '...'.
+# `in` is intentionally NOT matched: `for niche in niches` / `platform in targets` are legitimate.
+BAD = re.compile(r"\b(platform|niche)\b\s*(==|!=)")
 
 
 def test_no_stage_branches_on_platform_or_niche():

@@ -320,6 +320,12 @@ def test_ollama_builds_generate_payload():
     assert payload == {"model": "qwen2.5:14b-instruct", "prompt": "hello", "stream": False}
 
 
+def test_ollama_seeded_payload_sets_options_seed():
+    be = OllamaBackend(base_url="http://h:11434", model="qwen2.5:14b-instruct")
+    _, payload = be._request("hi", seed=7)
+    assert payload["options"]["seed"] == 7   # best-of-N is reproducible (ADR 0009)
+
+
 @pytest.mark.integration
 def test_ollama_llm_live():
     be = OllamaBackend(base_url="http://127.0.0.1:11434", model="qwen2.5:14b-instruct")
@@ -346,12 +352,14 @@ class OllamaBackend:
         self._model = model
         self._timeout = timeout
 
-    def _request(self, prompt: str) -> tuple[str, dict]:
-        return (f"{self._base}/api/generate",
-                {"model": self._model, "prompt": prompt, "stream": False})
+    def _request(self, prompt: str, seed: int | None = None) -> tuple[str, dict]:
+        payload = {"model": self._model, "prompt": prompt, "stream": False}
+        if seed is not None:
+            payload["options"] = {"seed": seed, "temperature": 0.8}  # seed the SAMPLER (ADR 0009)
+        return (f"{self._base}/api/generate", payload)
 
-    def llm(self, prompt: str) -> str:
-        url, payload = self._request(prompt)
+    def llm(self, prompt: str, seed: int | None = None) -> str:
+        url, payload = self._request(prompt, seed)
         r = httpx.post(url, json=payload, timeout=self._timeout)
         r.raise_for_status()
         return r.json()["response"]
@@ -380,10 +388,11 @@ class KokoroBackend:
 
     def tts(self, text: str) -> Path:
         from kokoro import KPipeline  # host-only import
+        import numpy as np
         import soundfile as sf
         self._out.mkdir(parents=True, exist_ok=True)
         pipe = KPipeline(lang_code="a")
-        audio = b"".join(chunk.audio for chunk in pipe(text, voice=self._voice))  # bytes-like
+        audio = np.concatenate([chunk.audio for chunk in pipe(text, voice=self._voice)])
         path = self._out / "narration.wav"
         sf.write(path, audio, self._sr)
         return path
@@ -429,12 +438,20 @@ from stages.s00a_research.stage import corroborated, BudgetExceeded, Budget
 
 
 def test_corroboration_needs_two_sources():
-    news = [{"title": "X", "source": "Reuters"}, {"title": "X2", "source": "AP"}]
+    news = [{"title": "Inflation cooled", "source": "Reuters"},
+            {"title": "CPI inflation eases", "source": "AP"}]
     assert corroborated("inflation", news, min_sources=2) is True
 
 
 def test_corroboration_single_source_fails():
-    assert corroborated("inflation", [{"title": "X", "source": "Reuters"}], min_sources=2) is False
+    assert corroborated("inflation", [{"title": "Inflation cooled", "source": "Reuters"}],
+                        min_sources=2) is False
+
+
+def test_corroboration_ignores_offtopic_sources():
+    news = [{"title": "Inflation cooled", "source": "Reuters"},
+            {"title": "Sports recap", "source": "ESPN"}]   # second item not about the topic
+    assert corroborated("inflation", news, min_sources=2) is False
 
 
 def test_budget_blocks_over_limit():
@@ -474,7 +491,11 @@ class Budget:
 
 
 def corroborated(topic: str, news: list[dict], min_sources: int = 2) -> bool:
-    sources = {n["source"] for n in news}
+    # ADR 0009: a story needs >=min_sources DISTINCT sources whose item is ABOUT `topic`
+    # (title/summary match) — not merely global source diversity across unrelated items.
+    t = topic.lower()
+    sources = {n["source"] for n in news
+               if t in (n.get("title", "") + " " + n.get("summary", "")).lower()}
     return len(sources) >= min_sources
 
 
@@ -609,7 +630,7 @@ def _generate_script(llm, data: dict, config: dict, seed: int) -> dict:
     # {value, source_ref}) and parses the model's JSON into a script.schema instance.
     # Prompt construction is deterministic given (data, config, seed); the model call is live.
     prompt = _build_prompt(data, config, seed)
-    return json.loads(llm.llm(prompt))
+    return json.loads(llm.llm(prompt, seed=seed))   # seed threaded to the sampler (ADR 0009)
 
 
 def _build_prompt(data: dict, config: dict, seed: int) -> str:
@@ -633,6 +654,8 @@ def _build_prompt(data: dict, config: dict, seed: int) -> str:
         check_claims(chosen.get("claims", []), data)
     except GroundingError as e:
         ctx.quarantine(f"numeric grounding failed: {e}")
+    if not chosen.get("disclaimer", "").strip():
+        ctx.quarantine("missing YMYL disclaimer")   # ADR 0004 YMYL requirement (enforced, not just prompted)
 ```
 
 - [ ] **Step 5: Write `manifest.json`**
@@ -677,6 +700,10 @@ def test_percent():
     assert normalize("3.2%") == "three point two percent"
 
 
+def test_dollars_with_hundreds():
+    assert normalize("$184.21") == "one hundred eighty four point two one dollars"
+
+
 def test_ticker_passthrough_uppercased_words_kept():
     assert "FOMC" not in normalize("FOMC")  # expanded via lexicon
 ```
@@ -709,12 +736,26 @@ def _say_number(num: str) -> str:
     return _say_int(num)
 
 
+_TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+_TEENS = ["ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+          "seventeen", "eighteen", "nineteen"]
+
+
 def _say_int(s: str) -> str:
-    # small-int words for the common cases; falls back to digit-by-digit
     n = int(s)
-    words = {0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five",
-             6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten"}
-    return words.get(n, " ".join(_ONES[int(d)] for d in s))
+    if n < 10:
+        return _ONES[n]
+    if n < 20:
+        return _TEENS[n - 10]
+    if n < 100:
+        return _TENS[n // 10] + ("" if n % 10 == 0 else " " + _ONES[n % 10])
+    if n < 1000:
+        rem = n % 100
+        return _ONES[n // 100] + " hundred" + ("" if rem == 0 else " " + _say_int(str(rem)))
+    if n < 1_000_000:
+        rem = n % 1000
+        return _say_int(str(n // 1000)) + " thousand" + ("" if rem == 0 else " " + _say_int(str(rem)))
+    return " ".join(_ONES[int(d)] for d in s)  # very large: digit-by-digit fallback
 
 
 def normalize(text: str) -> str:
@@ -745,7 +786,7 @@ git commit -m "feat(m1): finance text-normalization + pronunciation lexicon (ADR
 # tests/test_s02_voice.py
 import json
 from pathlib import Path
-from stages.s02_voice.stage import spoken_text
+from stages.s02_voice.stage import spoken_text, keyword_in_opening
 
 
 def test_spoken_text_normalizes_and_joins_beats():
@@ -753,6 +794,15 @@ def test_spoken_text_normalizes_and_joins_beats():
               "primary_keyword": "inflation"}
     out = spoken_text(script)
     assert "three point two percent" in out and "one point five million dollars" in out
+
+
+def test_keyword_in_opening_detects_presence_and_absence():
+    present = {"primary_keyword": "inflation",
+               "narration_beats": [{"text": "Inflation cooled this month"}, {"text": "More later"}]}
+    assert keyword_in_opening(present) is True
+    buried = {"primary_keyword": "inflation",
+              "narration_beats": [{"text": "Stocks rose"}, {"text": "Inflation later"}]}
+    assert keyword_in_opening(buried, window_beats=1) is False
 ```
 
 - [ ] **Step 2: Run** → FAIL.
@@ -772,9 +822,20 @@ def spoken_text(script: dict) -> str:
     return " ".join(beats)
 
 
+def keyword_in_opening(script: dict, window_beats: int = 1) -> bool:
+    # ADR 0006: the primary keyword should be SPOKEN in the opening lines (discoverability).
+    kw = script.get("primary_keyword", "").lower()
+    if not kw:
+        return False
+    opening = " ".join(b["text"] for b in script.get("narration_beats", [])[:window_beats]).lower()
+    return kw in opening
+
+
 @stage(StageManifest(id="02", inputs=["script"], outputs=["narration"], compute="cpu", capability="tts"))
 def run(ctx: StageContext) -> StageResult:
     script = json.loads(ctx.read_input("script").read_text())
+    if not keyword_in_opening(script):
+        ctx.log.warning("primary keyword not in opening lines", keyword=script.get("primary_keyword"))
     text = spoken_text(script)
     wav = ctx.backend("tts").tts(text)  # KokoroBackend writes narration.wav
     out = ctx.write_output("narration")
@@ -918,6 +979,11 @@ def test_tag_emphasis_marks_script_punch_words():
                {"word": "cooled", "start": 0.5, "end": 0.9}]
     out = tag_emphasis(aligned, emphasis_words={"inflation"})
     assert out[0]["emphasis"] is True and out[1]["emphasis"] is False
+
+
+def test_tag_emphasis_matches_numeric_token():
+    aligned = [{"word": "3.2%", "start": 1.0, "end": 1.6}]
+    assert tag_emphasis(aligned, {"3.2%"})[0]["emphasis"] is True   # raw numeric punch word
 ```
 
 - [ ] **Step 2: Run** → FAIL.
@@ -934,7 +1000,14 @@ from shared.stage import StageManifest, stage
 
 def tag_emphasis(aligned: list[dict], emphasis_words: set[str]) -> list[dict]:
     ew = {w.lower() for w in emphasis_words}
-    return [{**w, "emphasis": w["word"].lower().strip(".,%$") in ew} for w in aligned]
+
+    def hit(word: str) -> bool:
+        w = word.lower()
+        # match the raw token first (so "3.2%" / "$1.5m" punch words match), then a
+        # sentence-punctuation-stripped form — but never strip % or $ (they carry meaning).
+        return w in ew or w.strip(".,!?") in ew
+
+    return [{**w, "emphasis": hit(w["word"])} for w in aligned]
 
 
 @stage(StageManifest(id="03", inputs=["script", "narration"], outputs=["captions"], compute="cpu"))
@@ -998,7 +1071,8 @@ from shared.render.kenburns import zoompan_expr
 
 def test_zoompan_scales_within_bounds():
     expr = zoompan_expr(zoom_start=1.0, zoom_end=1.12, frames=90)
-    assert "zoom" in expr and "1.0" in expr and "90" in expr
+    assert expr.startswith("zoompan=") and "1.12" in expr and "d=90" in expr
+    assert "#" not in expr   # no comment — would be an ffmpeg filtergraph parse error
 ```
 
 ```python
@@ -1022,6 +1096,8 @@ def test_cmd_burns_captions_and_audio_and_outputs_mp4(tmp_path):
     assert str(tmp_path / "narration.wav") in s
     assert s.endswith(str(tmp_path / "youtube.mp4"))
     assert "-r 30" in s or "fps=30" in s
+    assert "zoompan=" in s                  # Ken Burns applied per still
+    assert "overlay=" in s                  # brand bug enabled
 ```
 
 - [ ] **Step 2: Run** → FAIL.
@@ -1032,9 +1108,9 @@ def test_cmd_burns_captions_and_audio_and_outputs_mp4(tmp_path):
 def zoompan_expr(*, zoom_start: float, zoom_end: float, frames: int) -> str:
     # linear zoom from start->end across `frames`; centered. ffmpeg zoompan expression.
     step = (zoom_end - zoom_start) / max(frames - 1, 1)
+    # NB: no trailing comment — ffmpeg filtergraph syntax has no `#` comments.
     return (f"zoompan=z='min(zoom+{step:.6f},{zoom_end})':"
-            f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={frames}:s=1080x1920:fps=30"
-            f"  # start {zoom_start} end {zoom_end} over {frames} frames")
+            f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={frames}:s=1080x1920:fps=30")
 ```
 
 - [ ] **Step 4: Implement `shared/render/ffmpeg.py`**
@@ -1042,30 +1118,37 @@ def zoompan_expr(*, zoom_start: float, zoom_end: float, frames: int) -> str:
 ```python
 from pathlib import Path
 
+from shared.render.kenburns import zoompan_expr
+
 
 def build_ffmpeg_cmd(*, scene_images: list[Path], scene_durations: list[float],
                      narration: Path, captions_ass: Path, brand_overlay: Path,
                      out: Path, fps: int) -> list[str]:
-    """Builds the M1 interim render: still scenes -> concat -> burn captions + brand -> + audio."""
+    """M1 interim render: Ken Burns stills -> concat -> burn captions -> brand overlay -> + audio.
+
+    Inputs are ordered: images 0..n-1, narration = n, brand_overlay = n+1.
+    """
     cmd: list[str] = ["ffmpeg", "-y"]
     for img, dur in zip(scene_images, scene_durations):
         cmd += ["-loop", "1", "-t", f"{dur}", "-i", str(img)]
-    cmd += ["-i", str(narration)]
+    cmd += ["-i", str(narration), "-i", str(brand_overlay)]
     n = len(scene_images)
-    # scale each still to 9:16, concat, then subtitles + overlay
-    filters = "".join(f"[{i}:v]scale=1080:1920,setsar=1[v{i}];" for i in range(n))
-    concat_inputs = "".join(f"[v{i}]" for i in range(n))
-    filters += f"{concat_inputs}concat=n={n}:v=1:a=0[vc];"
+    # per-still Ken Burns (zoompan), concat, burn captions, then overlay the brand bug
+    filters = "".join(
+        f"[{i}:v]scale=1080:1920,setsar=1,"
+        f"{zoompan_expr(zoom_start=1.0, zoom_end=1.08, frames=int(dur * fps))}[v{i}];"
+        for i, dur in enumerate(scene_durations))
+    filters += "".join(f"[v{i}]" for i in range(n))
+    filters += f"concat=n={n}:v=1:a=0[vc];"
     filters += f"[vc]subtitles=ass={captions_ass}[vs];"
-    filters += f"[vs][{n+1}:v]overlay=W-w-40:40[vo]" if False else f"[vs]null[vo]"
-    cmd += ["-i", str(brand_overlay)]
+    filters += f"[vs][{n + 1}:v]overlay=W-w-40:40[vo]"   # brand bug, top-right (input n+1)
     cmd += ["-filter_complex", filters, "-map", "[vo]", "-map", f"{n}:a",
             "-r", str(fps), "-c:v", "libx264", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-shortest", str(out)]
     return cmd
 ```
 
-> Note: the brand-overlay `overlay` filter is shown disabled-by-default to keep the M1 test stable; enabling it is a one-line filter swap during integration. NVENC (`h264_nvenc`) is an M2 concern; M1 uses `libx264` so the slice runs CPU-only.
+> Note: Ken Burns and the brand overlay are now wired into the actual graph (the review found both were previously dead code). NVENC (`h264_nvenc`) is an M2 concern; M1 uses `libx264` so the slice runs CPU-only.
 
 - [ ] **Step 5: Run** → PASS (2). **Commit.**
 
@@ -1108,9 +1191,16 @@ from shared.stage import StageManifest, stage
 
 
 def scene_durations_from_words(words: list[dict], n_scenes: int) -> list[float]:
-    total = words[-1]["end"] - words[0]["start"]
-    per = total / n_scenes
-    return [per] * n_scenes
+    # word-timed cuts (ADR 0005 D4 / 0007a §2): partition words into n_scenes contiguous
+    # groups; each scene spans its group's first->last word, not a flat division.
+    k, m = divmod(len(words), n_scenes)
+    durs, idx = [], 0
+    for s in range(n_scenes):
+        size = k + (1 if s < m else 0)
+        group = words[idx:idx + size]
+        idx += size
+        durs.append(round(group[-1]["end"] - group[0]["start"], 6) if group else 0.0)
+    return durs
 
 
 @stage(StageManifest(id="05", inputs=["script", "assets", "narration", "captions"],
@@ -1265,7 +1355,7 @@ REG = SchemaRegistry()
 
 class _FakeLLM:
     def __init__(self, script_path): self._s = json.loads(Path(script_path).read_text())
-    def llm(self, prompt):
+    def llm(self, prompt, seed=None):
         return "0.88" if "Score" in prompt else json.dumps(self._s)
 
 
@@ -1293,6 +1383,9 @@ def run_m1_slice(*, run_dir: Path, seed: int, fixtures: Path, timing_log: Path) 
                             config={"data_fixture": "data.json", "best_of_n": 1},
                             input_paths=inp, output_paths=outp, backends=backends)
 
+    def _p(result):  # normalize stage outputs to run-dir-relative names (closure: needs run_dir)
+        return {name: str(p.relative_to(run_dir)) for name, p in result.outputs.items()}
+
     produced = {}
     fake_llm = _FakeLLM(fixtures / "ollama_responses" / "script.json")
     with StageTimer("00a", timing_log):
@@ -1316,12 +1409,6 @@ def run_m1_slice(*, run_dir: Path, seed: int, fixtures: Path, timing_log: Path) 
              "narration": "narration.wav", "captions": "captions.ass"},
             {"render": "renders/youtube.mp4"}, {}))))
     return produced
-
-
-def _p(result): return {k: str(v.relative_to(v.parents[len(v.parents)-1])) if False else
-                        result.outputs and None for k, v in {}.items()} or \
-                       {name: str(p.name) if "/" not in str(p) else "renders/youtube.mp4"
-                        for name, p in result.outputs.items()}
 
 
 def _solid_png(path: Path):
