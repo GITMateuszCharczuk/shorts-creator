@@ -66,8 +66,11 @@ Example — `ranked_list` repeating "item card":
      is the most ergonomic for parameterized templates and is **free at solo/≤3-person scale**, but
      needs a **paid company license** beyond that — a liability against the spine. The **MIT-clean
      path** is **Playwright (Apache-2.0) + hand-rolled HTML/CSS templates** or **Motion Canvas
-     (MIT)**. **Default to the MIT-clean path**; Remotion permitted in dev under its solo terms.
-     The final engine is locked during the visuals milestone (open item).
+     (MIT)**. **Locked: Remotion** (2026-06-09), under its free solo/≤3-person terms — chosen for
+     template ergonomics over the MIT-clean alternatives, **conditioned on the project staying
+     ≤3 people**. This is a **tripwire, not a tax**: crossing 3 people (or Remotion's revenue
+     thresholds) triggers a **paid company license (~$100/mo+)** and a re-evaluation against the
+     MIT-clean path. Playwright/Motion-Canvas remain the documented fallback if that tripwire fires.
    - Encode via **`h264_nvenc` / `hevc_nvenc`** on the 5070 Ti (free at render time).
 
 5. **Stage 01a stock-fetch becomes format-aware.** Media selection honours the layout's **media
@@ -101,8 +104,10 @@ Example — `ranked_list` repeating "item card":
 
 ## Open (tracked)
 
-- **Final engine** (MIT-clean Playwright/Motion-Canvas vs Remotion-solo) + the **license** call;
-  locked in the visuals milestone.
+- ~~**Final engine** (MIT-clean Playwright/Motion-Canvas vs Remotion-solo) + the **license**
+  call.~~ **Resolved (2026-06-09): Remotion**, under its free ≤3-person terms (D4) — the project
+  is committed to staying ≤3 people, so the company-license cost does not apply. Playwright/
+  Motion-Canvas stay on file as the fallback if that ≤3-person tripwire ever fires.
 - The **per-format region specs + a shared animation/transition library** (8 layouts).
 - **Target fps** (24/30) and the **re-measured throughput** with the compositor + NVENC.
 - How much **GPU-accelerated Chromium** (ANGLE/EGL) helps vs pure-CPU rasterization on this box.
