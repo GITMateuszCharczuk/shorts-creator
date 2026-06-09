@@ -14,7 +14,8 @@
 > [0009 — content integrity & account robustness](../../decisions/0009-content-integrity-and-account-robustness.md), and
 > [0010 — implementation conventions & extensibility seams](../../decisions/0010-implementation-conventions-and-extensibility-seams.md), and
 > [0011 — performance & optimization](../../decisions/0011-performance-and-optimization.md), and
-> [0012 — M0 build contract & acceptance criteria](../../decisions/0012-m0-build-contract.md).
+> [0012 — M0 build contract & acceptance criteria](../../decisions/0012-m0-build-contract.md), and
+> [0013 — Windows host support (WSL2)](../../decisions/0013-windows-host-support-wsl2.md).
 > The full topology diagrams live in [`docs/ARCHITECTURE.md`](../../ARCHITECTURE.md).
 >
 > **Precedence:** the ADRs win on runtime topology; `POC.md` wins on scope. This spec is the
@@ -549,6 +550,12 @@ opportunistic spot cloud (only past ~30/day).
   **idempotent** (skips healthy pieces, health-gates each plane), so it doubles as resume-after-
   reboot. `scripts/down.sh` stops it (host-backed data persists; `--purge` deletes the cluster).
   Under the hood it calls the granular targets `make host-up · cluster-up · build · wire`.
+- **On Windows (ADR 0013):** run the entire Linux stack **inside one WSL2 distro** (ComfyUI +
+  Ollama via the NVIDIA Windows driver, plus Docker + `kind`); the bash scripts run unchanged, and
+  `scripts\win\shorts.ps1 {up|down|trigger}` is the PowerShell entry point. Repo + data on WSL2
+  **ext4 (not `/mnt/c`)**, `systemd` enabled in `wsl.conf`, and a **Task Scheduler `wsl`-at-logon**
+  task keeps the daily cron alive across reboots. Perf overhead is a few percent; VRAM is tighter,
+  so quantized LTX is non-optional.
 - **Two entry points to the *same* `shorts-batch` WorkflowTemplate, plus a dry-run flag:**
   **(a) manual / on-demand** — `scripts/trigger.sh [--profiles … --count … --dry-run --watch]`
   (= `make trigger`); **(b) scheduled** — the `CronWorkflow` fires the daily batch automatically.
@@ -693,6 +700,15 @@ the `job.json` **status enum**, `schema_version` semantics (fail-on-major / warn
 **adapter Protocols**, the fake→fixture lookup + one **golden-fixture chain**, an explicit
 **deliverable ordering**, and an **M0 acceptance checklist** that defines "done." Plus the
 scope clarification that authoring the prose contracts *is* the M0 work.
+
+**Decided since (the Windows-host question → ADR 0013):** the system runs on Windows by hosting the
+**entire Linux stack inside one WSL2 distro** (GPU plane + control plane), Windows being just the
+substrate + the NVIDIA driver — near-zero divergence from the Linux design. GPU overhead is a few
+percent for this GPU-saturating workload (not the feared 95% loss); the real Windows costs are
+**tighter VRAM** (hardens quantized-LTX) and two ops pieces (Task-Scheduler keep-alive, `.wslconfig`).
+Driver discipline (Windows driver only, WSL-Ubuntu CUDA toolkit, cu128, pinned Blackwell Ollama) and
+**data on ext4 not `/mnt/c`** are the setup rules. A thin `scripts/win/shorts.ps1` is the PowerShell
+entry point; the bash scripts stay the single source of truth.
 
 **Still open (tracked):**
 

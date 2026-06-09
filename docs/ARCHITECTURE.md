@@ -29,7 +29,8 @@
 > measurement-gated adoption (quality held constant) — by
 > **[ADR 0011](decisions/0011-performance-and-optimization.md)**; the concrete M0 build contract
 > (the `input_hash`/`ctx`/status/adapter primitives, acceptance checklist, and build ordering) by
-> **[ADR 0012](decisions/0012-m0-build-contract.md)**.
+> **[ADR 0012](decisions/0012-m0-build-contract.md)**; **Windows host support** (run the whole
+> Linux stack inside WSL2) by **[ADR 0013](decisions/0013-windows-host-support-wsl2.md)**.
 >
 > **Precedence:** for *tooling* choices, `OPTIONS.md` stands. For *scope*, `POC.md` wins.
 > Where `DESIGN.md §2–§3/§9` describes the older GPU-in-kind / MinIO / monolithic-Stage-1
@@ -354,6 +355,7 @@ shorts-creator/
 ├── music/                         # strike-safe local library + index.json (mood→tracks)
 ├── tests/                         # schema validation + golden fixtures + GPU-free full-DAG run via shared/fakes (ADR 0010)
 ├── scripts/                       # ⭐ one-command lifecycle: up.sh (turn it all on) · trigger.sh (manual run) · down.sh
+│   └── win/shorts.ps1             #    Windows entry point — dispatches into WSL2 (ADR 0013)
 ├── Makefile                       # up · trigger · down · host-up · cluster-up · build · wire · test
 └── README.md
 ```
@@ -384,6 +386,14 @@ scripts/down.sh      # stop it (host-backed data persists; --purge also deletes 
 `up.sh` is idempotent — it skips anything already healthy and waits on each plane's health endpoint
 before moving on — so it doubles as "resume after a reboot." `make up` / `make trigger` / `make down`
 are equivalent wrappers.
+
+**On Windows (ADR 0013):** run the whole thing **inside one WSL2 distro** — ComfyUI + Ollama (GPU
+via the NVIDIA Windows driver) *and* Docker + `kind`. The bash scripts run unchanged there; from
+PowerShell, `scripts\win\shorts.ps1 {up|down|trigger}` dispatches into WSL. Keep the repo + data on
+the **WSL2 ext4 filesystem (not `/mnt/c`)**, enable `systemd` in `wsl.conf`, and use a **Task
+Scheduler `wsl`-at-logon** task so the daily cron survives reboots. GPU overhead vs native Linux is a
+few percent for this (GPU-saturating) workload; the real Windows cost is **tighter VRAM**, which
+makes quantized LTX non-optional.
 
 **What it does under the hood** — the same two moments as before, just sequenced for you:
 
