@@ -768,6 +768,20 @@ entry point; the bash scripts stay the single source of truth.
     FLUX-schnell vs photoreal SDXL/SD3.5; **Qwen-32B with RAM offload for 00b** (the script stage
     is where model quality matters most).
 
+**Parked — monetization funnel & affiliate (decided, deferred to post-PoC).** A brainstorm
+(2026-06-09) settled a monetization thesis — Shorts as a **data-authority top-of-funnel** to an
+owned destination, with **finance affiliate** as the eventual payoff and success measured as
+*qualified outbound intent* (click-through + email capture). **The affiliate/funnel work is
+deferred in full** until after a **views-first PoC**, because the outbound-CTA + capture changes
+touch the layout templates (ADR 0007 / 0007a) and we are **not changing templates now**. For the
+PoC the engine ships and **posts publicly as designed** (private-first **+ ≥1 public**, ADR 0004
+D4 / ADR 0009) and optimizes for **views** as its working success signal; affiliate fields stay
+**disabled** (ADR 0004 D5); the CTA reframe (ADR 0006), the withhold-the-payoff content split
+(ADR 0008), and any capture surface are revisited once the engine proves it produces watchable
+finance shorts. *Consequence held knowingly:* with the funnel parked, the success signal stays the
+self-referential `05c` quality gate until the deferred analytics loop lands — so **low views won't
+be self-diagnosing** in the PoC. M0 is unaffected (monetization-agnostic).
+
 ---
 
 *End of specification. Topology diagrams: [`docs/ARCHITECTURE.md`](../../ARCHITECTURE.md).
