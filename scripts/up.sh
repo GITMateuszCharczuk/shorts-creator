@@ -30,6 +30,7 @@ HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"   # seconds to wait for each service
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+RUNDIR="$ROOT/.run"; mkdir -p "$RUNDIR"   # pidfiles so down.sh can stop exactly what we started
 
 log()  { printf '\033[1;34m▸ %s\033[0m\n' "$*"; }
 ok()   { printf '\033[1;32m✓ %s\033[0m\n' "$*"; }
@@ -52,6 +53,7 @@ wait_http() {
 # ---------- 0. preflight -----------------------------------------------------
 log "preflight: checking dependencies"
 need docker; need kind; need kubectl; need curl
+command -v argo  >/dev/null 2>&1 || warn "argo CLI not found — scripts/trigger.sh will need it to submit batches"
 command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L || warn "nvidia-smi not found — GPU plane may be unavailable"
 ok "dependencies present"
 
@@ -61,7 +63,10 @@ if curl -fsS -o /dev/null "http://${COMFYUI_HOST}:${COMFYUI_PORT}/system_stats" 
 else
   log "starting ComfyUI (host GPU plane)"
   make host-comfyui-up                     # M0: starts ComfyUI + ensures graphs/models
-  wait_http "http://${COMFYUI_HOST}:${COMFYUI_PORT}/system_stats" "ComfyUI"
+  wait_http "http://${COMFYUI_HOST}:${COMFYUI_PORT}/system_stats" "ComfyUI (process)"
+  # /system_stats answers before models+custom-nodes finish loading; also wait for the
+  # node registry so a batch never fires against a not-actually-ready ComfyUI.
+  wait_http "http://${COMFYUI_HOST}:${COMFYUI_PORT}/object_info" "ComfyUI (nodes loaded)"
 fi
 
 # ---------- 2. host LLM plane: Ollama ---------------------------------------
@@ -70,18 +75,25 @@ if curl -fsS -o /dev/null "http://${OLLAMA_HOST}:${OLLAMA_PORT}/api/version" 2>/
 else
   log "starting Ollama (host LLM plane)"
   if command -v ollama >/dev/null 2>&1; then
-    nohup ollama serve >/tmp/ollama.log 2>&1 &
+    nohup ollama serve >"$RUNDIR/ollama.log" 2>&1 &
+    echo $! > "$RUNDIR/ollama.pid"         # so down.sh stops this exact process
   else
     make host-llm-up                       # M0: fallback bring-up if ollama not on PATH
   fi
   wait_http "http://${OLLAMA_HOST}:${OLLAMA_PORT}/api/version" "Ollama"
 fi
 log "ensuring model present: ${OLLAMA_MODEL}"
-ollama list 2>/dev/null | grep -q "${OLLAMA_MODEL%%:*}" || ollama pull "${OLLAMA_MODEL}"
+# Capture first so a real `ollama list` failure (daemon down) isn't masked as "model absent";
+# match the full name:tag — grepping the bare name would accept any qwen2.5 variant.
+installed_models="$(ollama list 2>/dev/null | awk 'NR>1 {print $1}')" || true
+grep -qx "${OLLAMA_MODEL}" <<<"${installed_models}" || ollama pull "${OLLAMA_MODEL}"
 ok "LLM model ready"
 
 # ---------- 3. control plane: kind + Argo + PVC -----------------------------
 if kind get clusters 2>/dev/null | grep -qx "${KIND_CLUSTER}"; then
+  # NB: "exists" only skips cluster *creation*; it does not repair a half-installed
+  # Argo/PVC from a prior failed run. If the wire check below fails, `scripts/down.sh
+  # --purge` then re-run is the clean path.
   ok "kind cluster '${KIND_CLUSTER}' already exists"
 else
   log "creating kind cluster + Argo + host-backed PVC"
@@ -89,6 +101,10 @@ else
 fi
 kubectl wait --for=condition=Available deployment --all -n argo --timeout="${HEALTH_TIMEOUT}s" 2>/dev/null \
   || warn "argo deployments not all Available yet — check 'kubectl get pods -n argo'"
+
+# ---------- 3b. build + load stage images -----------------------------------
+log "building stage images and loading them into the cluster"
+make build                                 # M0: build stages/* images + kind load (no images => empty DAG)
 
 # ---------- 4. wire check: pod -> host endpoints ----------------------------
 log "verifying cluster→host reachability (ADR 0001 contract)"

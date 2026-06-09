@@ -15,7 +15,9 @@
 > placement + the closing follow CTA by
 > **[ADR 0006](decisions/0006-algorithm-fit-and-format-tuning.md)**; the per-format **layout
 > templates** + the headless-Chromium composition engine (Stage 05 / 01e) by
-> **[ADR 0007](decisions/0007-format-aware-layout-templates.md)**; the shared **vision QC pass**,
+> **[ADR 0007](decisions/0007-format-aware-layout-templates.md)** + its **layout design** (hybrid
+> region model, primitive/animation libraries, 30fps, CPU raster+NVENC) by
+> **[ADR 0007a](decisions/0007a-layout-template-design.md)**; the shared **vision QC pass**,
 > format↔lane fit, the asset fallback ladder + honest limits by
 > **[ADR 0008](decisions/0008-output-parity-hardening.md)**; deterministic numeric grounding,
 > seed/determinism, forced-aligned captions, per-platform music, account warming + the honest
@@ -27,7 +29,10 @@
 > **[ADR 0010](decisions/0010-implementation-conventions-and-extensibility-seams.md)**; the
 > performance work — the visual∥audio lane-fork, GPU swap minimization, CPU fan-out, and
 > measurement-gated adoption (quality held constant) — by
-> **[ADR 0011](decisions/0011-performance-and-optimization.md)**.
+> **[ADR 0011](decisions/0011-performance-and-optimization.md)**; the concrete M0 build contract
+> (the `input_hash`/`ctx`/status/adapter primitives, acceptance checklist, and build ordering) by
+> **[ADR 0012](decisions/0012-m0-build-contract.md)**; **Windows host support** (run the whole
+> Linux stack inside WSL2) by **[ADR 0013](decisions/0013-windows-host-support-wsl2.md)**.
 >
 > **Precedence:** for *tooling* choices, `OPTIONS.md` stands. For *scope*, `POC.md` wins.
 > Where `DESIGN.md §2–§3/§9` describes the older GPU-in-kind / MinIO / monolithic-Stage-1
@@ -88,7 +93,7 @@ architecture — it removes GPU-in-kind (the #1 risk) and hands VRAM management 
         │                                   │  schedules thin CPU client pods       │
         │                                   ▼                                       │
         │  00a data-fetch · 00b script · 01a stock · 01b/01c/01d (→host) · 01e viz │
-        │  02 voice · 03 subs · 04 music · 05 render · 05b safety · 05c quality · 06 │
+        │  02 voice · 03 subs · 04 music · 05 render · 05x vision · 05b safety · 05c quality · 06 │
         │                                   │                                       │
         │                                   ▼                                       │
         │   ┌─────────────────────────────────────────────────────────────────┐   │
@@ -148,17 +153,31 @@ column below is the *dependency* order; the visual/audio split is the *schedulin
    ║ 01d upscale-restore(×N)║  Real-ESRGAN + RIFE + GFPGAN/CodeFormer → assets.json
    ╚══════════╤═══════════╝
               ▼
+   ╔══════════════════════╗   CPU — branded charts/counters via the shared compositor
+   ║ 01e data-viz   (×N)   ║   → scenes/ viz clips (the finance signature visual)
+   ╚══════════╤═══════════╝
+              │   ▲ VISUAL LANE (01a–01e, GPU-bound) ∥ AUDIO LANE (02–04, CPU) run concurrently,
+              │   │   forked after 00b — both join at 05 render (ADR 0011)
+              ▼
    ╔══════════════════════╗   CPU (Kokoro)        ╔══════════════════════╗  CPU
    ║ 02 voice       (×N)   ║   narration.wav  ───► ║ 03 subtitles  (×N)    ║  WhisperX int8
    ╚══════════════════════╝                       ╚══════════╤═══════════╝  → captions.ass
                                                               ▼
-   ╔══════════════════════╗   CPU                 ╔══════════════════════╗  CPU (ffmpeg)
+   ╔══════════════════════╗   CPU                 ╔══════════════════════╗  CPU + NVENC
    ║ 04 music       (×N)   ║   ducked mix  ──────► ║ 05 render     (×N)    ║  per-platform
    ╚══════════════════════╝                       ╚══════════╤═══════════╝  YT + TikTok cuts
                                                               ▼
+                                              ╔══════════════════════╗  →HOST VLM (Qwen2.5-VL)
+                                              ║ 05x vision     (×N)   ║  one pass / sampled frames
+                                              ╚══════════╤═══════════╝  → vision.json (feeds gates)
+                                                         ▼
                                               ╔══════════════════════╗  CPU (+ →host LLM)
-                                              ║ 05b QC gate   (×N)    ║  pass → continue
+                                              ║ 05b safety gate(×N)   ║  pass → continue
                                               ╚══════════╤═══════════╝  fail → quarantine
+                                                         ▼
+                                              ╔══════════════════════╗  CPU (+ →host LLM)
+                                              ║ 05c creative-QC(×N)   ║  score vs floor;
+                                              ╚══════════╤═══════════╝  below → quarantine
                                                          ▼  (gated)
                                               ╔══════════════════════╗  CPU
                                               ║ 06 distribute (×N)    ║  idempotent, private-
@@ -180,22 +199,29 @@ above, not by hope. A day's batch walks the GPU through one model at a time:
 
 ```
  VRAM
- 16GB ┤                  ┌─FLUX─┐        ┌──LTX──┐     ┌ESRGAN┐
-      │   ┌─Qwen-14B─┐    │~12GB │        │ ~14GB │     │RIFE  │
-  ~9G ┤   │  ~9GB    │    │      │        │       │     │+GFPGAN
-      │   │ (scripts)│    │images│        │ clips │     │~4-6GB│
-   0  ┼───┴──────────┴────┴──────┴────────┴───────┴─────┴──────┴──────────────►  time
-          │   evict  │    │ evict│        │ evict │     │      │
-          └──00b─────┘    └─01b──┘        └─01c───┘     └─01d──┘
-                                                          (CPU: 02 voice, 03 subs, 04 music,
-                                                           05 render, 05b QC, 06 distribute —
-                                                           run alongside, no GPU contention)
+ 16GB ┤                  ┌─FLUX─┐        ┌─LTX*─┐     ┌ESRGAN┐
+      │   ┌─Qwen-14B─┐    │~12GB │        │quant │     │RIFE  │            ┌Qwen-VL┐
+  ~9G ┤   │  ~9GB    │    │      │        │ +VAE │     │+GFPGAN           │ ~9GB  │
+      │   │ (scripts)│    │images│        │ tiled│     │~4-6GB│           │ (05x) │
+   0  ┼───┴──────────┴────┴──────┴────────┴──────┴─────┴──────┴───────────┴───────┴──►  time
+          │   evict  │    │ evict│        │ evict│     │ evict│           │ evict │
+          └──00b─────┘    └─01b──┘        └─01c──┘     └─01d──┘           └─05x───┘
+                          (CPU audio lane 02–04 ∥ the visual lane above; then
+                           05 render, 05x→05b→05c gates, 06 distribute — no GPU contention)
 ```
 
 No two heavy models are ever resident together (`research/03 §6.2, §10`). ComfyUI's queue
-serializes 01b/01c/01d; the LLM endpoint is up only for 00b. This is *why* stages are
-batched and serialized rather than packed: predictable VRAM beats clever contention, and
-zero-OOM is a PoC reliability requirement.
+serializes 01b/01c/01d; the post-render VLM (05x) loads once after diffusion is evicted. This is
+*why* stages are batched and serialized rather than packed: predictable VRAM beats clever
+contention, and zero-OOM is a PoC reliability requirement.
+
+**Two VRAM caveats to validate on the real box (ADR 0011 / M2):** (1) **`*`LTX at 1080×1920 must
+run quantized (fp8/GGUF) with tiled VAE decode** — a full-precision LTX peak does not safely fit
+the ~2 GB headroom left on a 16 GB card; validate peak VRAM before M2, not after. (2) **Eviction
+between the two host processes is not automatic** — Ollama keeps the model resident on a default
+`keep_alive`, so the confirm-VRAM-free gate must explicitly unload it (`keep_alive: 0` / unload
+call) **and** poll `nvidia-smi` free-VRAM below a threshold before the next GPU stage starts, rather
+than assuming a lease the two unrelated processes don't share.
 
 ---
 
@@ -283,6 +309,10 @@ shorts-creator/
 │   ├── script.schema.json         #    Stage 00b output
 │   ├── assets.schema.json         #    Stage 01d output
 │   ├── provenance.schema.json     #    per-asset audit record
+│   ├── vision.schema.json         #    Stage 05x output (VLM keyframe observations)
+│   ├── qc.schema.json             #    Stage 05b output (account-safety verdict)
+│   ├── creative_qc.schema.json    #    Stage 05c output (quality score vs floor)
+│   ├── posts.schema.json          #    posted-state ledger record, (video,platform) exactly-once
 │   ├── profile.schema.json        #    niche config, validated (ADR 0010)
 │   ├── format.schema.json         #    format archetype config, validated (ADR 0010)
 │   └── feature_record.schema.json #    stable per-video record → warm-start the analytics loop (ADR 0010)
@@ -309,7 +339,7 @@ shorts-creator/
 │   ├── 02-voice/                  #   CPU — Kokoro-82M (text-normalization + prosody)
 │   ├── 03-subtitles/              #   CPU — WhisperX int8, forced-aligned to script (ADR 0009)
 │   ├── 04-music/                  #   CPU — per-platform taxonomy-matched track + SFX, ducked mix (ADR 0009)
-│   ├── 05-render/                 #   format-aware compositor (headless-Chromium layouts) + NVENC; cuts, CTA, loop, end-card (ADR 0007)
+│   ├── 05-render/                 #   format-aware compositor: pure(render_manifest), Remotion 30fps CPU raster + NVENC; cuts, CTA, loop, end-card (ADR 0007/0007a)
 │   ├── 05x-vision/                #   →host Qwen2.5-VL over sampled frames; feeds both gates (ADR 0008)
 │   ├── 05b-qc/                    #   safety gate (pass → continue / fail → quarantine)
 │   ├── 05c-creative-qc/           #   quality gate — judge score vs floor, vision-grounded (ADR 0005/0008)
@@ -327,6 +357,7 @@ shorts-creator/
 ├── music/                         # strike-safe local library + index.json (mood→tracks)
 ├── tests/                         # schema validation + golden fixtures + GPU-free full-DAG run via shared/fakes (ADR 0010)
 ├── scripts/                       # ⭐ one-command lifecycle: up.sh (turn it all on) · trigger.sh (manual run) · down.sh
+│   └── win/shorts.ps1             #    Windows entry point — dispatches into WSL2 (ADR 0013)
 ├── Makefile                       # up · trigger · down · host-up · cluster-up · build · wire · test
 └── README.md
 ```
@@ -357,6 +388,14 @@ scripts/down.sh      # stop it (host-backed data persists; --purge also deletes 
 `up.sh` is idempotent — it skips anything already healthy and waits on each plane's health endpoint
 before moving on — so it doubles as "resume after a reboot." `make up` / `make trigger` / `make down`
 are equivalent wrappers.
+
+**On Windows (ADR 0013):** run the whole thing **inside one WSL2 distro** — ComfyUI + Ollama (GPU
+via the NVIDIA Windows driver) *and* Docker + `kind`. The bash scripts run unchanged there; from
+PowerShell, `scripts\win\shorts.ps1 {up|down|trigger}` dispatches into WSL. Keep the repo + data on
+the **WSL2 ext4 filesystem (not `/mnt/c`)**, enable `systemd` in `wsl.conf`, and use a **Task
+Scheduler `wsl`-at-logon** task so the daily cron survives reboots. GPU overhead vs native Linux is a
+few percent for this (GPU-saturating) workload; the real Windows cost is **tighter VRAM**, which
+makes quantized LTX non-optional.
 
 **What it does under the hood** — the same two moments as before, just sequenced for you:
 
@@ -396,15 +435,16 @@ steady state, the GPU's VRAM managed for you with full visibility when something
 
 ## 10. Still open (the next decisions, tracked)
 
-Not closed by this blueprint — these are the remaining `REVIEW.md` items, in priority order:
+The four `REVIEW.md` items this blueprint originally left open have since been **decided** by later
+ADRs and are no longer open here:
 
-1. **C2 — the contracts.** Write `schemas/*.schema.json` (`job`/`script`/`assets`/
-   `provenance`) as versioned JSON Schema **before** stage code. They are every stage's
-   interface.
-2. **Stage 6 idempotency.** A posted-state ledger / idempotency key so a retry never
-   double-posts (real bug for unattended-with-retries).
-3. **Stage 5 render-differentiation spec** — what concretely differs per platform (caption
-   style / hook / length / sound), so the YouTube and TikTok cuts aren't a dupe re-encode.
-4. **Stage 5b QC spec** — pass/fail thresholds, the second-pass LLM's VRAM source (host
-   endpoint, same eviction rule), the quarantine + weekly spot-audit subsystem.
-```
+1. **C2 — the contracts** → now the versioned-schema set + validation harness + golden fixtures
+   (ADR 0010; the full list is in §7).
+2. **Stage 6 idempotency** → the `(video_id, platform)` posted-state ledger, exactly-once (ADR 0003 D1).
+3. **Stage 5 render-differentiation** → per-platform native cuts + concrete deltas (ADR 0005 D4 / D10).
+4. **Stage 5b QC** → the account-safety gate + the 05x vision pass feeding it (ADR 0004 D3 / ADR 0008).
+
+The **live** open-items list (contracts P0, render deltas, numeric tuning, performance residue, the
+post-M1 A/B set, etc.) is maintained in one place — the spec's *"Still open (tracked)"* section
+([`specs/2026-06-07-shorts-creator-poc-design.md`](superpowers/specs/2026-06-07-shorts-creator-poc-design.md))
+— so it doesn't drift across two documents.

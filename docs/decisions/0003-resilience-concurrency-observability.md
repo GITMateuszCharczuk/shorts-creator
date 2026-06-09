@@ -37,8 +37,10 @@ run. The findings clustered, with multiple independent reviewers landing on the 
 1. **Exactly-once posting via a dedicated posted-state ledger.** Add `history/posts.jsonl`
    (distinct from the novelty ledger), keyed `(video_id, platform)`. Each post writes an
    **intent** record *before* the API call and a **confirmed** record (with the remote post id)
-   *after*. Retries consult it first. YouTube `insert` has no client idempotency token, so a
-   retry confirms via the stored remote `videoId` / a pre-upload search before re-posting.
+   *after*. Retries consult it first. YouTube `insert` has no client idempotency token, so —
+   to close the crash window *between* a successful API call and the confirmed-record write (an
+   intent with no confirmation) — a retry does **not** blindly re-post: it first **searches the
+   channel for a recent upload matching this video** (title/hash) and only posts if none is found.
    Per-platform records make partial multi-platform posts first-class. The novelty ledger is
    **never** reused for posting state.
 
@@ -69,21 +71,34 @@ run. The findings clustered, with multiple independent reviewers landing on the 
    falls back `published → fetched` when `published` is absent/implausible, and dedups on
    **canonical URL / story**, not the raw feed URL.
 
-6. **Serialized, atomic ledger writes.** Both `ledger.jsonl` and `posts.jsonl` are written by a
-   **single fan-in commit step per batch** (or `flock` + `fsync`); concurrent appender pods are
-   not permitted.
+6. **Serialized ledger writes + per-video run-dir ownership.** Both `ledger.jsonl` and
+   `posts.jsonl` are written by a **single fan-in commit step per batch** (or `flock` + `fsync`);
+   concurrent appender pods are not permitted. With per-video CPU fan-out and the lane-fork (ADR
+   0011) now writing the shared RWO PVC concurrently, each `runs/<batch>/<video-id>/` subtree has
+   **exactly one writer at a time** (the visual and audio lanes write *disjoint* files and join only
+   at 05), and per-stage `job.json` status updates are **section-scoped atomic writes** (write-temp
+   + rename), never whole-file rewrites — so two concurrent stages can't clobber each other's status.
 
 7. **An observability backend (closes the open item).** Prometheus + node-exporter +
    **DCGM-exporter for GPU/VRAM**, ComfyUI queue depth, and per-stage duration + heartbeat;
-   persisted logs (not just pod stdout); alerts on **host-down, disk > 80%, batch-failed, and
-   quarantine-rate spike**. Per-stage expected-duration baselines distinguish *slow* from
-   *stuck*.
+   persisted logs (not just pod stdout); alerts on **host-down, disk > 80%, batch-failed,
+   quarantine-rate spike, and a cron run skipped due to `concurrencyPolicy: Forbid`** (a wedged or
+   over-running batch must surface, not silently halt the daily cadence). Per-stage
+   expected-duration baselines distinguish *slow* from *stuck*.
 
 8. **Disk GC + pre-flight checks; host toolchain pinning.** Retention/GC for `quarantine/` and
    old `runs/`; a **pre-batch free-space gate** and a **pre-batch OAuth validity/refresh check**.
    The host environment **pins `torch` cu128 + the ComfyUI commit + custom-node versions** and
    snapshots working graphs — host-env drift (the relocated sm_120 risk) is a release-gated
    change.
+
+9. **Boot-time batch reconciliation (host-reboot recovery).** `systemd Restart=always` recovers the
+   host *processes*, but an in-flight Argo batch dies with the node on a host/OS reboot — the
+   controller and all running stage pods are lost, which would silently drop that day's output and
+   void the "1–2 week unattended" bar. So a **boot-time reconciler** (a systemd unit / Argo startup
+   hook) inspects `batch.json` status on bring-up: an interrupted batch is **resumed from the last
+   completed stage** (idempotent + seeded re-runs make this safe, ADR 0009) or cleanly re-submitted,
+   and the event is alerted. Argo's own restart behavior is documented rather than assumed.
 
 ## Consequences
 

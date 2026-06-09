@@ -213,10 +213,12 @@ genuine gaps. AI video always carries an "AI look", so we minimise it.
 - **License:** ✅ commercial. We store provenance per track for auditability.
 
 ### Stage 5 — Render / mux (CPU compositor + GPU NVENC)
-- **Purpose:** **Format-aware compositor** (ADR 0007) — bind the format's `layout` template
-  (regions/animation/transitions, all 8 archetypes) via a headless-Chromium engine, then mix
-  VO & music + **finishing polish** → final 9:16 MP4. Engine shared with data-viz; encode on NVENC.
-- **Tool:** **headless-Chromium HTML/CSS** (MIT-clean default; Remotion solo-only — ADR 0007) +
+- **Purpose:** **Format-aware compositor** (ADR 0007 / **0007a**) — a `pure(render_manifest)`
+  resolve step binds the format's `layout` template (hybrid region data + closed primitive/animation
+  libraries) and the **Remotion** engine paints frames at **30 fps** (CPU raster, deterministic),
+  then mix VO & music + **finishing polish** → final 9:16 MP4. Engine shared with data-viz;
+  encode on NVENC.
+- **Tool:** **Remotion** (headless-Chromium HTML/CSS; **locked** — free ≤3-person tier, ADR 0007) +
   **ffmpeg/`h264_nvenc`** (overlay `.ass`, audio mix, 1080×1920, **per-format
   length** ~20–35s/~61–90s, H.264/AAC, faststart). NVENC on the 5070 Ti for fast encode.
 - **Per-platform native renders:** emit a **distinct cut per platform** (YouTube/TikTok/FB/
@@ -395,8 +397,14 @@ shorts-creator/
 5. **YT inauthentic-content policy** — automation cadence + quality bar + human review.
 6. **LTX-Video license** — confirm commercial terms at build time; Ken Burns is the safe
    fallback for motion.
-7. **VRAM choreography** — never co-resident big models; run image-gen and img2vid as
-   distinct steps with cache eviction.
+7. **VRAM choreography** — **sequential: exactly one heavy model resident per stage**, never
+   co-resident (ADR 0011/0013). Stages load → run → **evict** before the next; **batch by stage
+   across the whole day's run** (all scripts, then all images, then all img2vid…) so model
+   load/unload churn is amortized, not paid per video. The binding stage is **LTX img2vid (~14 GB)**
+   against ~15 GB of headless headroom on the 16 GB card — so on the WSL2/Windows host the
+   **headless GPU plane** (reclaim the WSLg compositor's VRAM) and **LTX FP8 + tiled VAE** are
+   non-negotiable, not optional (ADR 0013). The Remotion compositor (Stage 5) runs GPU-free —
+   CPU rasterize + NVENC — so it never contends.
 8. **Factual accuracy** — hallucination mitigation for history/geopolitics.
 
 ---

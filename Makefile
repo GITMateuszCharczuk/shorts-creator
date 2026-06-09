@@ -7,6 +7,10 @@
 #
 # The granular targets below are the single source of truth the scripts call;
 # M0 fills in the bodies marked `# M0:`.
+#
+# NOTE: until M0 wires them, the host-*/cluster-up/build/wire/test bodies are
+# stubs that `exit 1`, so `make up` (and scripts/up.sh) will fail fast at the
+# first unwired step. That is expected pre-implementation.
 
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
@@ -19,8 +23,10 @@ COUNT        ?= 2
         host-comfyui-up host-comfyui-down host-llm-up \
         host-up cluster-up build wire submit-batch test
 
-help: ## list targets
-	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-18s\033[0m %s\n",$$1,$$2}'
+help: ## list targets (grouped by section)
+	@awk 'BEGIN{FS=":.*?## "} \
+	     /^## /{h=$$0; sub(/^## ?/,"",h); printf "\n\033[1m%s\033[0m\n",h} \
+	     /^[a-zA-Z_-]+:.*?## /{printf "  \033[36m%-18s\033[0m %s\n",$$1,$$2}' $(MAKEFILE_LIST)
 
 ## ---- one-command lifecycle (wrappers over scripts/) ----
 up: ## turn the whole system on with one command

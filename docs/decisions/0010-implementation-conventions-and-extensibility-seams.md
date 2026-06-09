@@ -39,35 +39,61 @@ add runtime capability — no new stage, model, or platform — it shapes how th
    `run(ctx)` reads declared inputs + `job.json`, writes declared outputs + status — with the
    shared plumbing (`job.json` IO, provenance, structured logging, retry/quarantine signaling,
    **seed access**) living in `shared/`. Each stage **declares its inputs/outputs/resources as
-   metadata**, and the Argo DAG is **generated from that metadata** rather than hand-wired. *Why
-   now:* adding or reordering a stage (e.g. the 05x/05b/05c cluster) becomes "write a function +
-   declare deps," not "edit the function *and* the workflow YAML and hope they agree."
+   metadata**. *Why now:* adding or reordering a stage (e.g. the 05x/05b/05c cluster) becomes "write
+   a function + declare deps," not "edit the function *and* the workflow YAML and hope they agree."
+   **For the PoC, ship hand-written Argo templates plus the metadata manifest, with a test that
+   asserts the templates match the manifest (drift-catcher) — do *not* build a DAG generator yet.**
+   The fixed ~15-stage *concurrent* topology of ADR 0011 (lane-fork, the confirm-VRAM gate between
+   00b/01b, per-video `continueOn` sub-DAGs) would make a generator more complex than the ~15
+   templates it emits; the generator is deferred (see open items) until the topology actually churns.
 
 3. **Adapter interfaces for the three pluralities, defined before the first concrete one.**
-   - **`DistributionAdapter`** (`publish` / `confirm_posted` / `supports_visibility`) — the
-     exactly-once ledger logic (ADR 0003) lives in the **base**; YouTube/TikTok (and future FB/IG)
-     adapters implement only platform API.
+   - **`DistributionAdapter`** (`publish` / `confirm_posted` / `allowed_visibility`) — the base owns
+     the **ledger write protocol** (intent→confirm, ADR 0003 D1); each **adapter owns confirm /
+     reconcile**, because recovery is platform-specific (YouTube `insert` has no idempotency token →
+     search recent uploads; TikTok → poll `publish_id`) — that logic cannot fully live in the base.
+     `allowed_visibility` returns the **set of visibilities legal given current audit state** (so 06
+     degrades to SELF_ONLY/private as *data*, not a code branch — ADR 0009 D3), rather than a coarse
+     boolean.
    - **Model capability backends** (`generate_image(prompt, seed)`, `img2vid(…)`, `tts(…)`,
      `vlm_judge(…)`, `llm(…)`) — splits today's single host client into per-capability interfaces
-     so every A/B swap on the open list is a **config swap**, not stage surgery.
-   - **`LayoutEngine`** (`render(format_layout, structured_data, brand_kit) → frames`) — abstracts
-     the still-unpicked composition engine (Playwright/Motion-Canvas/Remotion, ADR 0007) so the
-     format templates don't hard-couple to an engine choice that isn't final.
+     so every A/B swap on the open list is a **config swap**, not stage surgery. Backend choice
+     resolves **per-stage** (00b can run Qwen-32B while 05b runs 14B), and the **judge backend can
+     point at a separate CPU/small-model endpoint** so an independent non-Qwen judge (ADR 0009 D4) is
+     a config swap, not a VRAM fight under never-co-resident.
+   - **`LayoutEngine`** (`render(render_manifest) → frames` — refined by ADR 0007a §2 from the
+     earlier 3-arg `render(format_layout, structured_data, brand_kit)`; a pure resolve step now
+     merges layout + data + brand kit + word timings + seed into the manifest, so the engine takes
+     no unresolved input) — abstracts the composition engine (**Remotion**, locked ADR 0007 §4 D4;
+     Playwright/Motion-Canvas remain the tripwire fallback). Note all three candidates share the
+     **same DOM/CSS paradigm**, so this seam is honestly a **license hedge** (the Remotion free
+     ≤3-person terms could reopen on headcount) more than a true engine-portability layer — cheap
+     insurance.
 
 4. **An offline dev harness + content-addressed stage cache.** Because the topology is already
    thin HTTP clients → host (ADR 0001), `HOST_GPU_ENDPOINT` can point at **fake backends that
    return fixtures**, letting the **entire DAG run on a laptop / in CI with no GPU**. Paired with a
    **content-addressed cache keyed on `(stage, input_hash, seed)`** — sound precisely because the
    seed is now persisted (ADR 0009) — re-runs skip completed work and a developer can iterate on
-   one stage without re-running upstream. *Why now:* built in from the start it's almost free;
-   bolted on later it means rewriting every stage's IO. Biggest dev-velocity multiplier in the list.
+   one stage without re-running upstream. **For generative stages the key also includes the
+   model + graph version** (FLUX/LTX aren't guaranteed bit-reproducible across driver/model
+   versions; without this the cache could silently serve stale frames) — or those stages are
+   cache-exempt until reproducibility is verified on the box. *Why now:* built in from the start it's
+   almost free; bolted on later it means rewriting every stage's IO. Biggest dev-velocity multiplier.
 
 5. **A typed config-resolution layer; profiles & formats are validated config.** One resolver with
    explicit precedence — **global defaults → niche profile → batch overrides → per-platform** —
    replaces scattered `if platform == …` conditionals (per-platform CTA verbs, phase-dependent lane
    mix, per-platform music/render deltas all already exist). `profile.schema.json` and
    `format.schema.json` make "add a niche / add a format" a **validated data file** with a loader/
-   registry — delivering the "data, not code" promise concretely.
+   registry — delivering the "data, not code" promise concretely. **Two honest caveats:** (a) a niche
+   is fully data, but a **format is data-driven only within the existing region/data-shape
+   vocabulary** — a genuinely new structural shape needs a new LayoutEngine template *and* a new
+   `script.schema` per-beat field shape (ADR 0007 D3), i.e. a code change, so don't oversell formats
+   as pure config; (b) to keep the promise from rotting, the **M0 golden-fixtures CI asserts no stage
+   source branches on `platform ==` / `niche ==`** (all such values resolve through the layer) and
+   that adding a profile/format fixture flows end-to-end through the fakes — turning "data-driven"
+   from aspiration into a CI-enforced property.
 
 6. **Emit the feedback-loop data contract now, even though the loop is deferred.** Define a
    **stable per-video record** (chosen format / seed / hook-variant + judge scores + a reserved
@@ -81,6 +107,14 @@ add runtime capability — no new stage, model, or platform — it shapes how th
 Multi-account orchestration, horizontal scale-out, cloud-GPU autoscaling, and any web UI. The
 single-host SPOF is acceptable for the PoC (ADR 0003). The adapter seams above are what make those
 *possible later without pre-building them* — don't build for 30/day before shipping 2/day.
+
+**Honest scope of "scales later":** the adapter seams cover **models, distribution, and layout** —
+*not* the artifact bus or the GPU transport. So **single-node → a bigger single node is config**,
+but **true multi-node is a topology change, not a config swap**: the file-path artifact bus on one
+RWO host-mounted PVC would need an RWX/object store (the MinIO deliberately removed in ADR 0001),
+and the host-process GPU plane reached over the kind Docker-bridge gateway would need a networked
+GPU transport + a cross-node lease. Those reintroductions are the known cost of going multi-node;
+nothing here pre-builds them, but the claim is "extends," not "scales horizontally for free."
 
 ## Consequences
 

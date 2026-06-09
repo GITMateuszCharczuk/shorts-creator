@@ -13,7 +13,9 @@
 > [0008 — output-parity hardening](../../decisions/0008-output-parity-hardening.md), and
 > [0009 — content integrity & account robustness](../../decisions/0009-content-integrity-and-account-robustness.md), and
 > [0010 — implementation conventions & extensibility seams](../../decisions/0010-implementation-conventions-and-extensibility-seams.md), and
-> [0011 — performance & optimization](../../decisions/0011-performance-and-optimization.md).
+> [0011 — performance & optimization](../../decisions/0011-performance-and-optimization.md), and
+> [0012 — M0 build contract & acceptance criteria](../../decisions/0012-m0-build-contract.md), and
+> [0013 — Windows host support (WSL2)](../../decisions/0013-windows-host-support-wsl2.md).
 > The full topology diagrams live in [`docs/ARCHITECTURE.md`](../../ARCHITECTURE.md).
 >
 > **Precedence:** the ADRs win on runtime topology; `POC.md` wins on scope. This spec is the
@@ -175,7 +177,7 @@ stay split (perceive→judge), and best-of-N / the vision pass / stills-over-AI-
 | **02 voice** | CPU | Kokoro-82M narration, driven by a **finance text-normalization + pronunciation lexicon** (`$1.5M`, `401(k)`, `FOMC`…) and **per-beat prosody/emphasis/pause markup** incl. a deliberate hook delivery (ADR 0005 D6); the **primary keyword is spoken in the opening lines** (ADR 0006). | `narration.wav` |
 | **03 subtitles** | CPU | WhisperX `int8` **forced-aligned to the known script text** (ADR 0009 — *not* a fresh transcription, which would corrupt `401(k)`/tickers/`$1.5M`; free transcription is a fallback only if alignment fails) → **designed** karaoke captions: brand font, ≤N words on-screen, stroke/shadow, **emphasis-word styling**, animation, **per-platform vertical safe zones** (ADR 0005 D7); the **primary keyword appears as on-screen text in the first 2–3s** (ADR 0006). | `captions.ass/.srt` |
 | **04 music** | CPU | Strike-safe track from a **per-platform curated library** (ADR 0009 — "strike-safe" is platform-scoped: YouTube Audio Library is YouTube-oriented, TikTok pushes non-personal accounts to its Commercial Music Library; cross-platform terms verified, not assumed), **selected by a closed mood/energy taxonomy tied to the format** (anti-repeat across the batch) + a **transition-SFX layer** (whoosh/tick/reveal), ducked under VO (sidechain), **per-platform LUFS** (ADR 0005 D6). | `music.wav` + sfx |
-| **05 render** | CPU compositor + GPU NVENC | **Format-aware compositor** (ADR 0007): binds the format's **`layout`** (named frame regions, per-beat structured data, animation, transitions — all 8 archetypes) via a headless-Chromium HTML/CSS engine on the 7800X3D, **encoded with `h264_nvenc` on the 5070 Ti** (GPU is free at render time). Then **word-timed cuts + visual-change target**, **per-clip color *matching* before** the grade, **brand overlay** + the **mid-roll engagement-CTA bump** (ADR 0005 D10), designed **thumbnail/cover** (TikTok cover = frame 1), a **seamless loop bridge** and a **closing FOMO end-card** (ADR 0006) → **distinct native cuts for YouTube + TikTok** (ADR 0005 D4). | `renders/{youtube,tiktok}.mp4`, `thumbnail.jpg` |
+| **05 render** | CPU compositor + GPU NVENC | **Format-aware compositor** (ADR 0007 / **0007a**): a deterministic **resolve step** binds the format's **`layout`** (named frame regions on a grid-in-safe-rect, per-beat structured data, animation, transitions) + word timings + brand kit + seeded slots into a flat **`render_manifest.json`**, rendered as a **pure function of the manifest** (reproducible, ADR 0009) by the **Remotion** engine (locked, ADR 0007 §4) at **30 fps** via **CPU rasterization** on the 7800X3D (deterministic — GPU-Chromium rejected), **encoded with `h264_nvenc` on the 5070 Ti** (GPU free at render time; hash frame PNGs, not the mp4). Per-platform cuts are **manifest deltas, not code paths**. Then **word-timed cuts + visual-change target**, **per-clip color *matching* before** the grade, **brand overlay** + the **mid-roll engagement-CTA bump** (ADR 0005 D10), designed **thumbnail/cover** (TikTok cover = frame 1), a **seamless loop bridge** and a **closing FOMO end-card** (ADR 0006) → **distinct native cuts for YouTube + TikTok** (ADR 0005 D4/D7/D10). | `renders/{youtube,tiktok}.mp4`, `thumbnail.jpg` |
 | **05x vision pass** | →host VLM | **One vision-language pass over sampled keyframes** (hook frame, end-card, per-beat samples) + script + asset manifest — **Qwen2.5-VL** (Apache-2.0), a GPU citizen under the never-co-resident rule, run post-render when FLUX/LTX are evicted (ADR 0008). Feeds **both** gates below so they judge the **rendered output, not just intent**. | `vision.json` |
 | **05b safety gate** | CPU +host LLM | The always-on **account-safety gate** (Chapter 8, ADR 0004 D3): YMYL disclaimer present, no buy/sell calls, sources cited, AI-disclosure set, profanity/claims clear, repetitious-content check vs ledger, render integrity — **+ aesthetic/artifact + audio-defect checks** (morphing hands, temporal warp, garbled AI text, caption occlusion, hook dead-air, loudness, synth-duration), now grounded in the **05x vision pass** (ADR 0005 D8 / ADR 0008). Pass → continue; fail → quarantine. | `qc.json` |
 | **05c creative-QC** | CPU →host LLM | The **quality gate** (ADR 0005 D2), distinct from safety: judge scores the **rendered** video — hook strength, non-obvious take, **visual↔script coherence** and pacing read from the **05x vision pass** (ADR 0008), payoff — vs a **quality floor**. Above floor → distribute; below → **quarantine, not post**. | `creative_qc.json` |
@@ -188,14 +190,17 @@ All clips are normalized to **1080×1920**. The scene manifest (`assets.json`) p
 
 **Contracts first (REVIEW C2 / P0).** The stage interfaces *are* the architecture, so they are
 the **first committed code artifact**, as versioned JSON Schema under `schemas/`, validated at
-every stage boundary:
+every stage boundary. The prose below is the **input to M0**: M0's job is to turn each of these into
+an executable, versioned JSON Schema (this is exactly what ADR 0010's "conventions" mean — authoring
+the contracts is the work), built to the primitives + acceptance checklist in **ADR 0012**.
 
 - **`job.schema.json`** — the spine threaded through every stage: `batch_id`, `video_id`, niche,
   profile, platform targets, per-stage status, the run's file paths, and a **persisted `seed`**
   (ADR 0009) the generative stages derive from, so best-of-N / FLUX / LTX re-runs are reproducible.
 - **`script.schema.json`** — Stage 00b output: the chosen **`format`** (Chapter 6); **structured
   per-beat layout data keyed to the format** (e.g. `ranked_list` → ordered `items[]` of
-  `{rank, title, body, media_query}`; `head_to_head` → `{side_a, side_b, verdict}`) that the
+  `{rank, title, body, media_query, stat?}`; `head_to_head` → `{side_a, side_b, verdict, round[]}`
+  with `side_*: {media_query, label}`, `verdict: {text}`, `round: {metrics}`) that the
   Stage 05 layout template binds to (ADR 0007); a **`treatment`** block (thesis/angle/tone,
   per-beat visual motif, energy curve — ADR 0005 D1);
   a first-class **`hook`** composite (`{spoken, on_screen_text, first_frame_visual, duration}`)
@@ -209,12 +214,21 @@ every stage boundary:
   beat).
 - **`provenance.schema.json`** — per asset: `source`, `url`, `license`, `fetch_date`.
 - **`qc.schema.json`** — Stage 05b output: the account-safety gate's per-check pass/fail + verdict.
+- **`vision.schema.json`** — Stage 05x output: the VLM's per-keyframe observations (hook frame,
+  end-card, per-beat samples) that feed both gates (ADR 0008). A versioned contract like every other
+  stage output.
 - **`posts.schema.json`** — the posted-state record keyed `(video_id, platform)`: intent →
   confirmed (with the remote post id). The **exactly-once** backbone (ADR 0003 D1), kept
   separate from the novelty ledger.
 - **`profile.schema.json` / `format.schema.json`** — niches and format archetypes are **validated
   config, not code** (ADR 0010): adding a niche or a format is a checked data file behind a loader/
   registry, resolved through one precedence layer (**global → niche → batch → per-platform**).
+- **`layout.schema.json`** — the format's **`layout`** recipe (ADR 0007a): named regions
+  (`bbox` on a 12-col grid + vertical anchors within the per-platform safe rect, `z`, `bind` to a
+  typed beat-field, `primitive`, `enter`/`exit` animation, `style` token refs) + the beat pattern.
+  Validates region/bbox/animation names and — at resolve time — that every `bind` exists in that
+  format's typed beat contract, so **adding a format stays data, not code**. The Stage 05 resolve
+  step emits a `render_manifest` the Remotion `LayoutEngine` renders as a **pure function** (ADR 0009).
 - **`feature_record.schema.json`** — a **stable per-video record** (chosen format / seed / hook
   variant + judge scores + a reserved metrics slot) written from the first run, so the deferred
   analytics loop (ADR 0002/0005) starts *warm* instead of cold (ADR 0010 D6).
@@ -245,7 +259,7 @@ cosmetic: cross-run dedup is only possible because the ledger persists.
          ├── scenes/  narration.wav  captions.ass/.srt  music.wav
          ├── renders/{youtube,tiktok}.mp4  thumbnail.jpg
          └── qc.json  creative_qc.json
- └── quarantine/<video-id>/        # 05b failures; retention/GC policy (ADR 0003 D8)
+ └── quarantine/<video-id>/        # 05b/05c failures; retention/GC policy (ADR 0003 D8)
  └── history/ledger.jsonl          # append-only novelty ledger (Chapter 6)
  └── history/posts.jsonl           # posted-state ledger, (video,platform) exactly-once (ADR 0003 D1)
  └── models/                       # host-mounted shared weight cache (downloaded once)
@@ -476,6 +490,11 @@ opportunistic spot cloud (only past ~30/day).
   with a hard poll timeout + `activeDeadlineSeconds` — it never hangs (ADR 0003 D2/D3).
 - **Pre-flight gates.** Before fan-out: a **free-space check** (disk-full SPOF) and an
   **OAuth-token validity/refresh check** (ADR 0003 D8); `quarantine/` and old `runs/` are GC'd.
+- **Host-reboot recovery (ADR 0003 D9).** `systemd Restart=always` recovers the host *processes*,
+  but an in-flight Argo batch dies with the node on a host/OS reboot. A **boot-time reconciler**
+  inspects `batch.json` and **resumes the interrupted batch from its last completed stage** (safe
+  because re-runs are seeded + idempotent, ADR 0009) or cleanly re-submits — so a mid-batch reboot
+  doesn't silently drop a day's output and void the 1–2 week unattended bar.
 
 **The account-safety gate (Stage 5b) — the always-on "human replacement" (ADR 0004 D3)**
 - **Purpose:** an explicit **takedown/demonetization-risk filter** that runs on **every** video,
@@ -538,10 +557,16 @@ opportunistic spot cloud (only past ~30/day).
   **idempotent** (skips healthy pieces, health-gates each plane), so it doubles as resume-after-
   reboot. `scripts/down.sh` stops it (host-backed data persists; `--purge` deletes the cluster).
   Under the hood it calls the granular targets `make host-up · cluster-up · build · wire`.
-- **Three ways to run a batch, all the *same* `shorts-batch` WorkflowTemplate:**
+- **On Windows (ADR 0013):** run the entire Linux stack **inside one WSL2 distro** (ComfyUI +
+  Ollama via the NVIDIA Windows driver, plus Docker + `kind`); the bash scripts run unchanged, and
+  `scripts\win\shorts.ps1 {up|down|trigger}` is the PowerShell entry point. Repo + data on WSL2
+  **ext4 (not `/mnt/c`)**, `systemd` enabled in `wsl.conf`, and a **Task Scheduler `wsl`-at-logon**
+  task keeps the daily cron alive across reboots. Perf overhead is a few percent; VRAM is tighter,
+  so quantized LTX is non-optional.
+- **Two entry points to the *same* `shorts-batch` WorkflowTemplate, plus a dry-run flag:**
   **(a) manual / on-demand** — `scripts/trigger.sh [--profiles … --count … --dry-run --watch]`
-  (= `make trigger`); **(b) scheduled** — the `CronWorkflow` fires the daily batch automatically;
-  **(c) dry-run** — `scripts/trigger.sh --dry-run` stages all metadata and posts nothing. Manual and
+  (= `make trigger`); **(b) scheduled** — the `CronWorkflow` fires the daily batch automatically.
+  The **`--dry-run` flag** (on either path) stages all metadata and posts nothing. Manual and
   scheduled runs are identical bar the trigger, and `concurrencyPolicy: Forbid` (ADR 0003) rejects a
   manual kick that would overlap a running batch rather than letting two go co-resident.
 
@@ -603,18 +628,19 @@ not land within the PoC, and the DoD does not depend on it.
 
 | M | Goal |
 |---|---|
-| **M0** | Scaffold & cluster: repo structure, `kind` up, **host GPU verified** (ComfyUI + LLM reachable from a pod — *not* GPU-in-kind, under the host supervisor + lease), Argo installed, **the versioned schemas** (`job/script/assets/provenance/qc/creative_qc/posts/profile/format/feature_record`) + **fail-loud validation harness + golden fixtures**, the **Stage SDK + adapter interfaces** (`DistributionAdapter`/model backends/`LayoutEngine`) and the **fake-backend offline harness + content-addressed stage cache** (ADR 0010), the observability stack bootstrapped, **CI running the full DAG GPU-free**. |
-| **M1** | Vertical slice: `00a (seeded job + numeric grounding) → 00b (Qwen: treatment + best-of-N + judge) → 02 (Kokoro) → 03 (WhisperX, forced-aligned to script) → 05 (ffmpeg, stills + Ken Burns)` → a real `final.mp4` for **finance**. Proves the shape end-to-end. |
+| **M0** | Scaffold & cluster: repo structure, `kind` up, **host GPU verified** (ComfyUI + LLM reachable from a pod — *not* GPU-in-kind, under the host supervisor + lease), Argo installed, **the versioned schemas** (`job/script/assets/provenance/vision/qc/creative_qc/posts/profile/format/feature_record`) + **fail-loud validation harness + golden fixtures**, the **Stage SDK + adapter interfaces** (`DistributionAdapter`/model backends/`LayoutEngine`) and the **fake-backend offline harness + content-addressed stage cache** (ADR 0010), the observability stack bootstrapped, **CI running the full DAG GPU-free**. **Built to the concrete contract in [ADR 0012](../../decisions/0012-m0-build-contract.md)** — the `input_hash`/`ctx`/status/adapter primitives, the build ordering, and the M0 acceptance checklist that defines "done." |
+| **M1** | Vertical slice: `00a (seeded job + numeric grounding) → 00b (Qwen: treatment + best-of-N + judge) → 02 (Kokoro) → 03 (WhisperX, forced-aligned to script) → 05 (ffmpeg, stills + Ken Burns)` → a real single render (`renders/youtube.mp4`, pre per-platform parity) for **finance**. Proves the shape end-to-end. |
 | **M2** | Visuals for real: `01a` stock-first **(CLIP relevance + dedup, format-aware media zones)** + `01b` FLUX fill + `01c` LTX img→video + `01d` upscale/restore + **`01e` data-viz**; **lock the composition engine** (MIT-clean vs Remotion-solo) and stand up the **format-aware compositor** (ADR 0007) — the "not obviously AI" look + the finance signature visual dialed in. |
 | **M3** | The **8 format layout templates** (ADR 0007), audio performance layer (normalization/prosody/music taxonomy/SFX), **caption design**, the **`05c` creative-QC gate** backed by the **`05x` vision pass** (Qwen2.5-VL, ADR 0008), persona + brand kit, **business** profile — proving the two-niche abstraction, the format→layout binding, *and* the quality bar. |
-| **M4** | Orchestration: `WorkflowTemplate` + **both entry points** (`CronWorkflow` scheduled / `scripts/trigger.sh` manual, same template; `concurrencyPolicy: Forbid`), the **one-command `scripts/up.sh` lifecycle** (host GPU + Ollama + kind/Argo, idempotent + health-gated) + `down.sh`, **per-video failure domains**, GPU lease + confirm-evicted gate, retries/timeouts, artifacts, **stage-batching + the visual∥audio lane-fork & per-video CPU fan-out** (ADR 0011, behind the timing metric), the phased daily batch. |
+| **M4** | Orchestration: `WorkflowTemplate` + **both entry points** (`CronWorkflow` scheduled / `scripts/trigger.sh` manual, same template; `concurrencyPolicy: Forbid`), the **one-command `scripts/up.sh` lifecycle** (host GPU + Ollama + kind/Argo, idempotent + health-gated) + `down.sh`, **per-video failure domains**, GPU lease + confirm-evicted gate, retries/timeouts, artifacts, **stage-batching + the visual∥audio lane-fork & per-video CPU fan-out** (ADR 0011, behind the timing metric), the phased daily batch. **Gate:** the **end-to-end throughput reconciliation on the real box** (open #9) must confirm a full batch fits its overnight window *before M4 is done* — the unattended DoD rests on this single number, which has been deferred across ADRs 0005–0008 and must not trail into M6. |
 | **M5** | Account-safety gate (`05b`) + distribution (`06`, per-platform adapters + the `posts.jsonl` exactly-once ledger) to YouTube + TikTok; private-first **plus ≥1 public** (YouTube-led; TikTok public audit-gated, ADR 0009); disclosure on; **account provisioning + warming** then the **human-at-publish ramp**; affiliate fields wired (can ship disabled); platform audits submitted in parallel. |
 | **M6** | Hardening + alerts/GC/credential pre-flight wired, then the **1–2 week unattended run** (post-ramp) that satisfies the Chapter 1 definition of done. |
 
 **Decided since (the runtime review → ADR 0003 / 0004):** Stage 6 exactly-once
 (posted-state ledger); host GPU lease + confirm-evicted gate + `Forbid` concurrency; host
 supervision + readiness gate; per-video failure domains; intra-batch dedup claim + starvation
-ladder + timestamp hygiene; serialized ledger writes; observability backend; disk GC +
+ladder + timestamp hygiene; serialized ledger writes + per-video run-dir write ownership;
+**boot-time batch reconciliation (host-reboot recovery, D9)**; observability backend; disk GC +
 credential pre-flight; host toolchain pinning — plus the commercial-posture calls (reframed DoD,
 human-at-publish ramp, always-on account-safety gate, ≥1 public account, affiliate designed-in).
 
@@ -674,10 +700,27 @@ behind a **per-stage/per-batch timing metric** off the M1 baseline. The post-ren
 (05x/05b/05c) are **deliberately left split** (a gate-collapse onto one model was considered and
 rejected — wrong place to trade quality for one swap/day).
 
+**Decided since (the implementation-readiness review → ADR 0012):** the concrete **M0 build
+contract** that turns M0 from a design brief into a buildable milestone — the `input_hash`
+canonicalization, the Stage `ctx` interface, the stage-metadata manifest (generator deferred),
+the `job.json` **status enum**, `schema_version` semantics (fail-on-major / warn-on-minor), typed
+**adapter Protocols**, the fake→fixture lookup + one **golden-fixture chain**, an explicit
+**deliverable ordering**, and an **M0 acceptance checklist** that defines "done." Plus the
+scope clarification that authoring the prose contracts *is* the M0 work.
+
+**Decided since (the Windows-host question → ADR 0013):** the system runs on Windows by hosting the
+**entire Linux stack inside one WSL2 distro** (GPU plane + control plane), Windows being just the
+substrate + the NVIDIA driver — near-zero divergence from the Linux design. GPU overhead is a few
+percent for this GPU-saturating workload (not the feared 95% loss); the real Windows costs are
+**tighter VRAM** (hardens quantized-LTX) and two ops pieces (Task-Scheduler keep-alive, `.wslconfig`).
+Driver discipline (Windows driver only, WSL-Ubuntu CUDA toolkit, cu128, pinned Blackwell Ollama) and
+**data on ext4 not `/mnt/c`** are the setup rules. A thin `scripts/win/shorts.ps1` is the PowerShell
+entry point; the bash scripts stay the single source of truth.
+
 **Still open (tracked):**
 
 1. **Contracts + M0 conventions (P0).** Write
-   `schemas/{job,script,assets,provenance,qc,creative_qc,posts,profile,format,feature_record}.schema.json`
+   `schemas/{job,script,assets,provenance,vision,qc,creative_qc,posts,profile,format,feature_record}.schema.json`
    *before* stage code — they are every stage's interface — each with a **`schema_version`** and a
    **fail-loud validation harness + golden fixtures** (ADR 0010). `script.schema` carries the
    **structured per-beat layout data** the format templates bind to (ADR 0007). Stand up the
@@ -699,9 +742,12 @@ rejected — wrong place to trade quality for one swap/day).
 7. **Algorithm-fit residue (ADR 0006)** — exact per-format second-ranges + which formats must
    loop; the end-card phrase library + rotation policy; whether `05c` factors a predicted-
    completion heuristic; revisit all against **real** retention data when analytics lands.
-8. **Layout-engine residue (ADR 0007)** — lock the composition engine (MIT-clean Playwright/
-   Motion-Canvas vs Remotion-solo) + the license call; the 8 per-format region specs + shared
-   animation/transition library; target fps; GPU-accelerated Chromium vs pure-CPU on this box.
+8. **Layout-engine residue (ADR 0007 / 0007a)** — **resolved**: engine **locked to Remotion**
+   (ADR 0007 §4 D4, ≤3-person tripwire); the hybrid region model + `layout.schema.json`, the closed
+   primitive + animation/transition libraries, the `ranked_list` + `head_to_head` exemplars,
+   **fps = 30**, and **CPU raster + NVENC** (GPU-Chromium rejected) in **ADR 0007a**. **Still open:**
+   author the other **6 region specs as data** (M3); **run** the 0007a §9 throughput method on the
+   box (rolls into #9); validate the default safe insets/grid anchors on real platform UIs (M2).
 9. **Parity residue (ADR 0008)** — the **VLM choice + frame-sampling** strategy and its VRAM cost;
    per-format `lane_support` + content-scaling values; the **end-to-end throughput reconciliation**
    across ADR 0005–0008 on the real box.
@@ -710,11 +756,11 @@ rejected — wrong place to trade quality for one swap/day).
     set** for the floor; per-platform **music libraries** + verified terms; **warming duration** +
     provisioning checklist; per-API **budget numbers** + cache TTLs; the **corroboration threshold**
     + reputable-source list per niche.
-11. **Extensibility-seam residue (ADR 0010)** — the **stage-metadata format + DAG generator**
-    (hand-written vs generated Argo templates); the **cache backend + eviction/TTL** and the key
-    boundary for seeded-but-nondeterministic stages; the **fake-backend fidelity bar** (fixture
-    replay vs lightweight CI models); whether the **feature record** lives in the ledger or a
-    separate metrics store.
+11. **Extensibility / M0-build residue (ADR 0010 / 0012)** — ADR 0012 pinned the `input_hash`,
+    `ctx`, status enum, manifest shape, and adapter Protocols; **still open**: the **cache backend
+    substrate** (file vs sqlite) + eviction/TTL; the **fake-backend fidelity bar** (fixture replay
+    vs a tiny real CI model); whether the **feature record** lives in the ledger or a separate
+    metrics store.
 12. **Performance residue (ADR 0011)** — the **timing-metric** shape + M1 baseline numbers; the
     lane-fork **CPU/RAM bounds** (so the audio lane doesn't starve the host serving the GPU plane);
     whether RAM pre-staging / NVENC pipelining clear the measurement bar at PoC batch sizes.

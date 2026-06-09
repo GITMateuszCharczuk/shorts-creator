@@ -54,8 +54,10 @@ Example — `ranked_list` repeating "item card":
 
 3. **The 00b → 05 contract becomes structured, not prose.** `script.json` / the treatment emit
    **typed per-beat layout data** keyed to the format (e.g. `ranked_list` → an ordered
-   `items[]` of `{rank, title, body, media_query}`; `head_to_head` → `{side_a, side_b, verdict}`),
-   so each template has typed fields to bind. This is a real contract change (Ch.5).
+   `items[]` of `{rank, title, body, media_query, stat?}`; `head_to_head` → `{side_a, side_b,
+   verdict, round[]}` with `side_*: {media_query, label}`, `verdict: {text}`, `round: {metrics}`),
+   so each template has typed fields to bind. This is a real contract change (Ch.5). *(Field set
+   pinned + extended by ADR 0007a §7b — `stat?`/`round[]`/sub-shapes added there.)*
 
 4. **One composition engine, shared by 05 (layouts) and 01e (data-viz) — chosen for the
    5070 Ti + 7800X3D.** The technique is **headless-Chromium HTML/CSS templating**: the GPU is
@@ -66,8 +68,11 @@ Example — `ranked_list` repeating "item card":
      is the most ergonomic for parameterized templates and is **free at solo/≤3-person scale**, but
      needs a **paid company license** beyond that — a liability against the spine. The **MIT-clean
      path** is **Playwright (Apache-2.0) + hand-rolled HTML/CSS templates** or **Motion Canvas
-     (MIT)**. **Default to the MIT-clean path**; Remotion permitted in dev under its solo terms.
-     The final engine is locked during the visuals milestone (open item).
+     (MIT)**. **Locked: Remotion** (2026-06-09), under its free solo/≤3-person terms — chosen for
+     template ergonomics over the MIT-clean alternatives, **conditioned on the project staying
+     ≤3 people**. This is a **tripwire, not a tax**: crossing 3 people (or Remotion's revenue
+     thresholds) triggers a **paid company license (~$100/mo+)** and a re-evaluation against the
+     MIT-clean path. Playwright/Motion-Canvas remain the documented fallback if that tripwire fires.
    - Encode via **`h264_nvenc` / `hevc_nvenc`** on the 5070 Ti (free at render time).
 
 5. **Stage 01a stock-fetch becomes format-aware.** Media selection honours the layout's **media
@@ -101,8 +106,18 @@ Example — `ranked_list` repeating "item card":
 
 ## Open (tracked)
 
-- **Final engine** (MIT-clean Playwright/Motion-Canvas vs Remotion-solo) + the **license** call;
-  locked in the visuals milestone.
-- The **per-format region specs + a shared animation/transition library** (8 layouts).
-- **Target fps** (24/30) and the **re-measured throughput** with the compositor + NVENC.
-- How much **GPU-accelerated Chromium** (ANGLE/EGL) helps vs pure-CPU rasterization on this box.
+- ~~**Final engine** (MIT-clean Playwright/Motion-Canvas vs Remotion-solo) + the **license**
+  call.~~ **Resolved (2026-06-09): Remotion**, under its free ≤3-person terms (D4) — the project
+  is committed to staying ≤3 people, so the company-license cost does not apply. Playwright/
+  Motion-Canvas stay on file as the fallback if that ≤3-person tripwire ever fires.
+- ~~The **per-format region specs + a shared animation/transition library** (8 layouts).~~
+  **Resolved in [ADR 0007a](0007a-layout-template-design.md):** the hybrid region model +
+  `layout.schema.json`, the closed **primitive** library (`MediaZone`/`TextCard`/`Badge`/
+  `KaraokeCaption`/`DataVizSlot`/`CitationChip`/`CTABump`/`BrandOverlay`) and **animation/
+  transition** library (6 enter/exit + 4 transitions, feel via params+SFX), and **2 of 8** exemplar
+  templates (`ranked_list`, `head_to_head`); the other 6 authored as data in M3.
+- ~~**Target fps** (24/30)~~ **Resolved: 30** (0007a §8). The **re-measured throughput** has a
+  specified **method** (0007a §9) to *run* on the box in M2, folded into the Ch.7 reconciliation.
+- ~~How much **GPU-accelerated Chromium** (ANGLE/EGL) helps vs pure-CPU rasterization on this box.~~
+  **Resolved: pure-CPU raster + NVENC encode** (0007a §8) — GPU-Chromium (and the pinned-driver
+  middle path) rejected as non-deterministic; revisit only on a measured Stage-05 bottleneck.
