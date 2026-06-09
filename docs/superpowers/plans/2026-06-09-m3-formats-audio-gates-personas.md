@@ -244,10 +244,11 @@ def test_indexed_bind_resolves_and_missing_raises():
         _resolve_bind("implications.5.text", beat, {"params": {}})
 ```
 
-- [ ] **Step 2: Extend the path walker** in `shared/layout/bind.py` (`_exists`) and `shared/layout/resolve.py` (`_resolve_bind`) to accept integer indices on lists. Replace the walk loop in each with:
+- [ ] **Step 2: Add `_walk` and wire it into BOTH `_exists` and `_resolve_bind`** (the M2 versions had dict-only loops). `_walk(node, path)` is **node-first**; callers pass node-first. `shared/layout/bind.py`:
 
 ```python
-def _walk(node, path):
+def _walk(node, path: str):
+    """Walk a dotted path with optional integer list indices. Returns (value, found)."""
     for part in path.split("."):
         if part.isdigit() and isinstance(node, list):
             i = int(part)
@@ -259,9 +260,34 @@ def _walk(node, path):
         else:
             return None, False
     return node, True
+
+
+def _exists(path: str, data: dict) -> bool:
+    return _walk(data, path)[1]
+
+
+def validate_binds(binds: list[str], beat_data: dict) -> None:
+    for b in binds:
+        if b == "static":            # ADR 0007a §3 exempt case
+            continue
+        if not _exists(b, beat_data):
+            raise BindError(f"region bind {b!r} not in beat data")
 ```
 
-`_exists` returns the bool; `_resolve_bind` returns the value or raises `BindError` on `not found`. (Keep the `bind == "static"` short-circuit.)
+And in `shared/layout/resolve.py` — update the import and replace `_resolve_bind`'s walk loop (keep the `static` short-circuit):
+
+```python
+from shared.layout.bind import BindError, _walk, validate_binds
+
+
+def _resolve_bind(bind: str, beat: dict, primitive: dict):
+    if bind == "static":
+        return primitive.get("params", {}).get("content")   # §3: content from the primitive
+    value, found = _walk(beat, bind)
+    if not found:
+        raise BindError(f"bind {bind!r} missing in beat {beat.get('kind')!r}")
+    return value
+```
 
 - [ ] **Step 3: Run** → PASS. **Commit.**
 
@@ -284,6 +310,8 @@ git commit -m "feat(m3): list-index binds for news_reaction (ADR 0007a §3)"
 ```
 
 Lane support per ADR 0006 D1 / 0008 D2: `surprising_stat`/`myth_buster`/`news_reaction` → reach+both; `explainer`/`cautionary_tale`/`head_to_head` → monetization; `ranked_list`/`how_to_steps` → both (scaled).
+
+> **Content-scaling note (ADR 0008 D2):** the *item-count sizing* (top-3 in the reach lane vs top-7–10 in monetization; 3 vs 5+ steps) is a **00b sizing behavior** — 00b emits fewer `items[]`/`steps[]` for the reach lane. M3 declares **`lane_support` here** (the gate) but **defers the sizing logic to 00b's format-selection** (built in M1; the lane→count rule is a 00b prompt/validation concern, tracked there), so M3 does not add a `content_scaling` field. This keeps M3 scoped to the format *data* + the compatibility gate.
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -343,6 +371,66 @@ git commit -m "feat(m3): format registry + lane x format compatibility (ADR 0008
 ---
 
 # Part B — Audio performance layer
+
+### Task 4c: Stage 02 — per-beat prosody → Kokoro (ADR 0005 D6)
+
+M1's Stage 02 normalizes + joins beats but **ignores the script's per-beat prosody/emphasis markup**. ADR 0005 D6 requires prosody (emphasis/pause/pace, incl. a deliberate hook delivery) driving Kokoro. M3 closes this: a pure `speech_segments(script)` maps each beat's `prosody` to per-segment params, and Stage 02 synthesizes per segment.
+
+**Files:** Modify `shared/finance/normalize.py` or new `shared/audio/prosody.py`; Modify `stages/s02_voice/stage.py`; Test `tests/test_prosody.py`
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# tests/test_prosody.py
+from shared.audio.prosody import speech_segments
+
+
+def test_maps_prosody_to_segment_params_and_normalizes_text():
+    script = {"narration_beats": [
+        {"text": "CPI hit 3.2%", "prosody": "emphatic", "emphasis": ["3.2%"]},
+        {"text": "Slow down here", "prosody": "measured"}]}
+    segs = speech_segments(script)
+    assert segs[0]["text"].endswith("percent") and segs[0]["rate"] < 1.0   # emphatic = slower, deliberate
+    assert segs[0]["pause_after"] >= 0.3
+    assert segs[1]["rate"] == 1.0                                          # measured = baseline
+```
+
+- [ ] **Step 2: Run** → FAIL.
+- [ ] **Step 3: Implement `shared/audio/prosody.py`**
+
+```python
+from shared.finance.normalize import normalize
+
+# closed prosody vocabulary -> Kokoro per-segment params (rate multiplier, trailing pause seconds)
+_PROSODY = {"emphatic": (0.9, 0.35), "rising": (1.05, 0.15), "measured": (1.0, 0.2),
+            "fast": (1.15, 0.1), "pause": (1.0, 0.5)}
+
+
+def speech_segments(script: dict) -> list[dict]:
+    """One synth segment per narration beat: normalized text + rate + trailing pause from prosody."""
+    segs = []
+    for b in script.get("narration_beats", []):
+        rate, pause = _PROSODY.get(b.get("prosody", "measured"), (1.0, 0.2))
+        segs.append({"text": normalize(b["text"]), "rate": rate, "pause_after": pause,
+                     "emphasis": b.get("emphasis", [])})
+    return segs
+```
+
+- [ ] **Step 4: Wire into `stages/s02_voice/stage.py`** — replace the single `tts(spoken_text(script))` call with per-segment synthesis + concatenation (the segment-level rate is the Kokoro control; concatenation inserts `pause_after` silence). Keep `spoken_text` for the keyword-early check. The `KokoroBackend.tts` integration call gains an optional `rate` param (default 1.0); concatenation/silence is done with `numpy` in the backend. Show the 02 `run()` change:
+
+```python
+    segments = speech_segments(script)
+    wav = ctx.backend("tts").tts_segments(segments)   # synth each seg at its rate + pause, concat
+```
+
+and add `tts_segments(self, segments) -> Path` to `KokoroBackend` (loops `tts` per segment at `rate`, concatenates with `np.zeros(int(pause*sr))` between) — `@pytest.mark.integration` for the live path; `speech_segments` is the CI-tested pure unit.
+
+- [ ] **Step 5: Run** → `uv run pytest tests/test_prosody.py -v` → PASS. **Commit.**
+
+```bash
+git add shared/audio/prosody.py stages/s02_voice/stage.py shared/adapters/real.py tests/test_prosody.py
+git commit -m "feat(m3): per-beat prosody driving Kokoro (ADR 0005 D6)"
+```
 
 ### Task 5: Music selection — closed taxonomy + deterministic anti-repeat
 
@@ -670,7 +758,10 @@ import json
 
 from shared.ctx import StageContext, StageResult
 from shared.qc.sampling import sample_frames
+from shared.schema import SchemaRegistry
 from shared.stage import StageManifest, stage
+
+_REG = SchemaRegistry()
 
 
 @stage(StageManifest(id="05x", inputs=["render", "script"], outputs=["vision"],
@@ -679,13 +770,20 @@ def run(ctx: StageContext) -> StageResult:
     script = json.loads(ctx.read_input("script").read_text())
     manifest = json.loads((ctx.run_dir / "render_manifest.json").read_text())
     total = _frame_count(ctx.read_input("render"))            # ffprobe, integration
-    frame_paths = _extract_frames(ctx.read_input("render"), sample_frames(manifest, total))  # integration
+    indices = sample_frames(manifest, total)
+    frame_paths = _extract_frames(ctx.read_input("render"), indices)   # integration
     judgment = ctx.backend("vlm_judge").vlm_judge(frame_paths, script)
+
+    def _kind(i: int) -> str:                # 05b (M5) needs the hook/end-card distinction
+        return "hook" if i == 0 else "end_card" if i == total - 1 else "beat"
+
+    vision = {"schema_version": "1.0.0",
+              "keyframes": [{"frame_id": str(idx), "kind": _kind(idx), "observations": []}
+                            for idx in indices],
+              "judgment": {"overall": judgment.overall, "scores": judgment.scores}}
+    _REG.validate("vision", vision)          # boundary validation (Ch.5); judgment keys pinned in schema
     out = ctx.write_output("vision")
-    out.write_text(json.dumps({"schema_version": "1.0.0",
-        "keyframes": [{"frame_id": str(i), "kind": "beat", "observations": []}
-                      for i in range(len(frame_paths))],
-        "judgment": {"overall": judgment.overall, "scores": judgment.scores}}))
+    out.write_text(json.dumps(vision))
     ctx.log.info("vision pass complete", frames=len(frame_paths))
     return StageResult(outputs={"vision": out})
 
@@ -696,13 +794,37 @@ def _extract_frames(render, indices):
     raise NotImplementedError("ffmpeg frame extraction wired at integration")
 ```
 
-> Note: `vision.json` here adds a `judgment` block alongside the M0 `vision.schema` `keyframes`. If `vision.schema` is `additionalProperties:false`, M3 extends it with an optional `judgment` object (one-line schema edit) so 05c can read the VLM verdict.
+> **Dual-consumer contract (ADR 0008 D1):** `vision.json` is read by **both** `05c` (this milestone — coherence/hook/pacing via `judgment`) **and** `05b` (M5 — artifact/garbled-text/caption-occlusion via `keyframes[].kind` + `observations`). M3 emits `observations: []` (05x's real per-frame observations land when the VLM prompt is finalized at integration) but **shapes `kind` faithfully** (hook/end_card/beat) so M5's 05b consumes the contract unchanged.
 
-- [ ] **Step 4: Write `manifest.json`** → `{"id": "05x", "inputs": ["render", "script"], "outputs": ["vision"], "compute": "gpu", "capability": "vlm_judge"}`. **Run** → PASS. **Commit.**
+- [ ] **Step 3b: Extend `schemas/vision.schema.json`** — add the optional `judgment` block and **pin the 5 criterion keys** so the 05x→05c score contract can't drift (the M0 schema was `keyframes`-only + `additionalProperties:false`, which would reject `judgment`):
+
+```json
+{
+  "judgment": {
+    "type": "object", "additionalProperties": false,
+    "required": ["overall", "scores"],
+    "properties": {
+      "overall": {"type": "number"},
+      "scores": {
+        "type": "object", "additionalProperties": false,
+        "required": ["hook", "original_insight", "coherence", "pacing", "payoff"],
+        "properties": {
+          "hook": {"type": "number"}, "original_insight": {"type": "number"},
+          "coherence": {"type": "number"}, "pacing": {"type": "number"}, "payoff": {"type": "number"}
+        }
+      }
+    }
+  }
+}
+```
+
+Add `judgment` to `vision.schema`'s top-level `properties` (it stays optional — not in `required` — so an `observations`-only instance still validates). A `test_vision_judgment_schema` asserts a `judgment` with the 5 keys validates and one missing a key fails.
+
+- [ ] **Step 4: Write `manifest.json`** → `{"id": "05x", "inputs": ["render", "script"], "outputs": ["vision"], "compute": "gpu", "capability": "vlm_judge"}`. **Run** → PASS. **Commit** (include `schemas/vision.schema.json`).
 
 ```bash
-git add shared/qc/__init__.py shared/qc/sampling.py stages/s05x_vision/ tests/test_sampling.py
-git commit -m "feat(m3): 05x vision pass (keyframe sampling + Qwen2.5-VL, ADR 0008 D1)"
+git add shared/qc/__init__.py shared/qc/sampling.py schemas/vision.schema.json stages/s05x_vision/ tests/test_sampling.py
+git commit -m "feat(m3): 05x vision pass + vision.schema judgment block (keyframes + Qwen2.5-VL, ADR 0008 D1)"
 ```
 
 ### Task 10: Stage 05c creative-QC — rubric + floor gate (with original-insight)
@@ -763,7 +885,10 @@ import json
 
 from shared.ctx import StageContext, StageResult
 from shared.qc.creative import passes_floor, weighted_overall
+from shared.schema import SchemaRegistry
 from shared.stage import StageManifest, stage
+
+_REG = SchemaRegistry()
 
 
 @stage(StageManifest(id="05c", inputs=["render", "vision", "script"], outputs=["creative_qc"],
@@ -773,10 +898,13 @@ def run(ctx: StageContext) -> StageResult:
     scores = vision["judgment"]["scores"]            # produced by 05x (judges the rendered output)
     overall = weighted_overall(scores)
     floor = float(ctx.config.get("quality_floor", 0.70))
+    ok = passes_floor(overall, floor)
+    payload = {"schema_version": "1.0.0", "scores": scores,
+               "overall": overall, "floor": floor, "pass": ok}
+    _REG.validate("creative_qc", payload)            # boundary validation (Ch.5)
     out = ctx.write_output("creative_qc")
-    out.write_text(json.dumps({"schema_version": "1.0.0", "scores": scores,
-                               "overall": overall, "floor": floor, "pass": passes_floor(overall, floor)}))
-    if not passes_floor(overall, floor):
+    out.write_text(json.dumps(payload))              # write the artifact BEFORE any quarantine raise
+    if not ok:
         ctx.quarantine(f"creative-QC below floor: {overall:.3f} < {floor}")
     ctx.log.info("creative-QC pass", overall=round(overall, 3))
     return StageResult(outputs={"creative_qc": out})
@@ -814,6 +942,23 @@ brand_kit:
 defaults:
   music_index: profiles/finance/music/index.json
   emphasis_hex: "00E5FF"
+```
+
+And `profiles/business/profile.yaml` — **distinct** persona/brand-kit/library so the niche is provably data, not code:
+
+```yaml
+schema_version: "1.0.0"
+niche: business
+persona:
+  voice: "a pragmatic operator who explains business mechanics plainly"
+  pov: "incentives and unit economics over hustle-culture"
+brand_kit:
+  palette: ["#11161D", "#FFB020", "#FFFFFF"]
+  font: Inter
+  logo: brand/business_logo.png
+defaults:
+  music_index: profiles/business/music/index.json
+  emphasis_hex: "FFB020"
 ```
 
 - [ ] **Step 2: Write the failing tests**
@@ -858,22 +1003,40 @@ git add shared/profiles/ profiles/ pyproject.toml tests/test_profiles_loader.py
 git commit -m "feat(m3): profile loader + finance & business personas/brand kits (ADR 0005 D9)"
 ```
 
-- [ ] **Step 5: Write the two-niche proof test** — the offline DAG (M0 runner + M1/M2 fakes) runs end-to-end for the **business** profile, producing a schema-valid `posts` record, proving the niche is pure config.
+- [ ] **Step 5: Write the two-niche proof test** — prove the niche is **pure config**: the *same* config-resolution + audio code path takes the **business** profile's data and yields business-specific config (no `if niche ==`), and the DAG itself carries no niche branch (already enforced by M0's `test_no_platform_branches`). This is the honest proof — *not* rerunning finance fixtures with a different seed.
 
 ```python
 # tests/test_business_slice_offline.py
-import json
+import shutil
 from pathlib import Path
 import pytest
 
+ROOT = Path(__file__).resolve().parents[1]
 
-@pytest.mark.skipif(__import__("shutil").which("ffmpeg") is None, reason="ffmpeg required")
-def test_business_niche_runs_through_the_dag(run_dir, tmp_path):
-    from tests.helpers.m1 import run_m1_slice     # reused harness; profile/niche is config
-    fix = Path(__file__).parent / "fixtures" / "m3"
-    result = run_m1_slice(run_dir=run_dir, seed=11, fixtures=fix.parent / "m1",
+
+def test_business_niche_is_pure_config():
+    from shared.profiles.loader import load_profile
+    from shared.config import resolve_config
+    fin = load_profile(ROOT / "profiles/finance/profile.yaml")
+    biz = load_profile(ROOT / "profiles/business/profile.yaml")
+    assert (fin["niche"], biz["niche"]) == ("finance", "business")
+    # identical resolver call, different niche DATA -> different resolved config (no code branch)
+    fin_cfg = resolve_config(global_defaults={"fps": 30}, niche=fin["defaults"], batch={}, per_platform={})
+    biz_cfg = resolve_config(global_defaults={"fps": 30}, niche=biz["defaults"], batch={}, per_platform={})
+    assert fin_cfg["music_index"] != biz_cfg["music_index"]
+    assert fin_cfg["emphasis_hex"] != biz_cfg["emphasis_hex"]
+    for p in (fin, biz):                            # both personas + brand kits load + validate (ADR 0005 D9)
+        assert {"palette", "font", "logo"} <= set(p["brand_kit"]) and p["persona"]["voice"]
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")
+def test_dag_runs_niche_agnostic(run_dir, tmp_path):
+    # the DAG carries no niche branch (enforced by test_no_platform_branches), so a run under any
+    # niche produces a render — exercised here with the M1 fixture chain.
+    from tests.helpers.m1 import run_m1_slice
+    result = run_m1_slice(run_dir=run_dir, seed=11, fixtures=ROOT / "tests/fixtures/m1",
                           timing_log=tmp_path / "t.jsonl")
-    assert (run_dir / result["render"]).exists()   # same engine, business config -> a render
+    assert (run_dir / result["render"]).exists()
 ```
 
 - [ ] **Step 6: Run** → PASS. **Commit.**
@@ -898,7 +1061,7 @@ git commit -m "test(m3): two-niche proof — business runs the DAG as pure confi
 
 ## Self-Review
 
-**Spec coverage (Ch.10 M3 + ADRs):** the 8 format templates → A1/A2 (the 6 new as data, ADR 0007a §7b/§11; explainer worked-number pinned to count-up per §4/§11); audio performance layer → B (music taxonomy+anti-repeat ADR 0005 D6/0009, SFX, per-platform LUFS, 04 mix); caption design → **landed in M1** (Task 8/9 there), not re-done here (noted); `05c` creative-QC backed by `05x` vision → C (ADR 0008 D1 + ADR 0005 D2 + ADR 0014 D1 original-insight); persona + brand kit + business profile → D (ADR 0005 D9, two-niche proof ADR 0010 D5). `05b` safety gate + `06` distribution remain **M5** (noted, not in scope).
+**Spec coverage (Ch.10 M3 + ADRs):** the 8 format templates → A1/A2 (the 6 new as data, ADR 0007a §7b/§11; explainer worked-number pinned to count-up per §4/§11); audio performance layer → B (**per-beat prosody driving Kokoro** Task 4c, music taxonomy+anti-repeat ADR 0005 D6/0009, SFX, per-platform LUFS, 04 mix — D6 now fully covered); content-scaling item-sizing deferred to 00b with citation (ADR 0008 D2, Task 4 note); caption design → **landed in M1** (Task 8/9 there), not re-done here (noted); `05c` creative-QC backed by `05x` vision → C (ADR 0008 D1 + ADR 0005 D2 + ADR 0014 D1 original-insight); persona + brand kit + business profile → D (ADR 0005 D9, two-niche proof ADR 0010 D5). `05b` safety gate + `06` distribution remain **M5** (noted, not in scope).
 
 **Placeholder scan:** no "TBD"/"add error handling". The `NotImplementedError` bodies (`_frame_count`/`_extract_frames` in 05x; live VLM/ffmpeg) are documented integration seams with their CI substitute named (the pure `sample_frames`/`weighted_overall`/`select_track` are fully implemented + tested). Format authoring uses an explicit per-format bind/region contract table, not "similar to".
 
