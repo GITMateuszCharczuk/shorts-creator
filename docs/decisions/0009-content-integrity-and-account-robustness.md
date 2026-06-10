@@ -82,7 +82,10 @@ on inspection.
    cache market pulls), and a tripped budget is a **first-class WARN/degrade**, not a silent
    throttle or hard fail. **Source preference (re-review):** with two niches × multiple series ×
    retries, 25 req/day has no headroom — daily **series** data comes from **FRED/stooq** (free,
-   generous); **Alpha Vantage is reserved for quotes only**.
+   generous); **Alpha Vantage is reserved for quotes only**. **YouTube Data API is budgeted too**
+   (third re-review): default quota is **10,000 units/day**, `videos.insert` costs **~1,600
+   units** (→ a ~6-uploads/day ceiling) and the confirm/reconcile `search.list` costs **100/call**
+   — fits 2–4/day but must sit in the same budget ledger before retries eat it.
 
 9. **News corroboration for `news_reaction` (#9).** A single RSS item can be rumor, satire, or
    wrong. Before `news_reaction` commits a fresh story, require **corroboration across ≥2 reputable

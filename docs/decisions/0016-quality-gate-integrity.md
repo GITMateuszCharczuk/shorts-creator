@@ -22,7 +22,9 @@
 
 1. **The 05c judge is an independent, non-Qwen-lineage model — pinned now, not "preferred."** The
    judge backend resolves per-stage (ADR 0010 D3) to a small instruct model from a **different
-   model family** (e.g. Gemma- or Mistral-family, permissive license, 7–9B Q4 — fits the 16 GB
+   model family** (e.g. **Mistral-family — Apache-2.0, the license-clean default** — or
+   Gemma-family, noting Gemma's terms carry use restrictions and are not strictly permissive;
+   7–9B Q4 — fits the 16 GB
    card alone under never-co-resident, swapped in at the post-render slot where FLUX/LTX are
    already evicted; a CPU endpoint stays the fallback per ADR 0009 #4). The final model pick
    happens at M3 bring-up **against the calibration set (D2)**; what is decided *here* is that

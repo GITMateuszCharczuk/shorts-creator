@@ -482,6 +482,7 @@ class ComfyUIBackend:
         raise NotImplementedError("poll /history wired at host bring-up")
     # llm/tts/vlm_judge not provided by ComfyUI
     def llm(self, prompt, seed=None): raise NotImplementedError
+    def llm_json(self, prompt, seed=None): raise NotImplementedError
     def tts(self, text): raise NotImplementedError
     def vlm_judge(self, frames, script): raise NotImplementedError
 ```
@@ -854,6 +855,21 @@ def test_resolve_rejects_unbound_field():
         resolve(layout=_load("layout_ranked_list.json"), beat_data=bad,
                 brand_kit=_load("brand_kit.json"),
                 timings=[{"start": 0.0, "end": 2.0}, {"start": 2.0, "end": 4.0}], seed=7)
+
+
+def test_resolve_joins_assets_and_caption_words():
+    # the Cluster-1 joins (re-review): MediaZone gets the CHOSEN clip path, captions get WORDS
+    m = resolve(layout=_load("layout_ranked_list.json"),
+                beat_data=_load("beat_data_ranked_list.json"),
+                brand_kit=_load("brand_kit.json"),
+                timings=[{"start": 0.0, "end": 2.0}, {"start": 2.0, "end": 4.0}], seed=7,
+                media={0: "scenes/a.mp4", 1: "scenes/b.mp4"},
+                words=[{"word": "Hi", "start": 0.2, "end": 0.5}])
+    s0 = m["scenes"][0]
+    bg = next(r for r in s0["regions"] if r["name"] == "bg_media")
+    assert bg["src"] == "scenes/a.mp4"                      # not the media_query string
+    cap = next(r for r in s0["regions"] if r["name"] == "caption")
+    assert cap["value"] == [{"word": "Hi", "start": 0.2, "end": 0.5}]
 ```
 
 - [ ] **Step 3: Implement `shared/layout/schema_load.py`**
@@ -903,7 +919,8 @@ def load_layout(path: Path) -> dict:
                 "name": {"type": "string"}, "primitive": {"type": "object"},
                 "rect": {"type": "object"}, "z": {"type": "integer"},
                 "enter": {"type": "string"}, "exit": {"type": "string"},
-                "value": {}, "style": {"type": "object"}
+                "value": {}, "style": {"type": "object"},
+                "src": {"type": ["string", "null"]}
               }
             }
           }
@@ -974,9 +991,12 @@ def _resolve_bind(bind: str, beat: dict, primitive: dict) -> Any:
 
 
 def resolve(*, layout: dict, beat_data: dict, brand_kit: dict, timings: list[dict],
-            seed: int, safe_rect: dict | None = None) -> dict:
-    """Pure fn: layout + typed beat data + brand kit + word timings + seed -> render_manifest
-    with PROJECTED PIXEL rects, §6 injected regions, and marker frame-indices (ADR 0007a §2)."""
+            seed: int, safe_rect: dict | None = None,
+            media: dict[int, str] | None = None, words: list[dict] | None = None) -> dict:
+    """Pure fn: layout + typed beat data + THE VISUAL LANE'S CHOSEN ASSETS (`media`: beat index ->
+    DATA_ROOT-relative clip path, from assets.json) + brand kit + word timings (`words`, threaded
+    into KaraokeCaption) + seed -> render_manifest with PROJECTED PIXEL rects, §6 injected regions,
+    and marker frame-indices (ADR 0007a §2)."""
     safe = safe_rect or {"x": 0, "y": 0, "w": 1080, "h": 1920}
     anchors = {**DEFAULT_ANCHORS, **layout.get("anchors", {})}
     beats = beat_data["beats"]
@@ -992,18 +1012,28 @@ def resolve(*, layout: dict, beat_data: dict, brand_kit: dict, timings: list[dic
     validate_binds([r["bind"] for r in all_regions], contract)
 
     scenes, markers = [], {}
-    for beat, t in zip(beats, timings):
+    for i, (beat, t) in enumerate(zip(beats, timings)):
         regs = []
         for r in all_regions:
             if not _applies(r, beat):
                 continue
-            regs.append({
+            ptype = r["primitive"]["type"]
+            reg = {
                 "name": r["name"], "primitive": r["primitive"],
                 "rect": _project(r["bbox"], anchors, safe),
                 "z": r["z"], "enter": r.get("enter", "none"), "exit": r.get("exit", "none"),
                 "value": _resolve_bind(r["bind"], beat, r["primitive"]),
                 "style": styles.get(r.get("style", ""), {}),
-            })
+            }
+            if ptype == "MediaZone":
+                # the assets.json JOIN (re-review): render the visual lane's CHOSEN clip —
+                # the bound media_query stays in `value` for provenance, the path goes in `src`.
+                reg["src"] = (media or {}).get(i)
+            if ptype == "KaraokeCaption":
+                # word-timed captions need the WORDS, not just scene spans (ADR 0007a §4)
+                reg["value"] = [w for w in (words or [])
+                                if t["start"] <= w["start"] < t["end"]]
+            regs.append(reg)
             if r["name"] in ("cta_bump", "vs_badge"):   # named markers for §10 golden samples
                 markers[r["name"]] = round(t["start"] * fps)
         scenes.append({"start": t["start"], "end": t["end"], "kind": beat["kind"],
@@ -1081,7 +1111,7 @@ def render_manifest_to_frames(manifest: dict, out_dir: Path) -> list[Path]:
     out = []
     for i, src in enumerate(raws):
         dst = frames_dir / f"{i:05d}.png"
-        dst.write_bytes(src.read_bytes())
+        src.rename(dst)        # MOVE, not copy — frames are ~10 GB/cut; copying doubled the peak
         out.append(dst)
     return out
 
@@ -1120,7 +1150,7 @@ from shared.layout.encode import build_nvenc_cmd
 
 def test_nvenc_cmd_uses_h264_nvenc_and_audio(tmp_path):
     cmd = build_nvenc_cmd(frames_glob=str(tmp_path / "frames/%05d.png"),
-                          narration=tmp_path / "narration.wav", fps=30,
+                          audio=tmp_path / "music.wav", fps=30,   # the 04 mix, not raw narration
                           out=tmp_path / "youtube.mp4")
     s = " ".join(cmd)
     assert "h264_nvenc" in s and "-framerate 30" in s and s.endswith(str(tmp_path / "youtube.mp4"))
@@ -1133,9 +1163,10 @@ def test_nvenc_cmd_uses_h264_nvenc_and_audio(tmp_path):
 from pathlib import Path
 
 
-def build_nvenc_cmd(*, frames_glob: str, narration: Path, fps: int, out: Path) -> list[str]:
+def build_nvenc_cmd(*, frames_glob: str, audio: Path, fps: int, out: Path) -> list[str]:
+    # `audio` is the Stage-04 duck+loudnorm MIX (narration already in it) — not raw narration.
     return ["ffmpeg", "-y", "-framerate", str(fps), "-i", frames_glob,
-            "-i", str(narration), "-c:v", "h264_nvenc", "-pix_fmt", "yuv420p",
+            "-i", str(audio), "-c:v", "h264_nvenc", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-shortest", str(out)]
 ```
 
@@ -1224,6 +1255,8 @@ def test_platform_delta_changes_only_declared_fields():
 
 ```python
 import json
+import shutil
+import subprocess
 
 from shared.ctx import StageContext, StageResult
 from shared.layout.encode import build_nvenc_cmd
@@ -1231,7 +1264,6 @@ from shared.layout.remotion import render_manifest_to_frames
 from shared.layout.resolve import resolve
 from shared.layout.schema_load import load_layout
 from shared.stage import StageManifest, stage
-import subprocess
 
 
 def platform_delta(manifest: dict, platform: str) -> dict:
@@ -1245,26 +1277,34 @@ def platform_delta(manifest: dict, platform: str) -> dict:
     return m
 
 
-@stage(StageManifest(id="05", inputs=["script", "assets", "narration", "captions",
-                                      "word_timings", "data"],
+@stage(StageManifest(id="05", inputs=["script", "assets", "captions",
+                                      "word_timings", "music", "data"],
                      outputs=["render"], compute="cpu"))
 def run(ctx: StageContext) -> StageResult:
     script = json.loads(ctx.read_input("script").read_text())
     layout = load_layout(ctx.run_dir / f"formats/{script['format']}/layout.json")
     words = json.loads(ctx.read_input("word_timings").read_text())   # declared input (no SDK bypass)
+    assets = json.loads(ctx.read_input("assets").read_text())
     brand_kit = json.loads((ctx.run_dir / ctx.config.get("brand_kit", "brand_kit.json")).read_text())
     beat_data = {"beats": _beats_from_script(script)}  # the typed per-beat data 00b emitted
-    plat = ctx.job.get("platform_targets", ["youtube"])[0]
-    manifest = resolve(layout=layout, beat_data=beat_data, brand_kit=brand_kit,
-                       timings=_scene_spans(words, beat_data), seed=ctx.seed,
-                       safe_rect=_safe_rect(plat, ctx.config))   # per-platform reflow (ADR 0005 D4)
-    out = ctx.write_output("render")
-    frames = render_manifest_to_frames(platform_delta(manifest, plat), out.parent)
-    subprocess.run(build_nvenc_cmd(frames_glob=str(frames[0].parent / "%05d.png"),
-                                   narration=ctx.read_input("narration"),
-                                   fps=30, out=out), check=True)
-    ctx.log.info("compositor render complete", scenes=len(manifest["scenes"]), platform=plat)
-    return StageResult(outputs={"render": out})
+    media = {i: s["clip_path"] for i, s in enumerate(assets["scenes"])}  # beat -> CHOSEN asset
+    out = ctx.write_output("render")                   # primary cut: renders/youtube.mp4
+    primary = None
+    for plat in ctx.job.get("platform_targets", ["youtube"]):   # a REAL cut per platform target
+        manifest = resolve(layout=layout, beat_data=beat_data, brand_kit=brand_kit,
+                           timings=_scene_spans(words, beat_data), seed=ctx.seed,
+                           safe_rect=_safe_rect(plat, ctx.config),   # per-platform reflow (D4)
+                           media=media, words=words)
+        cut = out if plat == "youtube" else out.parent / f"{plat}.mp4"
+        workdir = out.parent / plat
+        frames = render_manifest_to_frames(platform_delta(manifest, plat), workdir)
+        subprocess.run(build_nvenc_cmd(frames_glob=str(frames[0].parent / "%05d.png"),
+                                       audio=ctx.read_input("music"),   # the 04 duck+loudnorm MIX
+                                       fps=30, out=cut), check=True)
+        shutil.rmtree(workdir)    # frames are ~10 GB/cut — delete immediately after encode
+        primary = primary or cut
+        ctx.log.info("cut rendered", scenes=len(manifest["scenes"]), platform=plat)
+    return StageResult(outputs={"render": primary})
 
 
 def _beats_from_script(script: dict) -> list[dict]:
@@ -1306,10 +1346,10 @@ def _safe_rect(platform: str, config: dict) -> dict:
 - [ ] **Step 4: Update `manifest.json`**
 
 ```json
-{"id": "05", "inputs": ["script", "assets", "narration", "captions", "word_timings", "data"], "outputs": ["render"], "compute": "cpu"}
+{"id": "05", "inputs": ["script", "assets", "captions", "word_timings", "music", "data"], "outputs": ["render"], "compute": "cpu"}
 ```
 
-> Note: `word_timings` is the WhisperX per-word JSON; M1's Stage 03 now declares it as an output alongside `captions.ass` (landed in the M1 plan), so 05 consumes it **through the SDK** (`ctx.read_input`) rather than reaching into the run dir.
+> Notes: `word_timings` is the WhisperX per-word JSON; M1's Stage 03 declares it as an output alongside `captions.ass`, so 05 consumes it **through the SDK**. `music` is **Stage 04's duck+loudnorm mix** (narration is already inside it — raw `narration` is no longer a 05 input). `captions.ass` stays an input as the **sidecar caption file** for upload (06), not for burn-in — the `KaraokeCaption` primitive renders captions in-engine.
 
 - [ ] **Step 5: Run** → `uv run pytest tests/test_s05_compositor.py -v` → PASS (1); confirm the M0 manifest drift-catcher still passes (the manifest changed, so update the M1 05 manifest expectation if asserted). **Commit.**
 
@@ -1397,7 +1437,7 @@ git commit -m "feat(m2): compositor ms/frame target + tripwire measurement (ADR 
 - [ ] `layout.schema.json` + the `ranked_list` and `head_to_head` region specs validate; resolve-time **bind validation** rejects an unbound region → Tasks 8–9.
 - [ ] The **resolve step is pure/deterministic** (same inputs → identical `render_manifest`) → Task 10.
 - [ ] The golden manifest renders **byte-identically in the pinned toolchain image** (SSIM ≥0.99 elsewhere) → Task 13.
-- [ ] Stage `05` produces the render via **resolve → Remotion → NVENC**; per-platform cuts are **manifest deltas**, not code paths; the **CTABump** mid-roll bump (ADR 0005 D10) is seeded-injected → Task 14 + resolve.
+- [ ] Stage `05` renders **a real cut per platform target** via **resolve → Remotion → NVENC**, with per-platform cuts as **manifest deltas**; the audio track is the **04 duck+loudnorm mix**; **MediaZone renders the visual lane's chosen assets** (the `assets.json` join) and **KaraokeCaption receives the words**; frames are **deleted after each encode** (~10 GB/cut); the **CTABump** mid-roll bump (ADR 0005 D10) is seeded-injected → Task 14 + resolve.
 - [ ] The compositor's measured **ms/frame is within the published tripwire** on the box, written for M4's overnight-window reconciliation (ADR 0007a §9) → Task 15.
 - [ ] CI stays green and GPU-free (`-m "not integration"`); all GPU/Remotion calls are integration-marked.
 
@@ -1409,7 +1449,7 @@ git commit -m "feat(m2): compositor ms/frame target + tripwire measurement (ADR 
 
 **Placeholder scan:** No "TBD"/"add error handling". The `NotImplementedError` bodies (`StockClient.search`, ComfyUI `_build_graph`/`_await_output`, the 01a/01b/01e `run()` zone-iteration loops, 01c/01d) are **documented host-integration seams** — each names its CI substitute (fixture candidates / the offline-DAG fakes) and its pure-logic sibling that *is* implemented and tested (select_for_beat, chart_spec, graph_version, the ranking/dedup/fallback/resolve/bind/encode functions). This mirrors M1's seam discipline.
 
-**Type consistency vs M0/M1:** Uses M0 names exactly — `@stage(StageManifest(...))`, `StageContext`, `StageResult(outputs=...)`, `SchemaRegistry().validate`, `ctx.read_input/write_output/backend`. New backends implement the M0 `ModelBackend` Protocol (`generate_image/img2vid/tts/llm/vlm_judge/restore` — `restore` was **added to the Protocol in M0** to host 01d's ESRGAN/RIFE/GFPGAN). `ComfyUIBackend` provides `generate_image/img2vid/restore` and raises on `llm/tts/vlm_judge`, fully satisfying the Protocol. `AssetChoice(kind, ref)`, `validate_binds`/`BindError`, `resolve(layout, beat_data, brand_kit, timings, seed)`, `render_manifest_to_frames`/`render_component`, `build_nvenc_cmd` names are consistent between their definition tasks and the stage-wiring tasks. The `LayoutEngine.render(render_manifest)` Protocol (ADR 0012 §6) is realized by `render_manifest_to_frames` (the bridge) — note in code that this is the concrete LayoutEngine.
+**Type consistency vs M0/M1:** Uses M0 names exactly — `@stage(StageManifest(...))`, `StageContext`, `StageResult(outputs=...)`, `SchemaRegistry().validate`, `ctx.read_input/write_output/backend`. New backends implement the M0 `ModelBackend` Protocol (`generate_image/img2vid/tts/llm/vlm_judge/restore` — `restore` was **added to the Protocol in M0** to host 01d's ESRGAN/RIFE/GFPGAN). `ComfyUIBackend` provides `generate_image/img2vid/restore` and raises on `llm/tts/vlm_judge`, fully satisfying the Protocol. `AssetChoice(kind, ref)`, `validate_binds`/`BindError`, `resolve(layout, beat_data, brand_kit, timings, seed, safe_rect, media, words)`, `render_manifest_to_frames`/`render_component`, `build_nvenc_cmd(frames_glob, audio, fps, out)` names are consistent between their definition tasks and the stage-wiring tasks. The `LayoutEngine.render(render_manifest)` Protocol (ADR 0012 §6) is realized by `render_manifest_to_frames` (the bridge) — note in code that this is the concrete LayoutEngine.
 
 **Scope:** Two parts, one acceptance gate, produces working testable software (real visuals + the compositor render). Part A (visual-fetch lane) and Part B (compositor) are cleanly separable — if execution wants two PRs, cleave at the Phase A/B boundary. M2 replaces M1's `shared/render/` interim with `shared/layout/`; the swap is contained.
 ```

@@ -1183,6 +1183,7 @@ class ModelBackend(Protocol):
     def img2vid(self, image: Path, seed: int) -> Path: ...
     def tts(self, text: str) -> Path: ...
     def llm(self, prompt: str, seed: int | None = None) -> str: ...   # seed -> reproducible best-of-N (ADR 0009)
+    def llm_json(self, prompt: str, seed: int | None = None) -> dict: ...   # constrained JSON + bounded retry (malformed JSON is the #1 local-LLM failure)
     def vlm_judge(self, frames: list[Path], script: dict) -> Judgment: ...
     def restore(self, frames: list[Path]) -> list[Path]: ...   # ESRGAN/RIFE/GFPGAN (01d, M2)
 
@@ -1270,6 +1271,7 @@ def test_allowed_visibility_degrades_when_unaudited():
 - [ ] **Step 3: Implement `shared/adapters/fakes.py`**
 
 ```python
+import json
 from pathlib import Path
 
 from shared.adapters.types import Judgment, PostMeta, PostReceipt, Visibility
@@ -1293,6 +1295,9 @@ class FixtureBackend:
 
     def llm(self, prompt: str, seed: int | None = None) -> str:
         return self._path("llm", self._hash(prompt=prompt.encode()), "txt").read_text()
+
+    def llm_json(self, prompt: str, seed: int | None = None) -> dict:
+        return json.loads(self.llm(prompt, seed))   # fixtures are valid JSON by construction
 
     def generate_image(self, prompt: str, seed: int) -> Path:
         return self._path("generate_image", self._hash(prompt=prompt.encode()), "png")

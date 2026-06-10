@@ -14,7 +14,7 @@
 - **Per-platform LUFS targets:** YouTube **-14 LUFS**, TikTok **-14 LUFS** integrated, true-peak **-1 dBTP** (config-overridable).
 - **VLM keyframe sample set:** hook frame (frame 0), end-card frame (last), and the manifest `markers` frames (cta_bump / format-specific) + one mid-frame per scene — capped at **8 frames** for VRAM.
 - **`05c` quality floor = 0.70** (overall, config; **re-anchored against the ramp's approve/reject labels** — ADR 0016 D2); the rubric is **5 criteria** (hook, original-insight, visual↔script coherence, pacing, payoff), original-insight weighted **0.30** (ADR 0014 D1). **Split per ADR 0016 D5:** the 05x VLM scores the *visual* pair (`coherence`, `pacing`) and emits observations; **05c's independent judge scores the text pair + hook** (`hook`, `original_insight`, `payoff`) from script + treatment + observations, then merges.
-- **The 05c judge is an independent, non-Qwen-lineage model (ADR 0016 D1)** — resolved per-stage via the config layer (e.g. a Gemma- or Mistral-family 7–9B Q4; fits the 16 GB card alone in the post-render slot); the final pick happens at bring-up against the D2 calibration labels. The author model never grades its own survival criterion.
+- **The 05c judge is an independent, non-Qwen-lineage model (ADR 0016 D1)** — resolved per-stage via the config layer (e.g. a **Mistral-family 7–9B Q4 — Apache-2.0, the license-clean default** — or Gemma-family, noting Gemma's terms are not strictly permissive; fits the 16 GB card alone in the post-render slot); the final pick happens at bring-up against the D2 calibration labels. The author model never grades its own survival criterion.
 - **VLM serving is an OpenAI-compatible chat endpoint with image content** (e.g. Ollama `/v1/chat/completions` with a vision model) — no bespoke `/judge` route (ADR 0016 D5).
 
 ---
@@ -714,7 +714,8 @@ class QwenVLBackend:
                             "image_url": {"url": f"data:image/png;base64,{b64}"}})
         r = httpx.post(f"{self._base}/v1/chat/completions",
                        json={"model": self._model,
-                             "messages": [{"role": "user", "content": content}]},
+                             "messages": [{"role": "user", "content": content}],
+                             "response_format": {"type": "json_object"}},   # constrained JSON (re-review)
                        timeout=self._timeout)
         r.raise_for_status()
         d = json.loads(r.json()["choices"][0]["message"]["content"])
@@ -724,6 +725,7 @@ class QwenVLBackend:
                         passed=False, observations=tuple(d.get("observations", [])))
 
     def llm(self, prompt, seed=None): raise NotImplementedError
+    def llm_json(self, prompt, seed=None): raise NotImplementedError
     def tts(self, text): raise NotImplementedError
     def generate_image(self, prompt, seed): raise NotImplementedError
     def img2vid(self, image, seed): raise NotImplementedError
@@ -891,8 +893,8 @@ def test_05c_merges_independent_text_judge_with_visual_scores():
     from stages.s05c_qc.stage import _judge_text
 
     class _IndependentJudge:                      # non-Qwen judge fake (ADR 0016 D1)
-        def llm(self, prompt, seed=None):
-            return '{"hook": 0.8, "original_insight": 0.7, "payoff": 0.9}'
+        def llm_json(self, prompt, seed=None):
+            return {"hook": 0.8, "original_insight": 0.7, "payoff": 0.9}
 
     text = _judge_text(_IndependentJudge(), {"format": "x"}, ["clean frames"])
     assert set(text) == {"hook", "original_insight", "payoff"}
@@ -936,7 +938,7 @@ def _judge_text(llm, script: dict, observations: list[str]) -> dict:
               "NOT a generic template fill), payoff. Respond as STRICT JSON "
               '{"hook": x, "original_insight": y, "payoff": z}.\n\n'
               f"SCRIPT: {json.dumps(script)}\nRENDER OBSERVATIONS: {json.dumps(observations)}")
-    return json.loads(llm.llm(prompt))
+    return llm.llm_json(prompt)   # constrained JSON + bounded retry (re-review)
 
 
 @stage(StageManifest(id="05c", inputs=["render", "vision", "script"], outputs=["creative_qc"],
@@ -1099,6 +1101,128 @@ git commit -m "test(m3): two-niche proof — business runs the DAG as pure confi
 
 ---
 
+# Part E — Render finishing (the previously-unowned ADR 0005 D4 / 0006 D5/D8 features)
+
+### Task 12: End-card + loop bridge + thumbnail + per-clip color match + cut-rate guard
+
+Spec Ch.4's Stage-05 row promises these; the architecture re-review found no milestone owned them.
+They build on M2's compositor: a pure `inject_finishing()` post-resolve step, two small ffmpeg
+helpers, and a manifest assertion.
+
+**Files:**
+- Create: `shared/layout/finishing.py`
+- Modify: `stages/s05_render/stage.py` (wire-in), `stages/s01d_upscale/stage.py` (color-match pass)
+- Test: `tests/test_finishing.py`
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# tests/test_finishing.py
+import pytest
+from shared.layout.finishing import (inject_finishing, build_thumb_cmd,
+                                     color_match_args, assert_cut_rate, CutRateError)
+
+
+def _manifest():
+    return {"fps": 30, "markers": {}, "scenes": [
+        {"start": 0.0, "end": 2.0, "kind": "hook", "regions": []},
+        {"start": 2.0, "end": 4.0, "kind": "item", "regions": []}]}
+
+
+def test_end_card_injected_on_final_scene_with_platform_verb_and_loop_flag():
+    m = inject_finishing(_manifest(), brand_kit={"end_card_phrases": ["Follow or you miss it"]},
+                         seed=7, platform="youtube")
+    last = m["scenes"][-1]
+    card = next(r for r in last["regions"] if r["name"] == "end_card")
+    assert "Subscribe" in card["value"]            # platform verb swap (ADR 0006 D8)
+    assert m["markers"]["end_card"] == 60          # 2.0s * 30fps
+    assert m["loop"]["bridge"] is True             # seamless loop (ADR 0006 D5)
+
+
+def test_thumb_cmd_grabs_hook_frame():
+    cmd = build_thumb_cmd(render="renders/youtube.mp4", out="thumbnail.jpg")
+    s = " ".join(cmd)
+    assert "-frames:v 1" in s and s.endswith("thumbnail.jpg")   # frame 1 = the designed cover
+
+
+def test_color_match_args_pulls_toward_target():
+    args = color_match_args(clip_mean=80.0, target_mean=120.0)
+    assert "eq=brightness=" in args                # per-clip matching BEFORE the grade (D4)
+
+
+def test_cut_rate_guard():
+    assert_cut_rate(_manifest(), max_scene_s=4.0)  # ok
+    slow = {"fps": 30, "scenes": [{"start": 0.0, "end": 9.0, "kind": "item", "regions": []}]}
+    with pytest.raises(CutRateError):
+        assert_cut_rate(slow, max_scene_s=4.0)     # the no-slideshow target (ADR 0005 D4)
+```
+
+- [ ] **Step 2: Run** → FAIL (`ModuleNotFoundError: shared.layout.finishing`).
+
+- [ ] **Step 3: Implement `shared/layout/finishing.py`**
+
+```python
+class CutRateError(Exception):
+    """A scene exceeds the visual-change-rate target (the slideshow tell, ADR 0005 D4)."""
+
+
+def inject_finishing(manifest: dict, *, brand_kit: dict, seed: int, platform: str) -> dict:
+    """ADR 0006 D5/D8: the closing end-card is OVERLAID on the final beat (no dead air appended,
+    so it cannot defeat the loop bridge) + the loop flag the engine uses to trim/crossfade the
+    tail back into frame 0."""
+    verb = {"youtube": "Subscribe", "tiktok": "Follow"}.get(platform, "Follow")
+    phrases = brand_kit.get("end_card_phrases",
+                            ["Follow — the algorithm only shows us once"])
+    phrase = phrases[seed % len(phrases)].replace("Follow", verb, 1)
+    last = manifest["scenes"][-1]
+    last["regions"].append({
+        "name": "end_card", "primitive": {"type": "TextCard", "params": {"role": "display"}},
+        "rect": {"x": 90, "y": 1340, "w": 900, "h": 300}, "z": 9,
+        "enter": "riser_reveal", "exit": "none", "value": phrase,
+        "style": brand_kit.get("styles", {}).get("brand.end_card", {})})
+    manifest["markers"]["end_card"] = round(last["start"] * manifest["fps"])
+    manifest["loop"] = {"bridge": True}
+    return manifest
+
+
+def build_thumb_cmd(*, render: str, out: str) -> list[str]:
+    # hook frame = frame 1 = the designed pattern-interrupt (TikTok cover, ADR 0005 D3)
+    return ["ffmpeg", "-y", "-i", str(render), "-vf", "select=eq(n\\,0),scale=1080:1920",
+            "-frames:v", "1", str(out)]
+
+
+def color_match_args(*, clip_mean: float, target_mean: float) -> str:
+    """Per-clip exposure matching toward the batch median BEFORE the global grade (ADR 0005 D4 —
+    a blanket LUT over mismatched exposures fixes nothing)."""
+    delta = max(-0.3, min(0.3, (target_mean - clip_mean) / 255.0))
+    return f"eq=brightness={delta:.3f}"
+
+
+def assert_cut_rate(manifest: dict, *, max_scene_s: float = 4.0) -> None:
+    for s in manifest["scenes"]:
+        if (s["end"] - s["start"]) > max_scene_s:
+            raise CutRateError(f"scene {s.get('kind')} runs {s['end'] - s['start']:.1f}s "
+                               f"> {max_scene_s}s — add a cut or media change")
+```
+
+- [ ] **Step 4: Wire in.** In `stages/s05_render/stage.py`'s per-platform loop, after
+  `platform_delta`: `manifest = inject_finishing(manifest, brand_kit=brand_kit, seed=ctx.seed,
+  platform=plat)` then `assert_cut_rate(manifest)`; after the **primary** cut's encode, emit the
+  cover: `subprocess.run(build_thumb_cmd(render=str(cut), out=str(out.parent / "thumbnail.jpg")),
+  check=True)` — and 05's declared outputs gain `thumbnail` (mirror it in `manifest.json`, per the
+  M0 drift-catcher rule). **Per-clip color matching** runs in the visual lane: `01d` applies
+  `color_match_args` per asset against the batch's median frame mean (one ffmpeg `eq` pass each)
+  before `assets.json` is finalized.
+
+- [ ] **Step 5: Run** → `uv run pytest tests/test_finishing.py -v` → PASS (4). **Commit.**
+
+```bash
+git add shared/layout/finishing.py stages/s05_render/ stages/s01d_upscale/ tests/test_finishing.py
+git commit -m "feat(m3): render finishing — end-card+loop, thumbnail, color match, cut-rate (ADR 0005 D4/0006 D5 D8)"
+```
+
+---
+
 ## M3 Acceptance Checklist (the testable "done")
 
 - [ ] All **8 `formats/*/layout.json`** validate against `layout.schema`; their `bind`s resolve against each format's `layout_data` contract (incl. `news_reaction` list-index binds) → Tasks 1–3.
@@ -1106,13 +1230,14 @@ git commit -m "test(m3): two-niche proof — business runs the DAG as pure confi
 - [ ] **Music** selection is seed-deterministic, taxonomy-closed, batch-anti-repeat; **04** mixes with duck + per-platform LUFS; SFX cues map per scene → Tasks 5–7.
 - [ ] **05x** samples ≤8 keyframes (hook/end-card/markers/mid), runs once on the YouTube cut via an OpenAI-compatible VLM endpoint, and emits **observations + visual sub-scores, not verdicts**; **05c**'s **independent non-Qwen judge** (ADR 0016 D1/D5) scores the text criteria, merges with the visual pair (original-insight 0.30), and **quarantines below the 0.70 floor** → Tasks 8–10.
 - [ ] **finance + business** profiles load + validate; the business niche runs the offline DAG as pure config (two-niche abstraction proven) → Task 11.
+- [ ] **Render finishing**: the end-card + loop flag are injected on the final beat (platform verb swapped), the thumbnail/cover is emitted from the hook frame, per-clip color matching runs in 01d, and the cut-rate guard rejects slideshow pacing → Task 12.
 - [ ] CI stays GPU-free (`-m "not integration"`); VLM/ffmpeg calls are integration-marked.
 
 ---
 
 ## Self-Review
 
-**Spec coverage (Ch.10 M3 + ADRs):** the 8 format templates → A1/A2 (the 6 new as data, ADR 0007a §7b/§11; explainer worked-number pinned to count-up per §4/§11); audio performance layer → B (**per-beat prosody driving Kokoro** Task 4c, music taxonomy+anti-repeat ADR 0005 D6/0009, SFX, per-platform LUFS, 04 mix — D6 now fully covered); content-scaling item-sizing deferred to 00b with citation (ADR 0008 D2, Task 4 note); caption design → **landed in M1** (Task 8/9 there), not re-done here (noted); `05c` creative-QC backed by `05x` vision → C (ADR 0008 D1 + ADR 0005 D2 + ADR 0014 D1 original-insight); persona + brand kit + business profile → D (ADR 0005 D9, two-niche proof ADR 0010 D5). `05b` safety gate + `06` distribution remain **M5** (noted, not in scope).
+**Spec coverage (Ch.10 M3 + ADRs):** the 8 format templates → A1/A2 (the 6 new as data, ADR 0007a §7b/§11; explainer worked-number pinned to count-up per §4/§11); audio performance layer → B (**per-beat prosody driving Kokoro** Task 4c, music taxonomy+anti-repeat ADR 0005 D6/0009, SFX, per-platform LUFS, 04 mix — D6 now fully covered); content-scaling item-sizing deferred to 00b with citation (ADR 0008 D2, Task 4 note); caption design → **landed in M1** (Task 8/9 there), not re-done here (noted); `05c` creative-QC backed by `05x` vision → C (ADR 0008 D1 + ADR 0005 D2 + ADR 0014 D1 original-insight); persona + brand kit + business profile → D (ADR 0005 D9, two-niche proof ADR 0010 D5); **render finishing** (end-card/loop ADR 0006 D5/D8, thumbnail, per-clip color match + cut-rate ADR 0005 D4 — previously unowned) → E (Task 12). `05b` safety gate + `06` distribution remain **M5** (noted, not in scope).
 
 **Placeholder scan:** no "TBD"/"add error handling". The `NotImplementedError` bodies (`_frame_count`/`_extract_frames` in 05x; live VLM/ffmpeg) are documented integration seams with their CI substitute named (the pure `sample_frames`/`weighted_overall`/`select_track` are fully implemented + tested). Format authoring uses an explicit per-format bind/region contract table, not "similar to".
 

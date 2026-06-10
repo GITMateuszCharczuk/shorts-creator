@@ -337,6 +337,7 @@ def test_ollama_llm_live():
 - [ ] **Step 3: Implement `shared/adapters/real.py`**
 
 ```python
+import json
 from pathlib import Path
 
 import httpx
@@ -363,6 +364,24 @@ class OllamaBackend:
         r = httpx.post(url, json=payload, timeout=self._timeout)
         r.raise_for_status()
         return r.json()["response"]
+
+    def llm_json(self, prompt: str, seed: int | None = None) -> dict:
+        """Constrained decoding (Ollama format=json) + ONE bounded repair retry —
+        malformed JSON is the #1 local-LLM failure mode (architecture re-review)."""
+        url, payload = self._request(prompt, seed)
+        payload["format"] = "json"
+        last_err = None
+        for _ in range(2):
+            r = httpx.post(url, json=payload, timeout=self._timeout)
+            r.raise_for_status()
+            text = r.json()["response"]
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError as e:
+                last_err = e
+                payload["prompt"] = (f"{prompt}\n\nYour previous output was invalid JSON "
+                                     f"({e}). Return ONLY valid JSON.")
+        raise ValueError(f"LLM returned invalid JSON after retry: {last_err}")
 
     # M2 GPU capabilities — not provided by the LLM endpoint.
     def generate_image(self, prompt: str, seed: int) -> Path:
@@ -402,6 +421,9 @@ class KokoroBackend:
 
     def llm(self, prompt: str, seed: int | None = None) -> str:
         raise NotImplementedError("use OllamaBackend for llm")
+
+    def llm_json(self, prompt: str, seed: int | None = None) -> dict:
+        raise NotImplementedError("use OllamaBackend for llm_json")
 
     def generate_image(self, prompt: str, seed: int) -> Path:
         raise NotImplementedError
@@ -646,7 +668,7 @@ def _generate_script(llm, data: dict, config: dict, seed: int) -> dict:
     # {value, source_ref}) and parses the model's JSON into a script.schema instance.
     # Prompt construction is deterministic given (data, config, seed); the model call is live.
     prompt = _build_prompt(data, config, seed)
-    return json.loads(llm.llm(prompt, seed=seed))   # seed threaded to the sampler (ADR 0009)
+    return llm.llm_json(prompt, seed=seed)   # constrained JSON + retry; seed -> sampler (ADR 0009)
 
 
 def _build_prompt(data: dict, config: dict, seed: int) -> str:
@@ -1251,6 +1273,10 @@ def run(ctx: StageContext) -> StageResult:
 {"id": "05", "inputs": ["script", "assets", "narration", "captions"], "outputs": ["render"], "compute": "cpu"}
 ```
 
+> Note: M1's interim 05 encodes **raw narration** because the M1 slice has no Stage 04 — the M2
+> compositor consumes the **04 duck+loudnorm mix** instead (its `music` input), so the final
+> audio bed gains music when M2 lands.
+
 - [ ] **Step 5: Run** → PASS (1). **Commit.**
 
 ```bash
@@ -1378,6 +1404,8 @@ class _FakeLLM:
     def __init__(self, script_path): self._s = json.loads(Path(script_path).read_text())
     def llm(self, prompt, seed=None):
         return "0.88" if "Score" in prompt else json.dumps(self._s)
+    def llm_json(self, prompt, seed=None):
+        return dict(self._s)
 
 
 class _FakeTTS:

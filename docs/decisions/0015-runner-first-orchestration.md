@@ -68,7 +68,10 @@ nightly batch.
    Task Scheduler remains only the WSL boot/keep-alive trigger. Argo's `concurrencyPolicy: Forbid`
    is replaced by a **run lockfile** (atomic create; a second trigger exits, mirroring ADR 0003's
    no-overlap rule). The boot-time batch reconciler (ADR 0003 D9) is unchanged and now has fewer
-   layers to reconcile.
+   layers to reconcile. **Host power policy is an explicit ops prerequisite** (third re-review):
+   the WSL keep-alive does **not** keep *Windows* awake — sleep must be disabled (or wake timers
+   enabled) for the batch window, and Windows Update active-hours set away from it; a sleeping box
+   is the simplest way to lose the 2 a.m. batch.
 
 4. **One filesystem, one `DATA_ROOT` — the path contract.** With no pods there is no host↔pod path
    split: stages, the runner, ComfyUI, Ollama, and the VLM endpoint all run in the same WSL2
@@ -86,10 +89,15 @@ nightly batch.
    features — written once, unit-tested in CI.
 
 6. **M4 is rescoped** from "Argo orchestration" to **"conductor hardening + ops"**: runner
-   concurrency (lane-fork/fan-out), retries/timeouts as tested code, the lockfile + systemd timer
-   + Task-Scheduler boot trigger, `up.sh`/`down.sh` against host services only (no cluster), the
-   CI-built shared image, and the unchanged **M4 gate** — the end-to-end overnight throughput
-   reconciliation (open #9).
+   concurrency (lane-fork/fan-out), **subprocess-per-stage execution** (`python -m shorts.stage
+   <id>` — real per-stage timeouts, GIL-free audio-lane parallelism, crash + untrusted-media
+   isolation since stages now parse fetched stock/RSS on the host, and exact parity with the
+   0015a per-stage entrypoint), the **batch planner** (`batch.json`: N videos per niche, the
+   lane-mix knob, format rotation/anti-repeat, topic reservation) and the **single fan-in ledger
+   commit** (ADR 0002/0003 — previously unowned), retries/timeouts as tested code, the lockfile +
+   systemd timer + Task-Scheduler boot trigger, `up.sh`/`down.sh` against host services only (no
+   cluster), the CI-built shared image, and the unchanged **M4 gate** — the end-to-end overnight
+   throughput reconciliation (open #9).
 
 ## Consequences
 

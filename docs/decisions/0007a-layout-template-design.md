@@ -42,12 +42,17 @@ the renderer + libraries are the only code, shared verbatim with **01e data-viz*
 
 ### 2. Engine & data flow — render is `pure(manifest)`
 
-A deterministic, pure **resolve step** merges the format `layout` + typed per-beat data + WhisperX
-word timings + brand kit + seeded slots (CTA bump D10, loop + end-card 0006) into a flat, fully
+A deterministic, pure **resolve step** merges the format `layout` + typed per-beat data + **the
+visual lane's chosen per-beat assets (`assets.json` — MediaZone regions resolve to the selected
+clip's path, not the `media_query` string)** + WhisperX
+word timings **(threaded into the injected `KaraokeCaption` region's `words` param, not only into
+scene spans)** + brand kit + seeded slots (CTA bump D10, loop + end-card 0006) into a flat, fully
 bound **`render_manifest.json`**, consuming the persisted `job.json` seed (ADR 0009). **Everything
 stochastic is decided here**, so the Remotion render is a **pure function of the manifest** →
 reproducible. The renderer paints frames; **per-platform deltas are manifest deltas** (safe-zone
 insets + CTA verb/icon — same `<Composition>`, three manifests; the ADR 0005 D4 distinct cuts).
+*(Honesty note, ADR 0015: production renders run in the WSL2 venv, not the pinned CI image — so
+production output is SSIM-class vs the goldens; the byte-hash tripwire is a CI regression guard.)*
 
 This **refines the ADR 0010 D3 seam** from `render(format_layout, structured_data, brand_kit) →
 frames` to `render(render_manifest) → frames`: resolve is the new pre-engine step that merges those
