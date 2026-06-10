@@ -1,0 +1,121 @@
+# profiles/business/profile.yaml
+# The business channel's standing identity (ADR 0005 D9 / 0010 D5 / 0017).
+# The SECOND niche — authored to the SAME schema as finance, with deliberately DISTINCT data
+# (archetype, palette, font, mascot, stances, sources) so the two-niche abstraction is provably
+# config, not code (the M3 two-niche proof). Persona archetype: the pragmatic operator.
+
+schema_version: "1.0.0"
+niche: business
+
+persona:
+  # the voice 00b writes IN, and the direction the voice A/B (ADR 0017 D1) is judged against
+  voice: >
+    A pragmatic, plain-spoken operator — explains how businesses ACTUALLY make money, the way a
+    seasoned founder would over coffee. Allergic to hustle-culture theatre and motivational fluff;
+    interested in unit economics, margins, and the unglamorous lever that actually moved the number.
+    Dry, concrete, a little contrarian; respects the viewer's time and intelligence.
+  pov: >
+    Unit-economics first, incentives over inspiration. Educational and third-person — explains how
+    business mechanics work; never tells the viewer to start/buy/quit anything (YMYL-adjacent).
+
+  # positions the channel ARGUES FROM — gives the original-insight gate (ADR 0014/0016) something
+  # specific to be non-obvious WITH. Each is arguable, business-true, and not advice.
+  stances:
+    - "Revenue is vanity, profit is sanity, cash flow is reality."
+    - "Most 'passive income' is a job you haven't admitted you can't quit."
+    - "Your margin is a strategy, not an accident."
+    - "Growth that outruns cash kills more companies than slow growth ever did."
+    - "Pricing is the fastest lever on profit — and the one everyone reaches for last."
+    - "A business that can't run without you is a job you happen to own."
+
+  catchphrase: "Margins over momentum."
+
+  # recurring series build habitual return viewership (ADR 0017 D5; M4 rotation schedules these)
+  series:
+    - id: "one_metric"
+      title: "One Metric"
+      cadence: "daily"
+      lane: "reach"
+      format: "news_reaction"
+      premise: "The single number that explains a company's week — and why the headline missed it."
+    - id: "hustle_myth"
+      title: "Hustle Myth"
+      cadence: "weekly"
+      lane: "reach"
+      format: "myth_buster"
+      premise: "One piece of hustle-culture gospel, checked against an actual P&L."
+    - id: "the_teardown"
+      title: "The Teardown"
+      cadence: "weekly"
+      lane: "monetization"
+      format: "explainer"
+      premise: "How a business you know actually makes money — the unit economics, unhidden."
+
+brand_kit:
+  # deliberately DIFFERENT from finance's cold ink-green/cyan: a warm slate-navy + amber reads
+  # like a workshop/operator's desk, not a trading terminal — two niches, two visual identities.
+  palette: ["#15171C", "#1E2A3A", "#FFB020", "#F5F6F8"]   # ink, slate-navy, amber accent, off-white
+  font: "IBM Plex Sans"                                    # an engineer/operator feel; distinct from finance's Inter
+  logo: "brand/business/logo.svg"
+  # mascot: a different ownable character from finance's owl — a builder, not a scholar.
+  mascot: "brand/business/margin-beaver.svg"   # "Margin", a no-nonsense beaver-builder with a clipboard + hard hat
+
+defaults:
+  # the M3 voice-A/B winner (ADR 0017 D1) is written here; kokoro is the provisional default.
+  # NOTE: a niche may pick a DIFFERENT voice than finance — it's a per-profile tts-backend choice.
+  voice_backend: "kokoro"
+
+  music_index: "profiles/business/music/index.json"   # business's OWN curated strike-safe library
+  emphasis_hex: "FFB020"                               # the amber accent, for caption emphasis words
+
+  # YMYL-adjacent guardrail (finance/business both bind, spec Ch.9); 05b enforces.
+  disclaimer: "Educational only — not business or financial advice."
+
+  # the hard never-say list (05b rejects a script that trips any of these). prohibited_claims is the
+  # human-readable policy; denylist_terms is its machine-readable companion (ADR 0010 D5: data not code).
+  prohibited_claims:
+    - "guaranteed-income / get-rich / 'passive income' guarantees"
+    - "'quit your job' or 'start this business' directives"
+    - "'this one trick / hack' get-rich framing"
+    - "specific invest-in-X or buy/sell calls"
+    - "tax, legal, or personalised financial advice"
+  denylist_terms: ["guaranteed income", "get rich", "get-rich", "risk-free", "can't lose",
+                   "quit your job", "this one trick", "double your revenue", "you should invest",
+                   "guaranteed returns"]
+
+  # ADR 0006 D7: in-voice opener archetypes 00b picks from — the operator's tone, not a guru's.
+  hook_styles:
+    - "teardown:     'This business looks simple. The money is hiding in one number.'"
+    - "myth-flip:    'Hustle culture says X. The P&L says otherwise.'"
+    - "follow-money: 'Where does the profit ACTUALLY come from? Not where you'd guess.'"
+    - "boring-wins:  'The unsexy lever moved the margin more than the rebrand ever could.'"
+
+  # ADR 0017 D2: visual-identity bias for 01a stock search — abstract/operator textures over the
+  # stock-business clichés that scream content-farm.
+  stock_style: "abstract"
+  stock_denylist:
+    - "handshake in suits"
+    - "glass skyscraper"
+    - "team high-five"
+    - "arrow going up"
+    - "lightbulb idea"
+    - "rocket startup launch"
+
+  # candidate primary-keyword themes 00b threads (caption/on-screen/spoken — ADR 0006 D7);
+  # the live topic per video comes from 00a's fresh data, not this list.
+  keyword_themes: ["unit economics", "margins", "cash flow", "pricing", "churn", "CAC", "LTV",
+                   "moats", "small business", "profit"]
+
+  # where 00a looks for the day's fresh, sourceable angle (free/credible, no key required).
+  # The cited number must trace to one of these or a primary filing — never an anonymous blog.
+  topic_sources:
+    - "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=10-Q&output=atom"  # company filings/earnings
+    - "https://www.census.gov/economic-indicators/calendar-listview.xml"                  # Census business indicators
+    - "https://www.bls.gov/feed/jolts.rss"                                                # JOLTS (labor/business churn)
+    - "https://home.treasury.gov/system/files/226/RSS-feed.xml"                           # Treasury / macro context
+
+  # ADR 0006 D8 / 0017 D5: rotatable closing follow-CTA phrases (FOMO, on-brand for the operator)
+  end_card_phrases:
+    - "Follow — we read the P&L so you don't have to."
+    - "Follow for the one number behind tomorrow's business headline."
+    - "Margins over momentum. Follow."
