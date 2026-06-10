@@ -1002,6 +1002,21 @@ def resolve(*, layout: dict, beat_data: dict, brand_kit: dict, timings: list[dic
                 markers[r["name"]] = round(t["start"] * fps)
         scenes.append({"start": t["start"], "end": t["end"], "kind": beat["kind"],
                        "regions": sorted(regs, key=lambda x: x["z"])})
+
+    # §6 injected CTABump (ADR 0005 D10): one SEEDED mid-roll bump on an eligible body scene —
+    # never the hook/cta/first/last, never stepping on the moments that carry the video.
+    import random as _random
+    eligible = [i for i, s in enumerate(scenes)
+                if 0 < i < len(scenes) - 1 and s["kind"] not in ("hook", "cta")]
+    if eligible:
+        i = _random.Random(seed).choice(eligible)
+        scenes[i]["regions"].append({
+            "name": "cta_bump", "primitive": {"type": "CTABump", "params": {"verb": "Follow"}},
+            "rect": _project({"colA": 3, "colB": 10, "anchor": "caption"}, anchors, safe),
+            "z": 7, "enter": "pop", "exit": "fade", "value": None, "style": styles.get("brand.cta", {})})
+        scenes[i]["regions"].sort(key=lambda x: x["z"])
+        markers["cta_bump"] = round(scenes[i]["start"] * fps)
+
     return {"schema_version": "1.0.0", "fps": fps, "width": 1080, "height": 1920, "seed": seed,
             "accent": brand_kit.get("accent"), "safe_rect": safe, "markers": markers,
             "scenes": scenes}
@@ -1215,10 +1230,12 @@ import subprocess
 
 def platform_delta(manifest: dict, platform: str) -> dict:
     m = json.loads(json.dumps(manifest))  # deep copy
-    if platform == "youtube":
-        m.setdefault("cta", {})["verb"] = "Subscribe"
-    elif platform == "tiktok":
-        m.setdefault("cta", {})["verb"] = "Follow"
+    verb = {"youtube": "Subscribe", "tiktok": "Follow"}.get(platform, "Follow")
+    m.setdefault("cta", {})["verb"] = verb
+    for scene in m.get("scenes", []):                  # retarget the injected CTABump verb (D10)
+        for r in scene.get("regions", []):
+            if r.get("name") == "cta_bump":
+                r["primitive"].setdefault("params", {})["verb"] = verb
     return m
 
 
@@ -1295,6 +1312,75 @@ git add stages/s05_render/ tests/test_s05_compositor.py
 git commit -m "feat(m2): replace 05 ffmpeg interim with Remotion compositor (resolve->render->nvenc, ADR 0007/0007a)"
 ```
 
+## Phase B5 — Compositor throughput measurement (ADR 0007a §9)
+
+### Task 15: ms/frame target + tripwire on the box (ADR 0007a §9 / Open #9)
+
+§9 makes a real measurement an explicit M2 deliverable (not just a claim): run the compositor on the box, publish a **ms/frame target + fail threshold**, so the "Stage 05 is cheap" assertion is confirmed, not assumed. Reuse M1's `shared/timing.StageTimer`.
+
+**Files:** Create `shared/layout/throughput.py`; Test `tests/test_throughput.py`
+
+- [ ] **Step 1: Write the failing test** (pure: the budget math + tripwire decision; the real render is integration)
+
+```python
+# tests/test_throughput.py
+from shared.layout.throughput import ms_per_frame, within_budget, TARGET_MS_PER_FRAME, FAIL_MS_PER_FRAME
+
+
+def test_ms_per_frame_and_budget():
+    # 60 frames rendered in 3.0s -> 50 ms/frame
+    assert ms_per_frame(elapsed_s=3.0, frames=60) == 50.0
+    assert within_budget(50.0) is (50.0 <= FAIL_MS_PER_FRAME)
+
+
+def test_published_target_below_fail_threshold():
+    assert TARGET_MS_PER_FRAME < FAIL_MS_PER_FRAME   # target leaves headroom under the tripwire
+```
+
+- [ ] **Step 2: Implement `shared/layout/throughput.py`**
+
+```python
+# ADR 0007a §1/§9: CPU rasterization on the 7800X3D. Published M2 budget (revisit on the box):
+TARGET_MS_PER_FRAME = 40.0    # design target for the resolve+raster path @1080x1920
+FAIL_MS_PER_FRAME = 80.0      # tripwire: above this, the overnight-batch budget (ADR 0011) is at risk
+
+
+def ms_per_frame(*, elapsed_s: float, frames: int) -> float:
+    return round(elapsed_s * 1000.0 / frames, 3)
+
+
+def within_budget(mspf: float) -> bool:
+    return mspf <= FAIL_MS_PER_FRAME
+```
+
+- [ ] **Step 3: Add the integration measurement** — an `@pytest.mark.integration` test that renders the golden manifest (Task 13) in the pinned image, computes `ms_per_frame`, **asserts `within_budget`**, and writes the number to `runs/.metrics/compositor_mspf.json` so M4's end-to-end throughput reconciliation (the overnight-window gate, spec Ch.10 M4 / Open #9) consumes a real measured value rather than a guess.
+
+```python
+import json, time
+from pathlib import Path
+import pytest
+from shared.layout.remotion import render_manifest_to_frames
+from shared.layout.throughput import ms_per_frame, within_budget, FAIL_MS_PER_FRAME
+
+
+@pytest.mark.integration
+def test_compositor_within_budget(tmp_path):
+    manifest = json.loads((Path(__file__).parent / "fixtures/m2/render_manifest_golden.json").read_text())
+    t0 = time.perf_counter()
+    frames = render_manifest_to_frames(manifest, tmp_path)
+    mspf = ms_per_frame(elapsed_s=time.perf_counter() - t0, frames=len(frames))
+    (Path("runs/.metrics")).mkdir(parents=True, exist_ok=True)
+    Path("runs/.metrics/compositor_mspf.json").write_text(json.dumps({"ms_per_frame": mspf}))
+    assert within_budget(mspf), f"{mspf} ms/frame exceeds the {FAIL_MS_PER_FRAME} tripwire"
+```
+
+- [ ] **Step 4: Run** the pure test → PASS; the integration test runs on the box. **Commit.**
+
+```bash
+git add shared/layout/throughput.py tests/test_throughput.py
+git commit -m "feat(m2): compositor ms/frame target + tripwire measurement (ADR 0007a §9)"
+```
+
 ---
 
 ## M2 Acceptance Checklist (the testable "done")
@@ -1305,14 +1391,15 @@ git commit -m "feat(m2): replace 05 ffmpeg interim with Remotion compositor (res
 - [ ] `layout.schema.json` + the `ranked_list` and `head_to_head` region specs validate; resolve-time **bind validation** rejects an unbound region → Tasks 8–9.
 - [ ] The **resolve step is pure/deterministic** (same inputs → identical `render_manifest`) → Task 10.
 - [ ] The golden manifest renders **byte-identically in the pinned toolchain image** (SSIM ≥0.99 elsewhere) → Task 13.
-- [ ] Stage `05` produces the render via **resolve → Remotion → NVENC**; per-platform cuts are **manifest deltas**, not code paths → Task 14.
+- [ ] Stage `05` produces the render via **resolve → Remotion → NVENC**; per-platform cuts are **manifest deltas**, not code paths; the **CTABump** mid-roll bump (ADR 0005 D10) is seeded-injected → Task 14 + resolve.
+- [ ] The compositor's measured **ms/frame is within the published tripwire** on the box, written for M4's overnight-window reconciliation (ADR 0007a §9) → Task 15.
 - [ ] CI stays green and GPU-free (`-m "not integration"`); all GPU/Remotion calls are integration-marked.
 
 ---
 
 ## Self-Review
 
-**Spec coverage (Ch.4 rows + ADRs):** 01a→T1-T5 (CLIP ADR 0005 D5, dedup, fallback ADR 0008 D3, provenance Ch.9); 01b/01c/01d→T6 (ComfyUI over HTTP ADR 0001, graph-versioned cache ADR 0010 D4); 01e→T7 (data-viz, Remotion-shared ADR 0005 D5/0007); the compositor→T8-T14 (layout.schema + region specs, bind validation, pure resolve, Remotion render, NVENC, determinism tripwire, per-platform manifest delta — all ADR 0007/0007a). `lane_support`/content-scaling (ADR 0008 D2) is consumed from the format library 00b already wrote; not re-implemented here. Deferred to M3 (noted): the other 6 format region specs, the 05x/05b/05c gates, music (04), persona/brand-kit authoring.
+**Spec coverage (Ch.4 rows + ADRs):** 01a→T1-T5 (CLIP ADR 0005 D5, dedup, fallback ADR 0008 D3, provenance Ch.9); 01b/01c/01d→T6 (ComfyUI over HTTP ADR 0001, graph-versioned cache ADR 0010 D4); 01e→T7 (data-viz, Remotion-shared ADR 0005 D5/0007); the compositor→T8-T14 (layout.schema + region specs, bind validation, pure resolve, Remotion render, NVENC, determinism tripwire, per-platform manifest delta — all ADR 0007/0007a); **throughput→T15 (ms/frame target + tripwire, ADR 0007a §9)**. `lane_support`/content-scaling (ADR 0008 D2) is consumed from the format library 00b already wrote; not re-implemented here. **§6 standard regions:** `caption` + `brand_overlay` are injected on every beat and `cta_bump` (CTABump, ADR 0005 D10) is **seeded mid-roll**-injected in `resolve()`; `citation` (CitationChip) is **format-declared** by the formats that cite (`news_reaction`/`surprising_stat`, M3); the loop-bridge + end-card finishing (ADR 0006) are render-finishing **deferred to a later milestone** (noted). Deferred to M3 (noted): the other 6 format region specs, the 05x/05b/05c gates, music (04), persona/brand-kit authoring.
 
 **Placeholder scan:** No "TBD"/"add error handling". The `NotImplementedError` bodies (`StockClient.search`, ComfyUI `_build_graph`/`_await_output`, the 01a/01b/01e `run()` zone-iteration loops, 01c/01d) are **documented host-integration seams** — each names its CI substitute (fixture candidates / the offline-DAG fakes) and its pure-logic sibling that *is* implemented and tested (select_for_beat, chart_spec, graph_version, the ranking/dedup/fallback/resolve/bind/encode functions). This mirrors M1's seam discipline.
 

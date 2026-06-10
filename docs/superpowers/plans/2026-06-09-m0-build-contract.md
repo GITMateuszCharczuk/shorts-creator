@@ -825,7 +825,17 @@ def test_quarantine_signal(run_dir):
     ctx = _ctx(run_dir)
     with pytest.raises(Quarantined):
         ctx.quarantine("safety failed")
+
+
+def test_set_status_atomic_section_scoped(run_dir):
+    (run_dir / "job.json").write_text(json.dumps({"seed": 7, "video_id": "v1", "stages": {}}))
+    _ctx(run_dir).set_status("running")
+    job = json.loads((run_dir / "job.json").read_text())
+    assert job["stages"]["00b"]["status"] == "running"   # only this stage's section touched
+    assert not (run_dir / "job.json.tmp").exists()        # temp renamed away
 ```
+
+(Add `import json` at the top of `tests/test_ctx.py`.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -861,6 +871,7 @@ def get_logger(stage: str) -> StructuredLogger:
 - [ ] **Step 4: Implement `shared/ctx.py`**
 
 ```python
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -921,6 +932,16 @@ class StageContext:
     def degrade(self, reason: str) -> None:
         self.log.warning("degrade", reason=reason)
         raise Degraded(reason)
+
+    def set_status(self, status: str) -> None:
+        """Section-scoped atomic status update for THIS stage (ADR 0012 §4): read job.json,
+        set stages[self.stage].status, write-temp + rename. One writer per <video-id>/ subtree."""
+        job_path = self.run_dir / "job.json"
+        job = json.loads(job_path.read_text())
+        job.setdefault("stages", {})[self.stage] = {"status": status}
+        tmp = job_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(job))
+        tmp.rename(job_path)   # atomic rename (ADR 0003 D6)
 ```
 
 - [ ] **Step 5: Run to verify pass, then commit**
@@ -1160,7 +1181,7 @@ class ModelBackend(Protocol):
     def generate_image(self, prompt: str, seed: int) -> Path: ...
     def img2vid(self, image: Path, seed: int) -> Path: ...
     def tts(self, text: str) -> Path: ...
-    def llm(self, prompt: str) -> str: ...
+    def llm(self, prompt: str, seed: int | None = None) -> str: ...   # seed -> reproducible best-of-N (ADR 0009)
     def vlm_judge(self, frames: list[Path], script: dict) -> Judgment: ...
     def restore(self, frames: list[Path]) -> list[Path]: ...   # ESRGAN/RIFE/GFPGAN (01d, M2)
 
@@ -1269,7 +1290,7 @@ class FixtureBackend:
     def _path(self, capability: str, h: str, ext: str) -> Path:
         return self._dir / capability / f"{h}.{ext}"
 
-    def llm(self, prompt: str) -> str:
+    def llm(self, prompt: str, seed: int | None = None) -> str:
         return self._path("llm", self._hash(prompt=prompt.encode()), "txt").read_text()
 
     def generate_image(self, prompt: str, seed: int) -> Path:
@@ -1619,7 +1640,7 @@ from pathlib import Path
 from shared.adapters.fakes import FixtureBackend, FixtureDistributionAdapter
 from shared.cache import StageCache
 from shared.config import resolve_config
-from shared.ctx import StageContext, StageResult
+from shared.ctx import Quarantined, StageContext, StageResult
 from shared.hashing import cache_key, input_hash, sha256_bytes
 from shared.schema import SchemaRegistry
 from shared.stage import REGISTRY
@@ -1677,7 +1698,12 @@ def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path) 
                            backends={"llm": backend, "generate_image": backend,
                                      "img2vid": backend, "tts": backend, "vlm_judge": backend,
                                      "restore": backend, "distribution": dist})
-        res = reg.fn(ctx) or StageResult()
+        ctx.set_status("running")                       # ADR 0012 §4 status transitions
+        try:
+            res = reg.fn(ctx) or StageResult()
+        except Quarantined:
+            ctx.set_status("quarantined")
+            raise
         for name in m.outputs:
             p = run_dir / output_paths[name]
             schema = OUTPUT_SCHEMA.get(name)
@@ -1685,6 +1711,7 @@ def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path) 
                 REG.validate(schema, json.loads(p.read_text()))
             produced[name] = output_paths[name]
         cache.put(key, {name: output_paths[name] for name in m.outputs})
+        ctx.set_status("done")
 
     return {"posts": produced["posts"], "cache_hits": cache_hits}
 

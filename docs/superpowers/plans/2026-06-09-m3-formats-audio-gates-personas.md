@@ -694,7 +694,8 @@ class QwenVLBackend:
         r = httpx.post(f"{self._base}/judge", json=payload, timeout=self._timeout)
         r.raise_for_status()
         d = r.json()
-        return Judgment(overall=d["overall"], scores=d["scores"], passed=d["overall"] >= 0.70)
+        # `passed` is advisory only — 05c owns the authoritative, config-driven quality floor.
+        return Judgment(overall=d["overall"], scores=d["scores"], passed=d.get("passed", False))
 
     def llm(self, prompt, seed=None): raise NotImplementedError
     def tts(self, text): raise NotImplementedError
