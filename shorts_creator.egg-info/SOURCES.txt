@@ -1,0 +1,9 @@
+README.md
+pyproject.toml
+shared/__init__.py
+shorts_creator.egg-info/PKG-INFO
+shorts_creator.egg-info/SOURCES.txt
+shorts_creator.egg-info/dependency_links.txt
+shorts_creator.egg-info/requires.txt
+shorts_creator.egg-info/top_level.txt
+stages/__init__.py
