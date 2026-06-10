@@ -1,4 +1,4 @@
-from shared.hashing import canonical_json, sha256_bytes, input_hash, cache_key
+from shared.hashing import cache_key, canonical_json, input_hash, sha256_bytes
 
 
 def test_canonical_json_is_key_order_independent():
