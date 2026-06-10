@@ -151,6 +151,15 @@ pod-swap latency) so the safety/quality judges don't fight diffusion for the dev
 above is C-ready by construction: the only diffs are the `host-gpu` Service target and GPU
 resource requests on the model-server Deployments.
 
+**Adopted scope (operator decision, 2026-06-10):** the host is **Windows-only — an OS change is
+not an option** — so **Variants A + B are the profile's build scope (M7)**; Variant C stays
+**design-only**, activating only if a *separate* Linux GPU node (second box / cloud GPU) ever
+materializes. *(A WSL2-hosted C — k3s in the distro + container-toolkit CDI + a manually-pinned
+device plugin, GPU plane as one pod to preserve in-process VRAM choreography — is technically
+feasible and was evaluated, but adds zero product value on this hardware while stacking the most
+version-sensitive NVIDIA/WSL2 surface under the unattended-run requirement; experiment-grade
+only.)*
+
 ### D8. Honest scale boundaries (restating ADR 0010, now with the profile attached)
 
 - **Single node → bigger single node:** config only (either variant).
