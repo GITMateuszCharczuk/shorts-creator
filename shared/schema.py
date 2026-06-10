@@ -13,6 +13,8 @@ class SchemaError(Exception):
 
 
 def _parse_semver(v: str) -> tuple[int, int, int]:
+    if not isinstance(v, str):  # int schema_version -> SchemaError, not a raw AttributeError
+        raise SchemaError(f"bad semver: {v!r}")
     parts = v.split(".")
     if len(parts) != 3:
         raise SchemaError(f"bad semver: {v!r}")

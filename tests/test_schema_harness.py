@@ -20,3 +20,8 @@ def test_major_mismatch_raises():
 def test_missing_instance_version_raises():
     with pytest.raises(SchemaError):
         version_compatible(schema="1.0.0", instance=None)
+
+
+def test_non_string_instance_version_raises():
+    with pytest.raises(SchemaError):
+        version_compatible(schema="1.0.0", instance=1)  # type: ignore[arg-type]
