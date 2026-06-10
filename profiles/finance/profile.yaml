@@ -72,6 +72,8 @@ defaults:
 
   # the hard never-say list (05b rejects a script that trips any of these — a disclaimer is not a
   # licence to give advice). This is what keeps the evidence-skeptic credible AND platform-safe.
+  # prohibited_claims is the human-readable policy; denylist_terms is its machine-readable companion
+  # — the literal phrases 05b's profile-driven check matches (ADR 0010 D5: safety policy is data).
   prohibited_claims:
     - "buy / sell / hold recommendations on a specific security"
     - "price targets or 'this will hit $X' predictions"
@@ -79,6 +81,8 @@ defaults:
     - "get-rich / double-your-money / passive-income framing"
     - "second-person advice ('you should buy/sell ...')"
     - "tax, legal, or personalised financial advice"
+  denylist_terms: ["guaranteed", "risk-free", "can't lose", "price target", "you should buy",
+                   "you should sell", "double your money", "get rich", "hot tip"]
 
   # ADR 0006 D7: in-voice opener archetypes 00b picks from — keeps hooks on-brand without a human
   # writing tone per video. The hook states a tension; the body resolves it with the number.
