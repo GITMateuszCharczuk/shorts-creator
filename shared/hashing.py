@@ -3,9 +3,22 @@ import json
 from typing import Any
 
 
+def _reject_non_json(o: Any) -> Any:
+    # Called by json.dumps only for types it can't natively encode (Path, set, datetime, ...).
+    # Fail LOUD with the offending type rather than blowing up opaquely deep inside the hash.
+    raise TypeError(f"non-JSON value in hashed payload: {type(o).__name__} ({o!r})")
+
+
 def canonical_json(obj: Any) -> str:
-    """Deterministic JSON: sorted keys, no insignificant whitespace."""
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    """Deterministic JSON: sorted keys, no insignificant whitespace.
+
+    Contract: inputs must be JSON-native (dict/list/str/int/float/bool/None). This holds for hashed
+    payloads here because `resolved_config` is JSON-loaded by the config resolver (Task 8), so it
+    never contains tuples/sets. Note canonical JSON treats a tuple and a list identically (json
+    coerces tuple->list); callers must therefore not hand-construct configs with tuples where a
+    list-vs-tuple distinction would matter. Non-JSON types raise TypeError."""
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                      default=_reject_non_json)
 
 
 def sha256_bytes(data: bytes) -> str:
