@@ -119,6 +119,11 @@ bug, lower-third + citation-chip templates, thumbnail/cover template, **a brand 
 (ADR 0017 D6), **+ a channel-styled
 animated engagement-CTA bump** — ADR 0005 D10) — so variety comes from *what the channel thinks*,
 not only which template it filled, and 50 videos read as one channel rather than a content farm.
+**Authoring a profile is a one-time, per-niche setup (the channel's standing identity); per-video
+production is fully unattended** — `00b` writes *from* these fields automatically, with **no
+per-short human input**. The only recurring human touch is the **temporary** publish-ramp approval
+(ADR 0004 D2), which ends before the unattended-DoD run; adding a *new* niche is again a one-time
+profile authoring, not a per-video chore.
 The CTA's second verb is the natural per-platform delta (`youtube`→Subscribe+bell,
 `tiktok`/`instagram`→Follow), drawn at a **seeded constrained-random mid-roll slot** (never the
 hook or outro) so placement varies without ever stepping on the moments that carry the video.
