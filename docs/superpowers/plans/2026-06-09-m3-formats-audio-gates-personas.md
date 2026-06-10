@@ -539,6 +539,8 @@ git add shared/audio/__init__.py shared/audio/music.py tests/fixtures/m3/music_i
 git commit -m "feat(m3): music taxonomy + deterministic anti-repeat selection (ADR 0005 D6/0009)"
 ```
 
+- [ ] **Step 5: Author the REAL per-niche music indexes (not just the fixture).** `select_track` reads `profiles/<niche>/music/index.json` at runtime (Stage 04, the profiles' `defaults.music_index`), but Task 5 so far only writes a *test fixture* — Stage 04 cannot run unattended without the real files. Create **`profiles/finance/music/index.json`** and **`profiles/business/music/index.json`** as **curated, license-verified** libraries: each entry `{id, mood, energy, path, license}` covering every `{mood}×{energy}` cell the niche's formats use, with **license verified per-platform** (YouTube Audio Library / TikTok Commercial Music Library / Pixabay Music — the ADR 0009 strike-safe rule, terms *verified not assumed*; Ch.9). Validate them against the same loader as the fixture (a `test_music_indexes_present_and_licensed` over both niches: every cell has ≥1 track, every track carries a `license`). This is a curated-**asset** task (the tracks are sourced at bring-up), but the index files + the coverage/license test ship in M3 so the niche is runnable. **Commit** (`feat(m3): curated per-niche strike-safe music indexes + coverage/license test (ADR 0009)`).
+
 ### Task 6: SFX cue mapping + per-platform LUFS
 
 ADR 0005 D6: transition-SFX layer (whoosh/tick/reveal) + per-platform LUFS.

@@ -1274,7 +1274,7 @@ def project_batch(timings: list[dict], *, n_videos: int, window_hours: float,
     return report
 ```
 
-- [ ] **Step 4: Add the on-box gate** — an `@pytest.mark.integration` test that loads the real `timing.jsonl` from a full real-backend batch run, calls `project_batch(..., raise_on_bust=True)`, and writes `runs/.metrics/throughput_report.json`. **M4 is not done until this passes on the box** (spec Ch.10 M4 gate).
+- [ ] **Step 4: Add the on-box gate** — an `@pytest.mark.integration` test that loads the real `timing.jsonl` from a full real-backend batch run, calls `project_batch(..., raise_on_bust=True)`, and writes `runs/.metrics/throughput_report.json`. **M4 is not done until this passes on the box** (spec Ch.10 M4 gate). **Prerequisite (cross-plan):** this gate consumes `timing.jsonl`, which only exists after **at least one full real-backend M1→M3 run on the box** (M1 `StageTimer` + M2 `compositor_mspf` + the M3 stages must all have executed for real at least once). So Step 4 cannot close until the M1–M3 stack runs end-to-end on the real hardware — list that run as the explicit predecessor, and define the **pass criterion**: `project_batch(...).fits is True` for `n_videos = batch.per_niche × niches` against `window_hours` (the report is the recorded artifact). The pure `project_batch` math (Steps 1–3) is CI-green without the box; only this reconciliation waits.
 
 ```python
 @pytest.mark.integration
