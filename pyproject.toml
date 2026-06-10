@@ -15,8 +15,14 @@ pythonpath = ["."]
 line-length = 100
 target-version = "py312"
 
-[tool.setuptools]
-packages = ["shared", "stages"]
+[tool.ruff.lint]
+select = ["E", "F", "I"]   # pycodestyle + pyflakes + isort (review-driven: make ruff functional in CI)
+
+[tool.setuptools.packages.find]
+# review-driven: auto-discover so shorts/ (M4) isn't silently skipped by a static list; tests excluded
+where = ["."]
+include = ["shared*", "stages*", "shorts*"]
+exclude = ["tests*"]
 
 [build-system]
 requires = ["setuptools>=68"]
