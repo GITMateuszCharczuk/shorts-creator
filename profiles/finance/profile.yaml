@@ -70,6 +70,24 @@ defaults:
   # YMYL guardrail the script must carry (05b enforces; the persona reinforces educational framing)
   disclaimer: "Educational only — not financial advice."
 
+  # the hard never-say list (05b rejects a script that trips any of these — a disclaimer is not a
+  # licence to give advice). This is what keeps the evidence-skeptic credible AND platform-safe.
+  prohibited_claims:
+    - "buy / sell / hold recommendations on a specific security"
+    - "price targets or 'this will hit $X' predictions"
+    - "guaranteed, risk-free, or 'can't lose' returns"
+    - "get-rich / double-your-money / passive-income framing"
+    - "second-person advice ('you should buy/sell ...')"
+    - "tax, legal, or personalised financial advice"
+
+  # ADR 0006 D7: in-voice opener archetypes 00b picks from — keeps hooks on-brand without a human
+  # writing tone per video. The hook states a tension; the body resolves it with the number.
+  hook_styles:
+    - "myth-flip:    'Everyone says X. The data says the opposite.'"
+    - "receipt:      'Here's the number nobody quotes — and what it costs you.'"
+    - "follow-money: 'Ask who profits from this advice. The answer explains everything.'"
+    - "boring-wins:  'The unglamorous option quietly beat the clever one again. Here's why.'"
+
   # ADR 0006 D8 / 0017 D5: rotatable closing follow-CTA phrases (FOMO, on-brand for the skeptic)
   end_card_phrases:
     - "Follow — we read the filings so you don't have to."
@@ -91,3 +109,11 @@ defaults:
   # the live topic per video comes from 00a's fresh data, not this list.
   keyword_themes: ["inflation", "interest rates", "index funds", "compounding", "fees",
                    "401(k)", "ETFs", "the Fed", "savings", "diversification"]
+
+  # where 00a looks for the day's fresh, sourceable angle (free/credible, no key required).
+  # The cited number must trace to one of these or a primary filing — never an anonymous blog.
+  topic_sources:
+    - "https://www.federalreserve.gov/feeds/press_all.xml"   # Fed press releases
+    - "https://www.bls.gov/feed/news_release/cpi.rss"        # CPI / inflation prints
+    - "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=&output=atom"  # EDGAR filings
+    - "https://home.treasury.gov/system/files/226/RSS-feed.xml"   # Treasury
