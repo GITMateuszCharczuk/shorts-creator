@@ -16,7 +16,10 @@ def _parse_semver(v: str) -> tuple[int, int, int]:
     parts = v.split(".")
     if len(parts) != 3:
         raise SchemaError(f"bad semver: {v!r}")
-    return tuple(int(p) for p in parts)  # type: ignore[return-value]
+    try:
+        return tuple(int(p) for p in parts)  # type: ignore[return-value]
+    except ValueError as e:  # non-numeric component, e.g. "1.0.0-rc1" — keep the error contract
+        raise SchemaError(f"bad semver: {v!r}") from e
 
 
 def version_compatible(*, schema: str, instance: str | None) -> bool:
@@ -51,13 +54,20 @@ class SchemaRegistry:
         return self._cache[name]
 
     def validate(self, name: str, instance: dict[str, Any]) -> None:
+        # a non-dict instance -> clean SchemaError, not a raw AttributeError on .get()
+        if not isinstance(instance, dict):
+            raise SchemaError(
+                f"{name} instance must be a JSON object, got {type(instance).__name__}")
         schema = self.schema(name)
         version_compatible(
             schema=schema.get("schema_version", "0.0.0"),
             instance=instance.get("schema_version"),
         )
-        errors = sorted(Draft202012Validator(schema).iter_errors(instance),
-                        key=lambda e: e.json_path)
+        try:
+            errors = sorted(Draft202012Validator(schema).iter_errors(instance),
+                            key=lambda e: e.json_path)
+        except Exception as e:  # a malformed schema file -> surface as SchemaError, not a raw crash
+            raise SchemaError(f"{name} schema is malformed: {e}") from e
         if errors:
             msgs = "; ".join(f"{list(e.path)}: {e.message}" for e in errors)
             raise SchemaError(f"{name} instance invalid: {msgs}")
