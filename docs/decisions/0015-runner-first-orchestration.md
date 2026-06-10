@@ -116,7 +116,9 @@ nightly batch.
 
 - The runner's concurrency implementation (process pool vs asyncio) — decide in M4 against the
   timing metrics.
-- The shared image's base + size budget; whether CI also smoke-runs the Argo profile's template
-  generation (post-PoC).
+- The shared image's base + size budget. ~~Whether CI also smoke-runs the Argo profile~~ —
+  **resolved by [ADR 0015a](0015a-kubernetes-argo-deployment-profile.md)** (the full profile
+  design: variants A/B/C, the template generator + regenerate-and-diff check, the
+  `DATA_ROOT`-relative path contract, and the `make k8s-smoke` golden-DAG test; optional M7).
 - `scripts/up.sh`/`Makefile` rewrite lands with M4 (the cluster targets are marked deferred until
   then).

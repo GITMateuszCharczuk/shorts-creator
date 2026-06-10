@@ -48,8 +48,8 @@ host-llm-up:       ## start the LLM endpoint (Ollama) if not already serving
 host-up: host-comfyui-up host-llm-up ## start the full host GPU+LLM plane
 
 ## ---- control plane (runner-first — ADR 0015; cluster targets are the DEFERRED k8s profile) ----
-cluster-up: ## [deferred profile] kind cluster + Argo + the host-backed PVC
-	@echo "deferred (ADR 0015): the PoC needs no cluster — the Python conductor orchestrates (make trigger)"; exit 1
+cluster-up: ## [deferred profile] kind cluster + the k8s profile (designed in ADR 0015a; built in M7)
+	@echo "deferred (ADR 0015/0015a): the PoC needs no cluster — the Python conductor orchestrates (make trigger); the k8s profile is optional M7"; exit 1
 build:      ## build the single shared image (the CI-proven deployable artifact, ADR 0015)
 	@echo "M4: docker build the shared image (entrypoint selects stage/runner)"; exit 1
 wire:       ## verify the conductor reaches host ComfyUI/LLM over localhost (ADR 0015)

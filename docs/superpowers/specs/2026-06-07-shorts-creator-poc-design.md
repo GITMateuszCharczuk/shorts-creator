@@ -157,7 +157,12 @@ The system splits into **two planes** (ADR 0001). The full diagrams are in
 image** (whole repo; entrypoint selects a stage or the runner) is continuously proven by running
 the offline DAG inside it — so "production-deployable" is a tested property. The deferred Argo
 profile (`deploy/argo/`, post-PoC, if multi-box scale demands it) wraps the same manifests in dumb
-one-line templates; choreography never lives in YAML.
+one-line templates; choreography never lives in YAML. **The full profile is designed in
+[ADR 0015a](../../decisions/0015a-kubernetes-argo-deployment-profile.md)** — a three-rung ladder
+(conductor-as-CronJob → Argo per-stage fan-out → everything-in-cluster incl. the GPU via the
+device plugin, rational only on a dedicated Linux GPU node) with the `DATA_ROOT`-relative path
+contract, the manifest→template generator, and a kind smoke test; building it is optional
+milestone **M7**.
 
 **Why this shape:** removes the #1 technical risk (GPU-in-kind) *and* the #2 operational risk
 (an untested YAML control plane on kind+WSL2 guarding a 2-week unattended run); the conductor's
@@ -666,6 +671,7 @@ not land within the PoC, and the DoD does not depend on it.
 | **M4** | **Conductor hardening + ops (ADR 0015):** runner concurrency (**stage-batching + the visual∥audio lane-fork & per-video CPU fan-out**, ADR 0011, behind the timing metric), retries/timeouts/per-video failure domains as **tested code**, never-co-resident enforced by the conductor's stage ordering + a VRAM-free check, **both entry points** (the **WSL2 systemd timer** scheduled / `scripts/trigger.sh` manual; a **run lockfile** replaces `concurrencyPolicy: Forbid`), the **one-command `scripts/up.sh` lifecycle** (host GPU + Ollama + conductor — no cluster; idempotent + health-gated) + `down.sh`, the **CI-built shared image** (the production-deployable artifact, proven by running the offline DAG inside it), the phased daily batch. **Gate:** the **end-to-end throughput reconciliation on the real box** (open #9) must confirm a full batch fits its overnight window *before M4 is done* — the unattended DoD rests on this single number, which has been deferred across ADRs 0005–0008 and must not trail into M6. |
 | **M5** | Account-safety gate (`05b`) + distribution (`06`, per-platform adapters + the `posts.jsonl` exactly-once ledger) to YouTube + TikTok; private-first **plus ≥1 public** (YouTube-led; TikTok public audit-gated, ADR 0009); disclosure on; **account provisioning + warming** then the **human-at-publish ramp** (every approve/reject **captured into `feature_record` as the judge-calibration label set** — ADR 0016 D2); the **OAuth app moved to Production status + token-age in the credential pre-flight** (ADR 0009 #10 — Testing-status refresh tokens expire every 7 days and would kill the unattended run); affiliate fields wired (can ship disabled); platform audits submitted in parallel. |
 | **M6** | Hardening + alerts/GC/credential pre-flight wired, then the **1–2 week unattended run** (post-ramp) that satisfies the Chapter 1 definition of done. |
+| **M7** *(optional)* | **The Kubernetes profile (ADR 0015a):** Variant A (conductor-as-`CronJob` on kind) + the `deploy/k8s` base (PVC=`DATA_ROOT`, `host-gpu` Service/Endpoints, Secrets) + the **manifest→WorkflowTemplate generator** with its regenerate-and-diff CI check + Variant B (Argo per-stage fan-out) + the **`make k8s-smoke`** golden-DAG-on-kind test. Variant C (GPU-in-cluster via device plugin/GPU Operator) stays design-only until a dedicated Linux GPU node exists. **Gate:** the golden offline DAG runs green through A *and* B on kind. |
 
 **Decided since (the runtime review → ADR 0003 / 0004):** Stage 6 exactly-once
 (posted-state ledger); host GPU lease + confirm-evicted gate + `Forbid` concurrency; host
@@ -774,7 +780,10 @@ endpoint. Plus three operational corrections: the **PoC lane-mix default flips r
 (ADR 0006 D2 — the ~60% monetization tilt waits for TikTok-audit + YPP eligibility);
 **FRED/stooq for daily series, Alpha Vantage quotes-only** (ADR 0009 #8); the **OAuth app moves to
 Production status + token-age pre-flight** (ADR 0009 #10 — Testing-status tokens expire at 7 days,
-mid-endurance-run).
+mid-endurance-run). **The Kubernetes profile is fully designed (ADR 0015a):** a three-rung
+adoption ladder (CronJob conductor → Argo fan-out → GPU-in-cluster on a dedicated Linux node),
+generated-not-hand-written templates, the `DATA_ROOT`-relative path contract, and a kind smoke
+test — buildable as optional **M7** without touching stage semantics.
 
 **Still open (tracked):**
 
