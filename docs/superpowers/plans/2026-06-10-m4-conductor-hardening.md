@@ -16,13 +16,15 @@
 - **Lockfile** at `DATA_ROOT/.run/batch.lock` containing the holder pid; a lock whose pid is dead is **stale and taken over** (a crash must not wedge tomorrow's batch).
 - **Overnight window default = 8h** (config `batch.window_hours`); the throughput gate projects against it.
 - **Image base**: `python:3.12-slim` + `ffmpeg`. The Remotion/Node layer is a **separate build stage** excluded from the CI gate (the offline DAG runs with fakes; the render path is integration) — noted honestly, not hidden.
+- **Batch size is the cadence-ramp knob**: config `batch.per_niche`, **default 1** (the ADR 0014 D2 low-start posture — "the phased daily batch"); raising it toward 2 is the ramp, gated on the original-insight track record.
+- **Systemic-vs-per-video failure classification (ADR 0003 D4)**: ≥3 *consecutive* `failed` outcomes across videos within one stage = a host-down pattern → the batch **halts** (`SystemicFailure`) instead of quarantining N videos.
 
 ---
 
 ## File Structure
 
 ```
-schemas/batch.schema.json              # NEW: batch_id, lane mix used, videos[] {id,niche,format,lane,topic,seed,status}
+schemas/batch.schema.json              # NEW: batch_id, lane mix used, videos[] {video_id,niche,format,lane,topic,seed,status}
 shorts/                                # NEW package: the CLIs (ADR 0015 / 0015a entrypoints)
   __init__.py
   stage.py                             # python -m shorts.stage <id> --run-dir … (per-stage subprocess entrypoint)
@@ -386,6 +388,9 @@ def main() -> int:
     run_dir = Path(a.run_dir)
     job = json.loads((run_dir / "job.json").read_text())
     cfg = json.loads(a.config)
+    for key in ("input_paths", "output_paths"):
+        if key not in cfg:                       # fail loud, not KeyError-deep (the stage_cmd contract)
+            p.error(f"--config JSON must contain {key!r} (shape: shared/conductor/subproc.stage_cmd)")
     ctx = StageContext(stage=a.stage_id, run_dir=run_dir, seed=a.seed, job=job,
                       config=cfg.get("stage_config", {}),
                       input_paths=cfg["input_paths"], output_paths=cfg["output_paths"],
@@ -407,7 +412,7 @@ def _build_backends(cfg: dict):
         be = FixtureBackend(fixtures_dir=Path(cfg["fixtures_dir"]))
         caps = ["llm", "generate_image", "img2vid", "tts", "vlm_judge", "restore"]
         return {**{c: be for c in caps}, "distribution": FixtureDistributionAdapter()}
-    from shared.config import resolve_config  # real wiring resolved per-stage (ADR 0010 D5)
+    # real wiring resolves per-stage via shared.config.resolve_config (ADR 0010 D5)
     raise NotImplementedError("real-backend wiring lands at host bring-up; CI uses backends=fake")
 
 
@@ -461,20 +466,28 @@ class StageOutcome:
 
 
 def stage_cmd(stage_id: str, *, run_dir: str, seed: int, config_json: str) -> list[str]:
+    """config_json contract (enforced by shorts/stage.py): {"input_paths": {...},
+    "output_paths": {...}, "stage_config": {...}, "backends": "fake"|"real",
+    "fixtures_dir": "..."} — input_paths/output_paths are REQUIRED."""
     return [sys.executable, "-m", "shorts.stage", stage_id,
             "--run-dir", run_dir, "--seed", str(seed), "--config", config_json]
 
 
 def run_stage_subprocess(*, cmd: list[str], timeout_s: float) -> StageOutcome:
-    """Real per-stage timeout + crash isolation (ADR 0015 D6): a hung/segfaulting stage is
-    killed and reported, never wedging the batch."""
+    """Real per-stage timeout + crash isolation (ADR 0015 D6). `start_new_session` puts the
+    stage in its OWN process group so a timeout kills its ffmpeg/helper grandchildren too —
+    a leaked GPU helper would silently violate never-co-resident."""
+    import os
+    import signal
     t0 = time.perf_counter()
+    proc = subprocess.Popen(cmd, start_new_session=True)
     try:
-        proc = subprocess.run(cmd, timeout=timeout_s)
-        return StageOutcome(status=status_for_exit(proc.returncode),
-                            exit_code=proc.returncode,
+        code = proc.wait(timeout=timeout_s)
+        return StageOutcome(status=status_for_exit(code), exit_code=code,
                             elapsed_s=round(time.perf_counter() - t0, 3))
     except subprocess.TimeoutExpired:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)   # the whole process GROUP
+        proc.wait()
         return StageOutcome(status="failed", exit_code=-1,
                             elapsed_s=round(time.perf_counter() - t0, 3), timed_out=True)
 ```
@@ -653,6 +666,26 @@ def test_failed_stage_fails_only_that_video():
     script = {("b", "02"): StageOutcome("failed", 1, 0.1)}
     result = execute_batch(batch, stage_order=["00a", "00b", "02"], run_stage=_runner(script))
     assert result == {"a": "done", "b": "failed"}
+
+
+def test_statuses_are_written_through_and_persisted():
+    # the boot reconciler reads batch.json — statuses MUST be flushed, not just returned
+    batch = {"videos": [{"video_id": "a", "status": "pending"}]}
+    flushes = []
+    execute_batch(batch, stage_order=["00a"], run_stage=_runner({}),
+                  persist=lambda b: flushes.append(True))
+    assert batch["videos"][0]["status"] == "done"     # mutated in place
+    assert flushes                                     # and persisted
+
+
+def test_circuit_breaker_halts_on_consecutive_failures():
+    import pytest
+    from shared.conductor.executor import SystemicFailure
+    batch = {"videos": [{"video_id": v, "status": "pending"} for v in ("a", "b", "c")]}
+    script = {(v, "00a"): StageOutcome("failed", 1, 0.1) for v in ("a", "b", "c")}
+    with pytest.raises(SystemicFailure):              # host-down pattern, not 3x bad luck
+        execute_batch(batch, stage_order=["00a", "00b"], run_stage=_runner(script),
+                      max_consecutive_failures=3)
 ```
 
 - [ ] **Step 2: Run** → FAIL.
@@ -668,26 +701,63 @@ VISUAL_LANE = ["01a", "01b", "01c", "01d", "01e"]
 AUDIO_LANE = ["02", "03", "04"]
 
 
+class SystemicFailure(Exception):
+    """Consecutive failures across videos within ONE stage — the host-down pattern, not
+    per-video bad luck (ADR 0003 D4): halt the batch instead of failing N videos."""
+
+
 def execute_batch(batch: dict, *, stage_order: list[str],
-                  run_stage: Callable[[str, str], StageOutcome]) -> dict[str, str]:
-    """Stage-batched execution with per-video failure domains: a video that quarantines/fails
-    drops out of subsequent stages; the rest of the batch continues (ADR 0003)."""
-    state = {v["video_id"]: "pending" for v in batch["videos"]}
+                  run_stage: Callable[[str, str], StageOutcome],
+                  persist: Callable[[dict], None] | None = None,
+                  max_consecutive_failures: int = 3) -> dict[str, str]:
+    """Stage-batched execution (stage-major = GPU-swap-minimizing, ADR 0011) with per-video
+    failure domains. Statuses are WRITTEN THROUGH to the batch dict and flushed via `persist`
+    after every change — the boot reconciler (ADR 0003 D9) reads batch.json, so an unpersisted
+    status would re-run quarantined videos after a reboot."""
+    videos = {v["video_id"]: v for v in batch["videos"]}
+    for v in videos.values():
+        if v["status"] == "pending":
+            v["status"] = "running"
+    if persist:
+        persist(batch)
     for stage_id in stage_order:
-        for vid, st in state.items():
-            if st in ("quarantined", "failed"):
+        consecutive_failed = 0
+        for vid, v in videos.items():
+            if v["status"] in ("quarantined", "failed"):
                 continue                            # the video's domain is closed
             out = run_stage(vid, stage_id)
+            if out.status == "failed":
+                consecutive_failed += 1
+                if consecutive_failed >= max_consecutive_failures:
+                    v["status"] = "failed"
+                    if persist:
+                        persist(batch)
+                    raise SystemicFailure(
+                        f"{consecutive_failed} consecutive failures at stage {stage_id} — "
+                        f"halting the batch (host-down pattern, ADR 0003 D4)")
+            else:
+                consecutive_failed = 0              # interleaved success = per-video, not systemic
             if out.status != "done":
-                state[vid] = out.status
-    return {vid: ("done" if st == "pending" else st) for vid, st in state.items()}
+                v["status"] = out.status
+                if persist:
+                    persist(batch)
+    for v in videos.values():
+        if v["status"] == "running":
+            v["status"] = "done"
+    if persist:
+        persist(batch)
+    return {vid: v["status"] for vid, v in videos.items()}
 ```
 
 > Lane-fork note (ADR 0011, behind the timing metric): when `concurrency.lanes` is enabled in
 > config, the conductor runs `VISUAL_LANE` and `AUDIO_LANE` in two `ThreadPoolExecutor` workers
 > per video between `00b` and `05` — each worker calling this same `run_stage` (subprocesses do
-> the work; GPU stages serialize on `GPU_LOCK`). The serial path above is the default until the
-> M1 timing baseline justifies the fork; both paths share the per-video-domain rule.
+> the work; GPU stages serialize on `GPU_LOCK`). **Per-video CPU fan-out** (the spec M4 row's
+> second ADR 0011 lever) uses the same pool: within a CPU stage, the inner video loop submits
+> subprocesses concurrently (`concurrency.fanout: N`); GPU stages are exempt (the lock). Both
+> levers default OFF until the M1 timing baseline justifies them; all paths share the
+> per-video-domain + write-through rules. The conductor calls `confirm_vram` (Task 7) before
+> each GPU stage's video sweep — the confirm-evicted gate (ADR 0015 D5).
 
 - [ ] **Step 4: Run** → PASS (2). **Commit.**
 
@@ -726,6 +796,13 @@ def test_stale_lock_is_taken_over(tmp_path):
     lock.write_text("999999999")                  # a pid that cannot exist
     acquire_lock(lock)                            # no raise: stale -> takeover
     assert lock.read_text() == str(os.getpid())
+
+
+def test_unparseable_lock_is_treated_as_held(tmp_path):
+    lock = tmp_path / "batch.lock"
+    lock.write_text("")                           # a holder mid-write (TOCTOU window)
+    with pytest.raises(LockHeld):
+        acquire_lock(lock)                        # conservatively held, never stolen
 ```
 
 - [ ] **Step 2: Run** → FAIL.
@@ -754,10 +831,15 @@ def acquire_lock(path: Path) -> None:
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
         holder = path.read_text().strip()
-        if holder.isdigit() and _pid_alive(int(holder)):
-            raise LockHeld(f"batch already running (pid {holder})")
-        path.unlink()                              # stale: holder died — take over
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        # Unparseable/empty content = a holder mid-write (the create->write window) —
+        # conservatively HELD, never stolen (TOCTOU guard).
+        if not holder.isdigit() or _pid_alive(int(holder)):
+            raise LockHeld(f"batch already running (lock holder: {holder or 'acquiring'})")
+        path.unlink()                              # stale: holder pid is dead — take over
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            raise LockHeld("lost the stale-lock takeover race")
     os.write(fd, str(os.getpid()).encode())
     os.close(fd)
 
@@ -840,6 +922,16 @@ def test_pluggable_checks_run_in_order(tmp_path):
     calls = []
     run_preflight([lambda: calls.append("a"), lambda: calls.append("b")])
     assert calls == ["a", "b"]                    # OAuth token-age slots in here at M5
+
+
+def test_host_health_gate_fails_on_unhealthy_service():
+    from shared.conductor.preflight import host_health_gate
+    healthy = {"http://h:8188/system_stats": 200, "http://h:11434/api/version": 200}
+    host_health_gate(comfy_url="http://h:8188", ollama_url="http://h:11434",
+                     get=lambda u: healthy[u])    # no raise
+    with pytest.raises(PreflightFailure):
+        host_health_gate(comfy_url="http://h:8188", ollama_url="http://h:11434",
+                         get=lambda u: 503)       # fail fast — no retry-storm (ADR 0003 D2)
 ```
 
 ```python
@@ -876,6 +968,17 @@ def free_space_gate(data_root: Path, *, min_free_gb: float = 80.0) -> None:
     if free_gb < min_free_gb:
         raise PreflightFailure(f"{free_gb:.0f} GB free < {min_free_gb} GB minimum "
                                f"(frames peak ~10 GB/cut — ADR re-review)")
+
+
+def host_health_gate(*, comfy_url: str, ollama_url: str, get: Callable[[str], int] | None = None) -> None:
+    """ADR 0003 D2 / spec Ch.8: the conductor GATES fan-out on host health — an unhealthy host
+    fails the batch loudly at the start, never as N per-video retry-storms mid-run."""
+    if get is None:
+        import httpx
+        get = lambda u: httpx.get(u, timeout=10).status_code   # noqa: E731
+    for url in (f"{comfy_url}/system_stats", f"{ollama_url}/api/version"):
+        if get(url) != 200:
+            raise PreflightFailure(f"host service unhealthy: {url}")
 
 
 def run_preflight(checks: list[Callable[[], None]]) -> None:
@@ -918,6 +1021,7 @@ git commit -m "feat(m4): pre-flight gates + idempotent fan-in ledger commit (ADR
 # deploy/host/shorts-batch.service
 [Unit]
 Description=shorts-creator nightly batch (the conductor, ADR 0015)
+Wants=network-online.target
 After=network-online.target
 
 [Service]
@@ -943,7 +1047,16 @@ WantedBy=timers.target
 
 - [ ] **Step 2: Write `deploy/host/power-policy.md`** — the ADR 0015 D3 checklist as a numbered ops doc: (1) `powercfg /change standby-timeout-ac 0` (sleep off on AC); (2) Windows Update active hours set to cover 01:00–06:00 *exclusion*; (3) the Task Scheduler `wsl`-at-logon keep-alive (ADR 0013); (4) verify `systemctl is-enabled shorts-batch.timer` inside the distro; (5) `TimeoutStartSec=10h` is the batch watchdog — a hung conductor is killed, the lockfile goes stale, the next run takes over.
 
-- [ ] **Step 3: Rewrite `scripts/up.sh`** — host services only, health-gated, idempotent: start ComfyUI (pidfile) → `curl :8188/system_stats` until healthy → start Ollama → `curl :11434/api/version` → model present (`ollama list`) → run `python -m shorts.run_batch --preflight-only` as the wire check. `down.sh`: stop by pidfile (unchanged pattern), no cluster branch. `Makefile`: `wire:` body becomes the two curls; `test:` stays `uv run pytest -q -m "not integration"`.
+- [ ] **Step 3: Rewrite `scripts/up.sh`** — host services only, health-gated, idempotent: start ComfyUI (pidfile) → `curl :8188/system_stats` until healthy → start Ollama → `curl :11434/api/version` → model present (`ollama list`) → run `python -m shorts.run_batch --preflight-only` as the wire check. `down.sh`: stop by pidfile (unchanged pattern), no cluster branch. **Rewrite `scripts/trigger.sh`** (the spec's manual entry point — same conductor as the timer):
+
+```bash
+#!/usr/bin/env bash
+# manual batch trigger — byte-identical to the timer's path (ADR 0015 D3)
+set -euo pipefail
+exec "${VENV:-/srv/shorts-creator/.venv}/bin/python" -m shorts.run_batch "$@"
+```
+
+`Makefile`: `wire:` body becomes the two curls; `trigger:` keeps calling `scripts/trigger.sh`; `test:` stays `uv run pytest -q -m "not integration"`.
 
 - [ ] **Step 4: Validate** — `systemd-analyze verify deploy/host/shorts-batch.service` (integration, on the distro); `bash -n scripts/up.sh scripts/down.sh` in CI.
 
@@ -982,6 +1095,11 @@ CMD ["shorts.run_batch"]
 # NOTE (honest scope): the Remotion/Node render layer is NOT in this image — the CI gate runs
 # the offline DAG with fakes (render is integration). A `render` build stage is added when the
 # k8s profile (0015a M7) needs in-cluster rendering.
+
+# The CI-proof stage (ADR 0015 D2): dev deps + tests, used by `make build` and the workflow.
+FROM base AS ci
+RUN uv pip install --system pytest jsonschema numpy pillow soundfile
+COPY tests/ tests/
 ```
 
 - [ ] **Step 2: Write `.github/workflows/image.yml`**
@@ -997,15 +1115,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build the shared image
-        run: docker build -t shorts-creator:ci .
+      - name: Build the shared image (ci stage = base + dev deps + tests)
+        run: docker build --target ci -t shorts-creator:ci .
       - name: Prove it — run the offline DAG inside the image (ADR 0015 D2)
         run: |
           docker run --rm --entrypoint python shorts-creator:ci \
             -m pytest tests/test_full_dag_offline.py -q
 ```
-
-(The image build also copies `tests/` for this gate — add `COPY tests/ tests/` and dev deps `uv pip install --system pytest jsonschema numpy pillow soundfile` to a `ci` build stage: `FROM base AS ci` + those lines; the workflow builds `--target ci`.)
 
 - [ ] **Step 3: Wire `make build`** → `docker build --target ci -t shorts-creator:ci .`
 - [ ] **Step 4: Run locally** → `make build && docker run --rm --entrypoint python shorts-creator:ci -m pytest tests/test_full_dag_offline.py -q` → PASS.
@@ -1074,10 +1190,12 @@ def batch_flow(*, lock_path: Path, data_root: Path, preflight, plan, execute, co
 
 
 def main() -> int:
-    # Production wiring: DATA_ROOT from env; preflight=[free_space_gate]; plan=resume_plan-or-
-    # plan_batch (Task 10 note); execute=execute_batch over run_stage_subprocess+retries with
-    # StageTimer per stage; commit=commit_ledgers(novelty + feature_record); backup=one rsync of
-    # history/*.jsonl + credentials (spec Ch.8). Each collaborator is the tested unit above.
+    # Production wiring: DATA_ROOT from env; preflight=[free_space_gate, host_health_gate]
+    # (ADR 0003 D2/D8); plan=resume_plan-or-plan_batch with per_niche from config (the ADR 0014
+    # D2 ramp knob, default 1); execute=execute_batch over run_stage_subprocess+retries with
+    # StageTimer per stage and persist=write batch.json (temp+rename); commit=commit_ledgers
+    # (novelty + feature_record); backup=one rsync of history/*.jsonl + credentials (spec Ch.8).
+    # Each collaborator is the tested unit above.
     raise SystemExit(0)
 
 
@@ -1173,10 +1291,10 @@ git commit -m "feat(m4): the M4 gate — overnight throughput reconciliation (op
 ## M4 Acceptance Checklist (the testable "done")
 
 - [ ] `plan_batch` produces a schema-valid, **seed-deterministic** `batch.json` honoring the lane mix (PoC default 80/20), format lane-compat + anti-repeat, and topic reservation → Tasks 2–4.
-- [ ] Stages run as **subprocesses** with real timeouts; exit codes map to statuses; **quarantine is never retried**; a failing video closes only **its own domain** → Tasks 1, 5, 6, 8.
+- [ ] Stages run as **subprocesses in their own process group** (timeout kills grandchildren); exit codes map to statuses; **quarantine is never retried**; a failing video closes only **its own domain**; statuses are **written through + persisted**; **≥3 consecutive failures in one stage halt the batch** (the ADR 0003 D4 systemic classification); the **host-health gate** runs before fan-out → Tasks 1, 5, 6, 8, 11.
 - [ ] **Never-co-resident** is conductor-enforced (GPU lock + the VRAM confirm-evicted gate) → Task 7.
 - [ ] A second trigger is rejected by the **lockfile** (stale locks taken over); a reboot **resumes** the interrupted batch; pre-flight gates run before fan-out; the **fan-in ledger commit is idempotent** → Tasks 9–11, 14.
-- [ ] The **systemd timer** fires the batch in WSL2 (`Persistent=true`); the **power-policy doc** exists; `up.sh`/`down.sh` are cluster-free and health-gated → Task 12.
+- [ ] The **systemd timer** fires the batch in WSL2 (`Persistent=true`) and **`scripts/trigger.sh`** is the byte-identical manual entry point; the **power-policy doc** exists; `up.sh`/`down.sh` are cluster-free and health-gated; **`batch.per_niche` (default 1) is the cadence-ramp knob** (ADR 0014 D2, "the phased daily batch") → Task 12 + the decisions header.
 - [ ] The **shared image builds in CI and the offline DAG passes inside it** → Task 13.
 - [ ] **The M4 gate:** `project_batch` over a real on-box batch fits the overnight window, report persisted → Task 15.
 
@@ -1184,7 +1302,7 @@ git commit -m "feat(m4): the M4 gate — overnight throughput reconciliation (op
 
 ## Self-Review
 
-**Spec coverage (ADR 0015 D6 + spec Ch.10 M4 row):** batch planner + lane mix + rotation + topic reservation → A (T2–T4, ADR 0006 D2/0002/0003 D5); subprocess-per-stage + timeouts + exit protocol → B (T1, T5); retries (quarantine-final) + per-video domains → T6/T8; never-co-resident + VRAM gate → T7 (ADR 0015 D5); lane-fork seam behind the timing metric → T8 note (ADR 0011); lockfile + systemd timer + boot reconciler + power policy → C (T9/T10/T12, ADR 0015 D3 / 0003 D9); pre-flight + fan-in ledger commit + backups → T11/T14 (ADR 0003 D6/D8, spec Ch.8); the shared image CI-proven → D (T13, ADR 0015 D2); the throughput gate → E (T15, open #9). OAuth token-age pre-flight is **M5** (the check framework is here, T11; noted). The 0015a k8s profile is **M7** (T5's CLI is its entrypoint; noted).
+**Spec coverage (ADR 0015 D6 + spec Ch.10 M4 row):** batch planner + lane mix + rotation + topic reservation → A (T2–T4, ADR 0006 D2/0002/0003 D5); subprocess-per-stage (process-group kill) + timeouts + exit protocol → B (T1, T5); retries (quarantine-final) + per-video domains + **status write-through** + the **systemic circuit breaker** (ADR 0003 D4) → T6/T8; never-co-resident + VRAM gate → T7 (ADR 0015 D5); lane-fork **and per-video CPU fan-out** seams behind the timing metric → T8 note (ADR 0011); lockfile + systemd timer + **`trigger.sh`** + boot reconciler + power policy + **the `per_niche` ramp knob** (ADR 0014 D2) → C (T9/T10/T12, ADR 0015 D3 / 0003 D9); pre-flight (**free-space + host-health gate**, ADR 0003 D2/D8) + fan-in ledger commit + backups → T11/T14 (ADR 0003 D6, spec Ch.8); the shared image CI-proven → D (T13, ADR 0015 D2); the throughput gate → E (T15, open #9). OAuth token-age pre-flight is **M5** (the check framework is here, T11; noted). The 0015a k8s profile is **M7** (T5's CLI is its entrypoint; noted).
 
 **Placeholder scan:** the two `raise NotImplementedError`/stub bodies (`_build_backends` real wiring, `run_batch.main` production wiring) are documented bring-up seams whose tested pure collaborators are all implemented here (`batch_flow`, the planner, the executor) — consistent with the M1–M3 seam discipline. No "TBD"/"add error handling".
 
