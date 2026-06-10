@@ -481,10 +481,16 @@ class ComfyUIBackend:
     def _await_output(self, prompt_id):
         raise NotImplementedError("poll /history wired at host bring-up")
     # llm/tts/vlm_judge not provided by ComfyUI
-    def llm(self, prompt): raise NotImplementedError
+    def llm(self, prompt, seed=None): raise NotImplementedError
     def tts(self, text): raise NotImplementedError
     def vlm_judge(self, frames, script): raise NotImplementedError
 ```
+
+> **Path contract (ADR 0015 D4):** everything — the runner, the stages, ComfyUI, Ollama — runs in
+> the same WSL2 filesystem rooted at **`DATA_ROOT`**, and **ComfyUI's output directory is
+> configured to a path under `DATA_ROOT`** at host bring-up. `_await_output` therefore returns a
+> directly-addressable path; there is **no host↔pod path translation step** (the kind-era gap this
+> closes).
 
 - [ ] **Step 4: Implement the three thin stages.** Each reads its input scenes, calls the backend per beat needing fill, and writes its output; the cache key uses `model_id + graph_version`. Example `stages/s01b_imagegen/stage.py`:
 

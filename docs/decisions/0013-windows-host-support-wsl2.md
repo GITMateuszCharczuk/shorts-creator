@@ -8,6 +8,10 @@
 - **Touches:** ARCHITECTURE §6 (host wiring) + §8 (run); spec Ch.8 (operations); `scripts/`.
 - **Origin:** the developer runs Windows; the requirement is "runnable on Windows," with the kube
   containers staying Linux. A feasibility + performance check decided the topology.
+- **Extended by [ADR 0015](0015-runner-first-orchestration.md):** the control plane inside the
+  WSL2 distro is now the **Python runner under a systemd timer** — kind/Argo are a deferred
+  deployment profile — which shrinks this ADR's residual risk surface (no Docker/kind lifecycle to
+  keep alive under Windows Update); the driver/toolchain/ext4 rules here are unchanged.
 
 ## Context
 

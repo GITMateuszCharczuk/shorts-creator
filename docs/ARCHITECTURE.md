@@ -1,5 +1,15 @@
 # Runtime Architecture — the locked blueprint
 
+> **⚠ Control-plane update ([ADR 0015](decisions/0015-runner-first-orchestration.md), 2026-06-10):**
+> the **executor** described below (kind + Argo Workflows, stage pods, PVC, the cluster↔host
+> gateway) is **superseded** — the production orchestrator is the **Python conductor** (stage
+> manifests → DAG/cache/status/retries) under a WSL2 systemd timer, on **one filesystem
+> (`DATA_ROOT`)**; kind/Argo survives only as a **deferred deployment profile** backed by a
+> CI-built shared image. The **two-plane separation** (host GPU processes ↔ CPU stages over
+> HTTP), the storage layout, VRAM choreography, and stage decomposition below **remain
+> authoritative**. Gate-integrity changes (independent judge, script-time floor, per-cut
+> coverage) are in [ADR 0016](decisions/0016-quality-gate-integrity.md).
+
 > **Status:** Accepted design, pre-implementation. This is the authoritative description of
 > the **runtime topology** and the **repository layout**. It implements **[ADR
 > 0001](decisions/0001-lightened-runtime-architecture.md)** and resolves the open runtime

@@ -1,7 +1,7 @@
 # shorts-creator — convenience entrypoints.
 #
 # One-command lifecycle:
-#   make up        # turn the whole system on  (host GPU + Ollama + kind/Argo)  -> scripts/up.sh
+#   make up        # turn the whole system on (host GPU + Ollama + conductor — ADR 0015) -> scripts/up.sh
 #   make trigger   # run a batch now (manual)                                   -> scripts/trigger.sh
 #   make down      # stop the system (host-backed data persists)               -> scripts/down.sh
 #
@@ -47,13 +47,13 @@ host-llm-up:       ## start the LLM endpoint (Ollama) if not already serving
 	@echo "M0: start Ollama / llama.cpp (see host/llm/)"; exit 1
 host-up: host-comfyui-up host-llm-up ## start the full host GPU+LLM plane
 
-## ---- control plane (M0 wires these) ----
-cluster-up: ## kind cluster + Argo + the host-backed PVC (no GPU device-plugin)
-	@echo "M0: kind create cluster --name $(KIND_CLUSTER) (deploy/kind) + argo install (deploy/argo) + PVC (deploy/storage)"; exit 1
-build:      ## build stage images and kind-load them
-	@echo "M0: build stages/* images + kind load"; exit 1
-wire:       ## verify a pod can reach host ComfyUI/LLM over the gateway (ADR 0001)
-	@echo "M0: run a pod that curls ComfyUI /system_stats + Ollama /api/version"; exit 1
+## ---- control plane (runner-first — ADR 0015; cluster targets are the DEFERRED k8s profile) ----
+cluster-up: ## [deferred profile] kind cluster + Argo + the host-backed PVC
+	@echo "deferred (ADR 0015): the PoC needs no cluster — the Python conductor orchestrates (make trigger)"; exit 1
+build:      ## build the single shared image (the CI-proven deployable artifact, ADR 0015)
+	@echo "M4: docker build the shared image (entrypoint selects stage/runner)"; exit 1
+wire:       ## verify the conductor reaches host ComfyUI/LLM over localhost (ADR 0015)
+	@echo "M0: curl ComfyUI /system_stats + Ollama /api/version from the WSL2 distro"; exit 1
 
 ## ---- runs ----
 submit-batch: ## scheduled-equivalent batch submit (CronWorkflow uses the same template)

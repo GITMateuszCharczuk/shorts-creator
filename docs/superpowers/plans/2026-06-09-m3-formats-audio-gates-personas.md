@@ -13,7 +13,9 @@
 - **Music taxonomy is a closed `{mood} × {energy}` enum** mapped to a per-niche curated library file (`profiles/<niche>/music/index.json`); selection is deterministic given `(mood, energy, seed)` with **batch anti-repeat** via the existing ledger pattern.
 - **Per-platform LUFS targets:** YouTube **-14 LUFS**, TikTok **-14 LUFS** integrated, true-peak **-1 dBTP** (config-overridable).
 - **VLM keyframe sample set:** hook frame (frame 0), end-card frame (last), and the manifest `markers` frames (cta_bump / format-specific) + one mid-frame per scene — capped at **8 frames** for VRAM.
-- **`05c` quality floor = 0.70** (overall, config); the rubric is **5 criteria** (hook, original-insight, visual↔script coherence, pacing, payoff), original-insight weighted **0.30** (ADR 0014 D1).
+- **`05c` quality floor = 0.70** (overall, config; **re-anchored against the ramp's approve/reject labels** — ADR 0016 D2); the rubric is **5 criteria** (hook, original-insight, visual↔script coherence, pacing, payoff), original-insight weighted **0.30** (ADR 0014 D1). **Split per ADR 0016 D5:** the 05x VLM scores the *visual* pair (`coherence`, `pacing`) and emits observations; **05c's independent judge scores the text pair + hook** (`hook`, `original_insight`, `payoff`) from script + treatment + observations, then merges.
+- **The 05c judge is an independent, non-Qwen-lineage model (ADR 0016 D1)** — resolved per-stage via the config layer (e.g. a Gemma- or Mistral-family 7–9B Q4; fits the 16 GB card alone in the post-render slot); the final pick happens at bring-up against the D2 calibration labels. The author model never grades its own survival criterion.
+- **VLM serving is an OpenAI-compatible chat endpoint with image content** (e.g. Ollama `/v1/chat/completions` with a vision model) — no bespoke `/judge` route (ADR 0016 D5).
 
 ---
 
@@ -671,31 +673,55 @@ def test_qwenvl_satisfies_protocol():
 
 @pytest.mark.integration
 def test_vlm_judge_live(tmp_path):
-    be = QwenVLBackend(base_url="http://127.0.0.1:8000", model="Qwen2.5-VL")
+    from PIL import Image
+    Image.new("RGB", (108, 192), (12, 30, 18)).save(tmp_path / "hook.png")
+    be = QwenVLBackend(base_url="http://127.0.0.1:11434", model="qwen2.5-vl")  # Ollama OpenAI-compat
     j = be.vlm_judge([tmp_path / "hook.png"], {"hook": {"spoken": "x"}})
-    assert 0.0 <= j.overall <= 1.0
+    assert set(j.scores) == {"coherence", "pacing"}      # visual sub-scores only (ADR 0016 D5)
+    assert isinstance(j.observations, tuple)
 ```
 
 - [ ] **Step 2: Add `QwenVLBackend` to `shared/adapters/real.py`** (implements the full `ModelBackend` surface; non-VLM methods raise)
 
 ```python
-class QwenVLBackend:
-    """ModelBackend.vlm_judge via a Qwen2.5-VL endpoint over sampled keyframes (ADR 0008)."""
+_OBSERVE_PROMPT = (
+    "You are inspecting rendered video keyframes. Return STRICT JSON: "
+    '{"coherence": 0-1, "pacing": 0-1, "observations": ["..."]} — observations are concrete, '
+    "per-frame notes (artifacts, morphing hands, garbled/occluded text, caption overlap, "
+    "composition). Score ONLY what you can SEE; do not judge the script's ideas.\n\nSCRIPT: ")
 
-    def __init__(self, base_url: str, model: str = "Qwen2.5-VL", timeout: float = 300.0):
+
+class QwenVLBackend:
+    """ModelBackend.vlm_judge via an OpenAI-compatible chat endpoint with image content
+    (e.g. Ollama /v1/chat/completions serving Qwen2.5-VL) — ADR 0016 D5. Returns
+    OBSERVATIONS + the visual sub-scores (coherence/pacing); verdicts belong to the gates."""
+
+    def __init__(self, base_url: str, model: str = "qwen2.5-vl", timeout: float = 300.0):
         self._base = base_url.rstrip("/")
         self._model = model
         self._timeout = timeout
 
     def vlm_judge(self, frames, script):
+        import base64
+        import json
         import httpx
+        from pathlib import Path
         from shared.adapters.types import Judgment
-        payload = {"model": self._model, "frames": [str(f) for f in frames], "script": script}
-        r = httpx.post(f"{self._base}/judge", json=payload, timeout=self._timeout)
+        content = [{"type": "text", "text": _OBSERVE_PROMPT + json.dumps(script)}]
+        for f in frames:
+            b64 = base64.b64encode(Path(f).read_bytes()).decode()
+            content.append({"type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{b64}"}})
+        r = httpx.post(f"{self._base}/v1/chat/completions",
+                       json={"model": self._model,
+                             "messages": [{"role": "user", "content": content}]},
+                       timeout=self._timeout)
         r.raise_for_status()
-        d = r.json()
-        # `passed` is advisory only — 05c owns the authoritative, config-driven quality floor.
-        return Judgment(overall=d["overall"], scores=d["scores"], passed=d.get("passed", False))
+        d = json.loads(r.json()["choices"][0]["message"]["content"])
+        visual = {"coherence": float(d["coherence"]), "pacing": float(d["pacing"])}
+        # overall/passed are advisory — 05c owns the authoritative, config-driven quality floor.
+        return Judgment(overall=sum(visual.values()) / len(visual), scores=visual,
+                        passed=False, observations=tuple(d.get("observations", [])))
 
     def llm(self, prompt, seed=None): raise NotImplementedError
     def tts(self, text): raise NotImplementedError
@@ -781,7 +807,8 @@ def run(ctx: StageContext) -> StageResult:
     vision = {"schema_version": "1.0.0",
               "keyframes": [{"frame_id": str(idx), "kind": _kind(idx), "observations": []}
                             for idx in indices],
-              "judgment": {"overall": judgment.overall, "scores": judgment.scores}}
+              "judgment": {"visual_scores": judgment.scores,                  # coherence, pacing
+                           "observations": list(judgment.observations)}}      # ADR 0016 D5
     _REG.validate("vision", vision)          # boundary validation (Ch.5); judgment keys pinned in schema
     out = ctx.write_output("vision")
     out.write_text(json.dumps(vision))
@@ -795,31 +822,28 @@ def _extract_frames(render, indices):
     raise NotImplementedError("ffmpeg frame extraction wired at integration")
 ```
 
-> **Dual-consumer contract (ADR 0008 D1):** `vision.json` is read by **both** `05c` (this milestone — coherence/hook/pacing via `judgment`) **and** `05b` (M5 — artifact/garbled-text/caption-occlusion via `keyframes[].kind` + `observations`). M3 emits `observations: []` (05x's real per-frame observations land when the VLM prompt is finalized at integration) but **shapes `kind` faithfully** (hook/end_card/beat) so M5's 05b consumes the contract unchanged.
+> **Dual-consumer contract (ADR 0008 D1 / 0016 D4-D5):** `vision.json` is read by **both** `05c` (this milestone — the visual sub-scores + observations feed its independent judge) **and** `05b` (M5 — artifact/garbled-text/caption-occlusion via `keyframes[].kind` + the observations). 05x runs **once, on the YouTube cut** (per-platform geometry is checked deterministically per cut in 05b — ADR 0016 D4), emits the VLM's **observations + visual sub-scores, never verdicts**, and **shapes `kind` faithfully** (hook/end_card/beat) so M5's 05b consumes the contract unchanged.
 
-- [ ] **Step 3b: Extend `schemas/vision.schema.json`** — add the optional `judgment` block and **pin the 5 criterion keys** so the 05x→05c score contract can't drift (the M0 schema was `keyframes`-only + `additionalProperties:false`, which would reject `judgment`):
+- [ ] **Step 3b: Extend `schemas/vision.schema.json`** — add the optional `judgment` block and **pin the visual sub-score keys** so the 05x→05c contract can't drift (the M0 schema was `keyframes`-only + `additionalProperties:false`, which would reject `judgment`). Per ADR 0016 D5 the VLM contributes only what it can *see* — the text-judged criteria (`hook`/`original_insight`/`payoff`) are scored by 05c's independent judge, not stored here:
 
 ```json
 {
   "judgment": {
     "type": "object", "additionalProperties": false,
-    "required": ["overall", "scores"],
+    "required": ["visual_scores", "observations"],
     "properties": {
-      "overall": {"type": "number"},
-      "scores": {
+      "visual_scores": {
         "type": "object", "additionalProperties": false,
-        "required": ["hook", "original_insight", "coherence", "pacing", "payoff"],
-        "properties": {
-          "hook": {"type": "number"}, "original_insight": {"type": "number"},
-          "coherence": {"type": "number"}, "pacing": {"type": "number"}, "payoff": {"type": "number"}
-        }
-      }
+        "required": ["coherence", "pacing"],
+        "properties": {"coherence": {"type": "number"}, "pacing": {"type": "number"}}
+      },
+      "observations": {"type": "array", "items": {"type": "string"}}
     }
   }
 }
 ```
 
-Add `judgment` to `vision.schema`'s top-level `properties` (it stays optional — not in `required` — so an `observations`-only instance still validates). A `test_vision_judgment_schema` asserts a `judgment` with the 5 keys validates and one missing a key fails.
+Add `judgment` to `vision.schema`'s top-level `properties` (it stays optional — not in `required` — so an `observations`-only instance still validates). A `test_vision_judgment_schema` asserts a `judgment` with the two visual keys + observations validates and one missing a key fails.
 
 - [ ] **Step 4: Write `manifest.json`** → `{"id": "05x", "inputs": ["render", "script"], "outputs": ["vision"], "compute": "gpu", "capability": "vlm_judge"}`. **Run** → PASS. **Commit** (include `schemas/vision.schema.json`).
 
@@ -830,7 +854,7 @@ git commit -m "feat(m3): 05x vision pass + vision.schema judgment block (keyfram
 
 ### Task 10: Stage 05c creative-QC — rubric + floor gate (with original-insight)
 
-ADR 0005 D2 + ADR 0014 D1: judge the **rendered** video (via `vision.json`) on 5 criteria incl. original-insight (weight 0.30); below the floor → quarantine.
+ADR 0005 D2 + ADR 0014 D1 + ADR 0016 D1/D5: the **independent, non-Qwen judge** (resolved via 05c's `llm` capability — the author model never grades its own survival criterion) scores the *text* criteria (`hook`, `original_insight`, `payoff`) from script + treatment + the 05x **observations**; these merge with the 05x **visual sub-scores** (`coherence`, `pacing`) under the rubric weights; below the floor → quarantine.
 
 **Files:** Create `shared/qc/creative.py`, `stages/s05c_qc/{stage.py,manifest.json}`; Test `tests/test_creative_qc.py`
 
@@ -861,6 +885,19 @@ def test_weighted_overall_and_floor():
 def test_missing_criterion_raises():
     with pytest.raises(KeyError):
         weighted_overall({"hook": 0.9})
+
+
+def test_05c_merges_independent_text_judge_with_visual_scores():
+    from stages.s05c_qc.stage import _judge_text
+
+    class _IndependentJudge:                      # non-Qwen judge fake (ADR 0016 D1)
+        def llm(self, prompt, seed=None):
+            return '{"hook": 0.8, "original_insight": 0.7, "payoff": 0.9}'
+
+    text = _judge_text(_IndependentJudge(), {"format": "x"}, ["clean frames"])
+    assert set(text) == {"hook", "original_insight", "payoff"}
+    merged = {**{"coherence": 0.8, "pacing": 0.85}, **text}
+    assert set(merged) == {"hook", "original_insight", "coherence", "pacing", "payoff"}
 ```
 
 - [ ] **Step 2: Implement `shared/qc/creative.py`**
@@ -892,11 +929,24 @@ from shared.stage import StageManifest, stage
 _REG = SchemaRegistry()
 
 
+def _judge_text(llm, script: dict, observations: list[str]) -> dict:
+    """The INDEPENDENT judge (non-Qwen lineage, resolved per-stage — ADR 0016 D1) scores the
+    text-judgeable criteria from script + treatment + the 05x render observations."""
+    prompt = ("Score 0-1 each of: hook, original_insight (a non-obvious, specific point of view — "
+              "NOT a generic template fill), payoff. Respond as STRICT JSON "
+              '{"hook": x, "original_insight": y, "payoff": z}.\n\n'
+              f"SCRIPT: {json.dumps(script)}\nRENDER OBSERVATIONS: {json.dumps(observations)}")
+    return json.loads(llm.llm(prompt))
+
+
 @stage(StageManifest(id="05c", inputs=["render", "vision", "script"], outputs=["creative_qc"],
                      compute="cpu", capability="llm"))
 def run(ctx: StageContext) -> StageResult:
     vision = json.loads(ctx.read_input("vision").read_text())
-    scores = vision["judgment"]["scores"]            # produced by 05x (judges the rendered output)
+    script = json.loads(ctx.read_input("script").read_text())
+    visual = vision["judgment"]["visual_scores"]                 # coherence, pacing (05x VLM)
+    text = _judge_text(ctx.backend("llm"), script, vision["judgment"]["observations"])
+    scores = {**visual, **text}                                  # the full 5-criterion rubric
     overall = weighted_overall(scores)
     floor = float(ctx.config.get("quality_floor", 0.70))
     ok = passes_floor(overall, floor)
@@ -1054,7 +1104,7 @@ git commit -m "test(m3): two-niche proof — business runs the DAG as pure confi
 - [ ] All **8 `formats/*/layout.json`** validate against `layout.schema`; their `bind`s resolve against each format's `layout_data` contract (incl. `news_reaction` list-index binds) → Tasks 1–3.
 - [ ] The **format registry** loads 8 formats; `lane × format` compatibility gates selection (ADR 0008 D2) → Task 4.
 - [ ] **Music** selection is seed-deterministic, taxonomy-closed, batch-anti-repeat; **04** mixes with duck + per-platform LUFS; SFX cues map per scene → Tasks 5–7.
-- [ ] **05x** samples ≤8 keyframes (hook/end-card/markers/mid) and runs Qwen2.5-VL; **05c** scores the rendered output on 5 criteria (original-insight 0.30) and **quarantines below the 0.70 floor** → Tasks 8–10.
+- [ ] **05x** samples ≤8 keyframes (hook/end-card/markers/mid), runs once on the YouTube cut via an OpenAI-compatible VLM endpoint, and emits **observations + visual sub-scores, not verdicts**; **05c**'s **independent non-Qwen judge** (ADR 0016 D1/D5) scores the text criteria, merges with the visual pair (original-insight 0.30), and **quarantines below the 0.70 floor** → Tasks 8–10.
 - [ ] **finance + business** profiles load + validate; the business niche runs the offline DAG as pure config (two-niche abstraction proven) → Task 11.
 - [ ] CI stays GPU-free (`-m "not integration"`); VLM/ffmpeg calls are integration-marked.
 

@@ -1158,6 +1158,7 @@ class Judgment:
     overall: float
     scores: dict[str, float]
     passed: bool
+    observations: tuple[str, ...] = ()   # per-pass VLM observations (ADR 0016 D5); verdicts stay in the gates
 ```
 
 - [ ] **Step 2: Write `shared/adapters/protocols.py`**
@@ -1585,7 +1586,11 @@ git add stages/ tests/test_stage_manifests.py
 git commit -m "feat: thin M0 stages 00a-06 + registry + manifest drift-catcher (ADR 0012 §3)"
 ```
 
-### Task 13: The offline `00a → 06` DAG runner + end-to-end test
+### Task 13: The `00a → 06` DAG runner + end-to-end test
+
+> **This runner is the production conductor (ADR 0015), not test scaffolding.** The stage
+> manifests it executes are the single source of orchestration truth; M4 hardens it (concurrency,
+> lockfile, systemd timer) rather than replacing it with Argo YAML.
 
 ADR 0012 acceptance #3: `pytest` runs all stages against fakes with no GPU, producing the golden `posts` record; #4: re-run is a cache hit; changing input/seed is a miss.
 

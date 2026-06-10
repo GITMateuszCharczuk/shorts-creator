@@ -56,10 +56,16 @@ keywords, CTA) is craft we bake in regardless, so it is worth getting right now.
 
    So we run *both*: short for views, **>60s** for monetization — chosen **per format**, not flat.
 
-2. **Batch-mix target — ~60% of output in the monetization lane (≥61s).** A configurable
+2. **Batch-mix target — phase-dependent; the PoC default is reach-heavy.** A configurable
    **rolling-window** target (not enforced inside one 2–4-video batch, which is too small to hit
-   a ratio): over the trailing window, **~60% of videos are monetization-lane (≥61s)** and ~40%
-   reach-lane. This is a **portfolio heuristic** — successful monetizing creators run exactly this
+   a ratio). The *eventual* hybrid is **~60% monetization-lane (≥61s)** / ~40% reach — but that
+   tilt is only rational once it can pay, and in the PoC it cannot: TikTok public posting is
+   **audit-gated to SELF_ONLY** (ADR 0009 D6 — Creator Rewards unreachable) and YouTube Shorts
+   payout is **volume-led**, where >60s actively costs the completion rate this same ADR documents.
+   So the **PoC-phase default is ~80% reach / 20% monetization** (ADR 0016-era re-review); the
+   ~60% monetization tilt activates at **TikTok audit approval + YPP eligibility**, via the
+   phase-dependent knob below. This is a **portfolio heuristic** — successful monetizing creators
+   run exactly this
    hybrid (short clips for reach, 1-min+ originals for Rewards) — not a published constant, so it
    is a **config knob**, not a hard rule. It is also **phase-dependent**: pre-eligibility (under
    10k followers / 100k views-per-30-days) the mix should tilt *toward* the reach lane to *reach*

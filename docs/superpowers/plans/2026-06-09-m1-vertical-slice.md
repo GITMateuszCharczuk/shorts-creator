@@ -10,7 +10,7 @@
 
 **Decisions made here (spec left open; pinned for M1):**
 - **`data.schema.json` is authored in M1** (M0's 11 schemas did not include it; 00b's numeric-grounding check needs `data.json` typed). It carries `{schema_version, market: {<series>: {value, source, as_of}}, news: [{title, url, source, published, summary}]}`.
-- **Market source for M1:** Alpha Vantage (`GLOBAL_QUOTE`, `TIME_SERIES_DAILY`) + FRED (`CPIAUCSL`, `FEDFUNDS`) — keyed by env; a fixture cache makes 00a CI-testable without live keys. Free-tier budget: Alpha Vantage ≤25 req/day, tracked in the cache layer.
+- **Market source for M1 (ADR 0009 #8 as amended):** **FRED (`CPIAUCSL`, `FEDFUNDS`) + stooq for daily series; Alpha Vantage reserved for quotes only** (`GLOBAL_QUOTE`) — 25 req/day has no headroom across two niches with retries. Keyed by env; a fixture cache makes 00a CI-testable without live keys; the AV budget is tracked in the cache layer.
 - **Numeric-grounding tolerance:** a figure matches a `data.json` value if `abs(parsed - value) <= max(0.5% * |value|, 0.01)`; percentages compared as parsed floats. Ungrounded or out-of-tolerance → `ctx.quarantine`.
 - **Pronunciation lexicon** lives at `shared/finance/lexicon.json` (`{token: spoken_form}`); text-normalization is regex + lexicon, deterministic.
 - **Captions:** `.ass` format, **≤4 words on screen**, brand font, stroke+shadow, emphasis-word color; per-platform vertical safe-zone margins as config.
@@ -560,7 +560,7 @@ git commit -m "feat(m1): 00a research stage (budget+corroboration pure logic; fi
 import json
 from pathlib import Path
 import pytest
-from stages.s00b_script.stage import pick_best, build_judge_prompt
+from stages.s00b_script.stage import pick_best, build_judge_prompt, clears_floor
 from shared.finance.grounding import GroundingError
 
 FIX = Path(__file__).parent / "fixtures" / "m1"
@@ -579,6 +579,12 @@ def test_pick_best_is_deterministic_on_ties_by_index():
 def test_judge_prompt_includes_original_insight_criterion():
     p = build_judge_prompt({"hook": {"spoken": "x"}})
     assert "non-obvious" in p.lower() or "original" in p.lower()  # ADR 0014 D1
+
+
+def test_clears_floor_gates_all_bad_batches():
+    # ADR 0016 D3: best-of-N SELECTS, but an all-mediocre N must not reach the GPU lane
+    assert clears_floor([({"h": 1}, 0.8), ({"h": 2}, 0.4)], floor=0.55) is True
+    assert clears_floor([({"h": 1}, 0.4), ({"h": 2}, 0.5)], floor=0.55) is False
 ```
 
 - [ ] **Step 2: Run** → FAIL.
@@ -605,6 +611,11 @@ def build_judge_prompt(script: dict) -> str:
             "does it say something NON-OBVIOUS with an ORIGINAL point of view "
             "(not a generic template fill); visual-script coherence; payoff. "
             "Return only a number.\n\n" + json.dumps(script))
+
+
+def clears_floor(scored: list[tuple[dict, float]], floor: float) -> bool:
+    """ADR 0016 D3: the provisional script-time floor — quarantine before any GPU work."""
+    return max(sc for _, sc in scored) >= floor
 
 
 @stage(StageManifest(id="00b", inputs=["data"], outputs=["script"], compute="cpu", capability="llm"))
@@ -654,6 +665,8 @@ def _build_prompt(data: dict, config: dict, seed: int) -> str:
 - [ ] **Step 4: Add the quarantine wrap** — change the `check_claims(...)` line to:
 
 ```python
+    if not clears_floor(scored, float(ctx.config.get("script_floor", 0.55))):
+        ctx.quarantine(f"all {n} scripts below the script-time floor (ADR 0016 D3)")
     from shared.finance.grounding import GroundingError
     try:
         check_claims(chosen.get("claims", []), data)

@@ -44,7 +44,8 @@ only the primitives the schemas and SDK all depend on.
 3. **Stage metadata (manifest, not generator).** Each stage ships a small declarative manifest —
    `{ id, inputs[], outputs[], compute: cpu|gpu, capability?, resources? }`. The Argo templates are
    **hand-written**; a CI **drift-catcher** asserts templates ⟷ manifests agree (ADR 0010 D2). No
-   generator in M0.
+   generator in M0. *(Amended by ADR 0015: there are no Argo templates in the PoC — the manifests
+   drive the production runner, and the drift-catcher asserts manifest ⟷ registry.)*
 
 4. **`job.json` status enum.** Per-stage status ∈ `pending | running | done | quarantined | failed`;
    updates are **section-scoped atomic writes** (write-temp + rename), one writer per
