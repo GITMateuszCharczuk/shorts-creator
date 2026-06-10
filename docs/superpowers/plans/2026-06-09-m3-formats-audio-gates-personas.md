@@ -9,6 +9,9 @@
 **Tech Stack:** Python 3.12 + the M0 toolchain; the M2 `shared/layout/` resolve+Remotion path (the 6 new formats flow through it unchanged); `httpx` (Qwen2.5-VL endpoint); `ffmpeg` (music duck/SFX mix, LUFS via `loudnorm`). CI runs only pure/fake tests.
 
 **Decisions made here (spec/ADR left open; pinned for M3):**
+- **Expressive-voice A/B is an M3 GATE (ADR 0017 D1), not post-M1.** Kokoro vs the most expressive open candidates (Orpheus / Chatterbox), judged on prosody/emotion control + hook delivery via the shared `speech_segments` contract; the winner is the channel voice. If none clears the bar, a **hosted expressive voice** is the recorded operator escalation (the one sanctioned exception to no-recurring-cost). Selection is a `tts` backend swap (ADR 0010), so M3 ships the gate + the chosen backend behind the Protocol.
+- **Persona is an opinionated character (ADR 0017 D3):** `profile.schema` gains **required** `stances[]`, `catchphrase`, `series[]`; 00b writes *from* a stance.
+- **Creative-identity additions (ADR 0017):** a **brand mascot** asset in the brand kit (D6); the **energy curve modulates voice rate / music intensity / cut pacing** (D7).
 - **`explainer`'s "worked-through number" → `TextCard` role=numeric with `count_up` step reveals** (ADR 0007a §4/§11: "a lone number is `TextCard`+count-up, not `DataVizSlot`"). `DataVizSlot` stays reserved for real multi-series charts (`head_to_head` `stat_bars`). Same call applied to `surprising_stat`/`cautionary_tale`.
 - **Music taxonomy is a closed `{mood} × {energy}` enum** mapped to a per-niche curated library file (`profiles/<niche>/music/index.json`); selection is deterministic given `(mood, energy, seed)` with **batch anti-repeat** via the existing ledger pattern.
 - **Per-platform LUFS targets:** YouTube **-14 LUFS**, TikTok **-14 LUFS** integrated, true-peak **-1 dBTP** (config-overridable).
@@ -403,18 +406,24 @@ def test_maps_prosody_to_segment_params_and_normalizes_text():
 ```python
 from shared.finance.normalize import normalize
 
-# closed prosody vocabulary -> Kokoro per-segment params (rate multiplier, trailing pause seconds)
+# closed prosody vocabulary -> per-segment params (rate multiplier, trailing pause seconds)
 _PROSODY = {"emphatic": (0.9, 0.35), "rising": (1.05, 0.15), "measured": (1.0, 0.2),
             "fast": (1.15, 0.1), "pause": (1.0, 0.5)}
 
 
 def speech_segments(script: dict) -> list[dict]:
-    """One synth segment per narration beat: normalized text + rate + trailing pause from prosody."""
+    """One synth segment per narration beat: normalized text + rate + trailing pause from prosody,
+    with rate further modulated by the treatment's energy curve (ADR 0017 D7) so the read has
+    DYNAMICS (build/peak/land), not a flat line. Pure + deterministic (energy is in the script)."""
+    curve = script.get("treatment", {}).get("energy_curve", [])
     segs = []
-    for b in script.get("narration_beats", []):
+    for i, b in enumerate(script.get("narration_beats", [])):
         rate, pause = _PROSODY.get(b.get("prosody", "measured"), (1.0, 0.2))
-        segs.append({"text": normalize(b["text"]), "rate": rate, "pause_after": pause,
-                     "emphasis": b.get("emphasis", [])})
+        energy = curve[i] if i < len(curve) else 0.5         # 0..1; 0.5 = neutral
+        rate *= 0.9 + 0.2 * energy                           # high-energy beats read faster
+        segs.append({"text": normalize(b["text"]), "rate": round(rate, 3),
+                     "pause_after": pause, "emphasis": b.get("emphasis", []),
+                     "energy": energy})                      # 04 reads this for duck depth/intensity
     return segs
 ```
 
@@ -431,7 +440,24 @@ and add `tts_segments(self, segments) -> Path` to `KokoroBackend` (loops `tts` p
 
 ```bash
 git add shared/audio/prosody.py stages/s02_voice/stage.py shared/adapters/real.py tests/test_prosody.py
-git commit -m "feat(m3): per-beat prosody driving Kokoro (ADR 0005 D6)"
+git commit -m "feat(m3): per-beat prosody + energy-modulated rate driving the voice (ADR 0005 D6/0017 D7)"
+```
+
+- [ ] **Step 6: The expressive-voice A/B gate (ADR 0017 D1).** Add `KokoroBackend`, `OrpheusBackend`,
+  and `ChatterboxBackend` (each implements the M0 `tts`; integration-marked) and a `make voice-ab`
+  harness that synthesizes a **fixed reference script** (a hook + 3 beats with `emphatic`/`rising`
+  prosody) through each, writing `runs/.voice_ab/<backend>.wav`. Selection rubric: hook delivery,
+  emphasis landing, naturalness, per-segment rate control — scored by the operator (and the
+  independent judge can pre-screen). The winner is written to `profiles/<niche>/profile.yaml`
+  `defaults.voice_backend`; Stage 02 resolves the `tts` backend from it (a config swap, ADR 0010).
+  **If no open candidate clears the bar, an `ElevenLabsBackend` is the recorded escalation** — its
+  per-call cost is the one sanctioned break from no-recurring-cost, an explicit operator decision.
+  *(Pure-testable: a `reference_script()` fixture + that each backend satisfies `ModelBackend`; the
+  audio comparison is the human/integration gate.)*
+
+```bash
+git add shared/adapters/real.py tests/test_voice_ab.py Makefile
+git commit -m "feat(m3): expressive-voice A/B gate — voice is the #1 watchability limiter (ADR 0017 D1)"
 ```
 
 ### Task 5: Music selection — closed taxonomy + deterministic anti-repeat
@@ -988,14 +1014,27 @@ niche: finance
 persona:
   voice: "a rigorous, data-first finance explainer who distrusts hype"
   pov: "long-term, evidence over vibes"
+  stances:                                   # ADR 0017 D3: positions 00b ARGUES FROM (not neutral)
+    - "incentives explain more than headlines"
+    - "fees and time compound louder than stock picks"
+  catchphrase: "follow the cash flow, not the crowd"
+  series:                                    # ≥1 recurring series (ADR 0017 D5, schedule-aware in M4)
+    - {id: "market_30s", title: "The market in 30 seconds", cadence: "daily"}
 brand_kit:
   palette: ["#0C1E12", "#00E5FF", "#FFFFFF"]
   font: Inter
   logo: brand/finance_logo.png
+  mascot: brand/finance_mascot.png           # ADR 0017 D6: consistent brand character
 defaults:
+  voice_backend: kokoro                      # the M3 A/B winner (ADR 0017 D1); a tts-capability swap
   music_index: profiles/finance/music/index.json
   emphasis_hex: "00E5FF"
 ```
+
+> `profile.schema.json` (M0) is extended in this task: `persona` gains **required** `stances`
+> (array, minItems 1), `catchphrase` (string), `series` (array); `brand_kit` gains `mascot`;
+> `defaults` gains `voice_backend`. A `test_profile_requires_stances` asserts a persona missing
+> `stances` fails validation.
 
 And `profiles/business/profile.yaml` — **distinct** persona/brand-kit/library so the niche is provably data, not code:
 
@@ -1231,13 +1270,14 @@ git commit -m "feat(m3): render finishing — end-card+loop, thumbnail, color ma
 - [ ] **05x** samples ≤8 keyframes (hook/end-card/markers/mid), runs once on the YouTube cut via an OpenAI-compatible VLM endpoint, and emits **observations + visual sub-scores, not verdicts**; **05c**'s **independent non-Qwen judge** (ADR 0016 D1/D5) scores the text criteria, merges with the visual pair (original-insight 0.30), and **quarantines below the 0.70 floor** → Tasks 8–10.
 - [ ] **finance + business** profiles load + validate; the business niche runs the offline DAG as pure config (two-niche abstraction proven) → Task 11.
 - [ ] **Render finishing**: the end-card + loop flag are injected on the final beat (platform verb swapped), the thumbnail/cover is emitted from the hook frame, per-clip color matching runs in 01d, and the cut-rate guard rejects slideshow pacing → Task 12.
+- [ ] **Creative identity (ADR 0017)**: the expressive-voice A/B gate selects the channel voice (Task 4c Step 6); the energy curve modulates voice rate (and feeds 04 intensity); `profile.schema` requires `stances`/`catchphrase`/`series` and carries a `mascot`; 01a biases abstract/denylists clichés with the hook defaulting to the card → Tasks 4c, 11 + the M2 01a knobs.
 - [ ] CI stays GPU-free (`-m "not integration"`); VLM/ffmpeg calls are integration-marked.
 
 ---
 
 ## Self-Review
 
-**Spec coverage (Ch.10 M3 + ADRs):** the 8 format templates → A1/A2 (the 6 new as data, ADR 0007a §7b/§11; explainer worked-number pinned to count-up per §4/§11); audio performance layer → B (**per-beat prosody driving Kokoro** Task 4c, music taxonomy+anti-repeat ADR 0005 D6/0009, SFX, per-platform LUFS, 04 mix — D6 now fully covered); content-scaling item-sizing deferred to 00b with citation (ADR 0008 D2, Task 4 note); caption design → **landed in M1** (Task 8/9 there), not re-done here (noted); `05c` creative-QC backed by `05x` vision → C (ADR 0008 D1 + ADR 0005 D2 + ADR 0014 D1 original-insight); persona + brand kit + business profile → D (ADR 0005 D9, two-niche proof ADR 0010 D5); **render finishing** (end-card/loop ADR 0006 D5/D8, thumbnail, per-clip color match + cut-rate ADR 0005 D4 — previously unowned) → E (Task 12). `05b` safety gate + `06` distribution remain **M5** (noted, not in scope).
+**Spec coverage (Ch.10 M3 + ADRs):** the 8 format templates → A1/A2 (the 6 new as data, ADR 0007a §7b/§11; explainer worked-number pinned to count-up per §4/§11); audio performance layer → B (**per-beat prosody driving Kokoro** Task 4c, music taxonomy+anti-repeat ADR 0005 D6/0009, SFX, per-platform LUFS, 04 mix — D6 now fully covered); content-scaling item-sizing deferred to 00b with citation (ADR 0008 D2, Task 4 note); caption design → **landed in M1** (Task 8/9 there), not re-done here (noted); `05c` creative-QC backed by `05x` vision → C (ADR 0008 D1 + ADR 0005 D2 + ADR 0014 D1 original-insight); persona + brand kit + business profile → D (ADR 0005 D9, two-niche proof ADR 0010 D5); **render finishing** (end-card/loop ADR 0006 D5/D8, thumbnail, per-clip color match + cut-rate ADR 0005 D4 — previously unowned) → E (Task 12); **creative identity** (ADR 0017: voice A/B gate Task 4c Step 6, persona stances/catchphrase/series + mascot Task 11, energy→rate Task 4c, abstract-stock + hook-card via M2's 01a) → woven through B/D. `05b` safety gate + `06` distribution remain **M5** (noted, not in scope).
 
 **Placeholder scan:** no "TBD"/"add error handling". The `NotImplementedError` bodies (`_frame_count`/`_extract_frames` in 05x; live VLM/ffmpeg) are documented integration seams with their CI substitute named (the pure `sample_frames`/`weighted_overall`/`select_track` are fully implemented + tested). Format authoring uses an explicit per-format bind/region contract table, not "similar to".
 

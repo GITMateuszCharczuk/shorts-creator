@@ -13,6 +13,7 @@
 - **Concurrency primitive** (resolves the ADR 0015 open item): a **`ThreadPoolExecutor` managing stage *subprocesses*** — threads only wait on processes, so the GIL is irrelevant; no asyncio. Lane-fork = two pool lanes (visual/audio) gated by a **GPU lock** (only the visual lane's GPU stages take it — never-co-resident stays structural).
 - **`batch.schema.json` is authored here** (the spec's `batch.json` never had a schema; every boundary artifact is validated — ADR 0010 D1).
 - **Lane-mix rolling window = last 20 posted videos** (from the ledger), PoC default **80/20 reach/monetization** (ADR 0006 D2 as amended); both are config.
+- **Rotation is series-aware (ADR 0017 D5):** before free format rotation, the planner fills any **recurring-series slot due today** (from the niche profile's `series[]` cadence) with that series' fixed format + title pattern; the remaining slots rotate freely. Series build habitual return viewership — the lever this design has *instead of* virality.
 - **Lockfile** at `DATA_ROOT/.run/batch.lock` containing the holder pid; a lock whose pid is dead is **stale and taken over** (a crash must not wedge tomorrow's batch).
 - **Overnight window default = 8h** (config `batch.window_hours`); the throughput gate projects against it.
 - **Image base**: `python:3.12-slim` + `ffmpeg`. The Remotion/Node layer is a **separate build stage** excluded from the CI gate (the offline DAG runs with fakes; the render path is integration) — noted honestly, not hidden.
@@ -326,17 +327,23 @@ from shared.planner.topics import claim_topics
 
 def plan_batch(*, batch_id: str, niches: list[str], per_niche: int, formats: list[dict],
                lane_history: list[str], topic_candidates: list[str], ledger_topics: set[str],
-               monetization_share: float, master_seed: int) -> dict:
-    """The conductor's pre-fan-out brain (ADR 0015 D6): lane mix -> format rotation -> topic
-    reservation -> per-video seeds. Pure + deterministic given its inputs."""
+               monetization_share: float, master_seed: int,
+               series_due: dict[str, dict] | None = None) -> dict:
+    """The conductor's pre-fan-out brain (ADR 0015 D6): SERIES-DUE slots first (ADR 0017 D5) ->
+    lane mix -> format rotation -> topic reservation -> per-video seeds. Pure + deterministic."""
     rng = random.Random(master_seed)
+    series_due = series_due or {}                     # {niche: {"format":…, "lane":…}} due today
     n_total = len(niches) * per_niche
     topics = claim_topics(topic_candidates, ledger_topics=ledger_topics, n=n_total)
     videos, history, recent_formats = [], list(lane_history), []
     for niche in niches:
         for k in range(per_niche):
-            lane = next_lane(history, monetization_share=monetization_share)
-            fmt = pick_format(formats, lane=lane, recent=recent_formats[-3:], seed=rng.randint(0, 2**31))
+            if k == 0 and niche in series_due:        # the recurring-series slot, fixed format/lane
+                s = series_due[niche]
+                lane, fmt = s["lane"], {"id": s["format"]}
+            else:
+                lane = next_lane(history, monetization_share=monetization_share)
+                fmt = pick_format(formats, lane=lane, recent=recent_formats[-3:], seed=rng.randint(0, 2**31))
             videos.append({"video_id": f"{niche}-{batch_id}-{k}", "niche": niche,
                            "format": fmt["id"], "lane": lane, "topic": topics[len(videos)],
                            "seed": rng.randint(0, 2**31), "status": "pending"})
@@ -1290,7 +1297,7 @@ git commit -m "feat(m4): the M4 gate — overnight throughput reconciliation (op
 
 ## M4 Acceptance Checklist (the testable "done")
 
-- [ ] `plan_batch` produces a schema-valid, **seed-deterministic** `batch.json` honoring the lane mix (PoC default 80/20), format lane-compat + anti-repeat, and topic reservation → Tasks 2–4.
+- [ ] `plan_batch` produces a schema-valid, **seed-deterministic** `batch.json` honoring **series-due slots first** (ADR 0017 D5), then the lane mix (PoC default 80/20), format lane-compat + anti-repeat, and topic reservation → Tasks 2–4.
 - [ ] Stages run as **subprocesses in their own process group** (timeout kills grandchildren); exit codes map to statuses; **quarantine is never retried**; a failing video closes only **its own domain**; statuses are **written through + persisted**; **≥3 consecutive failures in one stage halt the batch** (the ADR 0003 D4 systemic classification); the **host-health gate** runs before fan-out → Tasks 1, 5, 6, 8, 11.
 - [ ] **Never-co-resident** is conductor-enforced (GPU lock + the VRAM confirm-evicted gate) → Task 7.
 - [ ] A second trigger is rejected by the **lockfile** (stale locks taken over); a reboot **resumes** the interrupted batch; pre-flight gates run before fan-out; the **fan-in ledger commit is idempotent** → Tasks 9–11, 14.

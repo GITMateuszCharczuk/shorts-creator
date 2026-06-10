@@ -135,8 +135,10 @@ not new names.
 - Each animation/transition **emits a synchronized SFX cue marker** into the manifest (whoosh on
   swipe, tick on a `pop`-badge, impact on `riser-reveal`) — bound at resolve time to the Stage 04
   transition-SFX layer (ADR 0005 D6).
-- *(Later hook: the treatment's energy curve (ADR 0005) can drive default param intensity —
-  high-energy beat → faster `dur`, more `overshoot`, louder cue. Deferred.)*
+- *(The treatment's energy curve (ADR 0005) drives default param intensity — high-energy beat →
+  faster `dur`, more `overshoot`, louder cue. **Activated by ADR 0017 D7** (was deferred): the
+  resolve step scales animation `dur`/overshoot by the beat's energy, alongside the voice-rate and
+  music-intensity modulation — deterministic, since the curve is in the script.)*
 
 ### 6. Inherited standard regions
 
