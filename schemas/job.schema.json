@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "job.schema.json",
+  "schema_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "batch_id", "video_id", "niche", "profile",
+               "platform_targets", "seed", "stages", "paths"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "batch_id": {"type": "string"},
+    "video_id": {"type": "string"},
+    "niche": {"type": "string"},
+    "profile": {"type": "string"},
+    "platform_targets": {"type": "array", "items": {"enum": ["youtube", "tiktok"]}, "minItems": 1},
+    "seed": {"type": "integer"},
+    "stages": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status"],
+        "properties": {
+          "status": {"enum": ["pending", "running", "done", "quarantined", "failed"]},
+          "detail": {"type": "string"}
+        }
+      }
+    },
+    "paths": {"type": "object", "additionalProperties": {"type": "string"}}
+  }
+}
