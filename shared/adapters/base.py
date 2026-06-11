@@ -1,0 +1,46 @@
+from abc import ABC, abstractmethod
+from pathlib import Path
+
+from shared.distribution.posts_ledger import (
+    already_confirmed,
+    pending_post,
+    write_confirmed,
+    write_intent,
+)
+
+
+class DistributionAdapter(ABC):
+    """Exactly-once is OWNED HERE (ADR 0003 D1/0010). publish() writes to the PER-VIDEO ledger;
+    the shared history/posts.jsonl is the M4 fan-in's job (ADR 0003 D6). A retry recovers via
+    _find_existing — never a blind re-post.
+
+    NOTE: this ABC coexists with the M0 ``shared.adapters.protocols.DistributionAdapter`` Protocol
+    (same name, different module). The Protocol is the structural contract M0 stubs are typed
+    against; this ABC is the real base the M5 YouTube/TikTok adapters inherit. They do not collide
+    — callers import the one they mean by module path. The M0 Protocol is retired in Task 13."""
+    platform: str
+
+    def publish(self, *, video_id, media_path, metadata, visibility,
+                ledger_path: Path) -> dict | None:
+        if already_confirmed(ledger_path, video_id, self.platform):
+            return None
+        if pending_post(ledger_path, video_id, self.platform):
+            found = self._find_existing(metadata["idempotency_key"])    # crash-recovery
+            if found:
+                rid, url = found
+                write_confirmed(ledger_path, video_id=video_id, platform=self.platform,
+                                remote_id=rid, url=url)
+                return {"remote_id": rid, "url": url, "recovered": True}
+        else:
+            write_intent(ledger_path, video_id=video_id, platform=self.platform)
+        rid, url = self._post(media_path, metadata, visibility)    # side effect (live-verified)
+        write_confirmed(ledger_path, video_id=video_id, platform=self.platform,
+                        remote_id=rid, url=url)
+        return {"remote_id": rid, "url": url, "recovered": False}
+
+    @abstractmethod
+    def allowed_visibility(self, cfg: dict) -> set[str]: ...
+    @abstractmethod
+    def _post(self, media_path, metadata: dict, visibility: str) -> tuple[str, str]: ...
+    @abstractmethod
+    def _find_existing(self, idempotency_key: str) -> tuple[str, str] | None: ...
