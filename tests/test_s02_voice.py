@@ -27,12 +27,14 @@ def test_keyword_null_is_not_a_crash():
 
 
 def test_empty_narration_quarantines():
-    import pytest
-    from pathlib import Path
-    from shared.ctx import Quarantined, StageContext
-    from stages.s02_voice.stage import run
     import json as _json
     import tempfile
+    from pathlib import Path
+
+    import pytest
+
+    from shared.ctx import Quarantined, StageContext
+    from stages.s02_voice.stage import run
     d = Path(tempfile.mkdtemp())
     (d / "script.json").write_text(_json.dumps({"narration_beats": []}))
     ctx = StageContext(stage="02", run_dir=d, seed=1, job={}, config={},
