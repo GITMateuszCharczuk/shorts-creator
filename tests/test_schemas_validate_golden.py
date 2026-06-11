@@ -39,3 +39,7 @@ def test_rejects_unknown_status_enum():
     bad["stages"]["00a"]["status"] = "frozen"
     with pytest.raises(SchemaError):
         REG.validate("job", bad)
+
+
+def test_script_golden_validates():
+    REG.validate("script", json.loads((GOLDEN / "script.json").read_text()))
