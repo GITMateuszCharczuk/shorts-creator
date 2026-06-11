@@ -5,7 +5,9 @@ requires-python = ">=3.12"
 dependencies = ["jsonschema>=4.21", "httpx>=0.27", "feedparser>=6.0", "soundfile>=0.12"]
 
 [dependency-groups]
-dev = ["pytest>=8.0", "ruff>=0.4", "numpy", "pillow"]
+# NB: open-clip-torch + torch are HOST-ONLY (imported lazily in shared/visual/clip.py) so the
+# GPU-free CI never installs or imports them.
+dev = ["pytest>=8.0", "ruff>=0.4", "numpy", "pillow", "imagehash>=4.3", "scikit-image>=0.22"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
