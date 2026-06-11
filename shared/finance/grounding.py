@@ -14,7 +14,9 @@ def resolve_ref(data: dict[str, Any], ref: str) -> float:
         node = node[part]
     if isinstance(node, dict) and "value" in node:
         node = node["value"]
-    if not isinstance(node, (int, float)):
+    # bool is a subclass of int in Python -> reject it explicitly so a stray True/False in
+    # data.json can never silently become a 1.0/0.0 numeric anchor for a claim.
+    if isinstance(node, bool) or not isinstance(node, (int, float)):
         raise GroundingError(f"source_ref {ref!r} is not numeric")
     return float(node)
 
@@ -23,6 +25,9 @@ _NUM = re.compile(r"-?\d[\d,]*\.?\d*")
 
 
 def parse_number(text: str) -> float:
+    # Assumes the claim value is a single normalized figure ("3.2%", "$184.21") in the SAME unit
+    # as the data.json anchor; it extracts the first number and does NOT understand scale suffixes
+    # (M/B/bps) or ranges -- those parse conservatively (a mismatch quarantines, never passes wrong).
     m = _NUM.search(text.replace(",", ""))
     if not m:
         raise GroundingError(f"no number in claim value {text!r}")
@@ -35,8 +40,11 @@ def within_tolerance(parsed: float, expected: float) -> bool:
 
 def check_claims(claims: list[dict], data: dict[str, Any]) -> None:
     for c in claims:
+        # a malformed claim is itself ungrounded -> quarantine it, never crash with a raw KeyError
+        if "source_ref" not in c or "value" not in c:
+            raise GroundingError(f"claim missing value/source_ref: {c!r}")
         expected = resolve_ref(data, c["source_ref"])
-        parsed = parse_number(c["value"])
+        parsed = parse_number(str(c["value"]))
         if not within_tolerance(parsed, expected):
             raise GroundingError(
                 f"claim {c['value']!r} != data {expected} (ref {c['source_ref']})")

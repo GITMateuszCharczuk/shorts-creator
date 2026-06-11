@@ -35,3 +35,18 @@ def test_out_of_tolerance_raises():
     with pytest.raises(GroundingError):
         check_claims([{"value": "5.0%", "source_ref": "market.cpi_yoy"}],
                      {"market": {"cpi_yoy": {"value": 3.2}}})
+
+
+def test_bool_anchor_is_not_numeric():
+    # a stray bool in data must never silently ground a claim to 1.0 (isinstance(True,int) is True)
+    with pytest.raises(GroundingError):
+        resolve_ref({"market": {"flag": {"value": True}}}, "market.flag")
+
+
+@pytest.mark.parametrize("bad_claim", [
+    {"value": "3.2%"},                       # no source_ref
+    {"source_ref": "market.cpi_yoy"},        # no value
+])
+def test_malformed_claim_quarantines_not_crashes(bad_claim):
+    with pytest.raises(GroundingError):
+        check_claims([bad_claim], {"market": {"cpi_yoy": {"value": 3.2}}})
