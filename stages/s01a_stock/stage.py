@@ -33,6 +33,9 @@ def run(ctx: StageContext) -> StageResult:
     choices, prov, ai_needed = [], [], []
     for i, beat in enumerate(script.get("narration_beats", [])):
         text = beat.get("text", "")
+        if not text.strip():
+            choices.append({"beat": i, "kind": "card", "ref": None})  # no query -> branded card
+            continue
         cands = stock.search(text, n=4)   # [{"path","phash","score","source","url","license"}...]
         pairs = [(c["path"], c["phash"]) for c in cands if license_ok(c.get("license", ""))]
         scores = {c["path"]: float(c.get("score", 0.0)) for c in cands}
@@ -45,6 +48,7 @@ def run(ctx: StageContext) -> StageResult:
             ai_needed.append(i)
         if choice.kind == "stock":
             c = next(c for c in cands if c["path"] == choice.ref)
+            used.add(c["phash"])   # rolling intra-video dedup: the same clip must not repeat beats
             prov.append(provenance_record(asset_id=c["path"], source=c.get("source", "fixture"),
                                           url=c.get("url", ""), license=c["license"],
                                           fetch_date=c.get("fetch_date", "2026-06-09")))
