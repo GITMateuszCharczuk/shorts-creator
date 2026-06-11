@@ -60,3 +60,28 @@ def test_resolve_joins_assets_and_caption_words():
     assert bg["src"] == "scenes/a.mp4"                      # not the media_query string
     cap = next(r for r in s0["regions"] if r["name"] == "caption")
     assert cap["value"] == [{"word": "Hi", "start": 0.2, "end": 0.5}]
+
+
+def test_resolve_rejects_beats_timings_mismatch():
+    import pytest
+    with pytest.raises(ValueError):
+        resolve(layout=_load("layout_ranked_list.json"),
+                beat_data=_load("beat_data_ranked_list.json"),
+                brand_kit=_load("brand_kit.json"),
+                timings=[{"start": 0.0, "end": 2.0}],   # 2 beats, 1 timing -> must raise
+                seed=7)
+
+
+def test_cta_bump_renders_above_caption_band():
+    # 3 beats so a mid-roll scene is eligible; the bump must sit ABOVE the caption (z=8)
+    bd = _load("beat_data_ranked_list.json")
+    bd["beats"].append({"kind": "item",
+                        "item": {"rank": 3, "title": "GAMMA", "body": "b",
+                                 "media_query": "g", "stat": "1%"}})
+    m = resolve(layout=_load("layout_ranked_list.json"), beat_data=bd,
+                brand_kit=_load("brand_kit.json"),
+                timings=[{"start": 0.0, "end": 2.0}, {"start": 2.0, "end": 4.0},
+                         {"start": 4.0, "end": 6.0}], seed=7)
+    bump = next(r for s in m["scenes"] for r in s["regions"] if r["name"] == "cta_bump")
+    assert bump["z"] > 8
+    assert m["markers"]["cta_bump"] == 60   # scene 1 starts at 2.0s * 30fps

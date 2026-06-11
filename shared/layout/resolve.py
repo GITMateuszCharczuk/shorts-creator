@@ -85,6 +85,10 @@ def resolve(
         contract.update({k: v for k, v in b.items() if k != "kind"})
     validate_binds([r["bind"] for r in all_regions], contract)
 
+    if len(beats) != len(timings):
+        # zip would silently DROP scenes — an incomplete manifest must never reach the renderer
+        raise ValueError(f"beats/timings length mismatch: {len(beats)} vs {len(timings)}")
+
     scenes, markers = [], {}
     for i, (beat, t) in enumerate(zip(beats, timings)):
         regs = []
@@ -109,7 +113,7 @@ def resolve(
                                 if t["start"] <= w["start"] < t["end"]]
             regs.append(reg)
             if r["name"] in ("cta_bump", "vs_badge"):   # named markers for §10 golden samples
-                markers[r["name"]] = round(t["start"] * fps)
+                markers.setdefault(r["name"], round(t["start"] * fps))  # FIRST appearance wins
         scenes.append({"start": t["start"], "end": t["end"], "kind": beat["kind"],
                        "regions": sorted(regs, key=lambda x: x["z"])})
 
@@ -123,7 +127,9 @@ def resolve(
             "name": "cta_bump",
             "primitive": {"type": "CTABump", "params": {"verb": "Follow"}},
             "rect": _project({"colA": 3, "colB": 10, "anchor": "caption"}, anchors, safe),
-            "z": 7, "enter": "pop", "exit": "fade", "value": None,
+            # z=10: the plan said 7, but the injected caption band is z=8 on the SAME anchor —
+            # a bump below it would be permanently hidden (review-driven deviation, documented).
+            "z": 10, "enter": "pop", "exit": "fade", "value": None,
             "style": styles.get("brand.cta", {}),
         })
         scenes[i]["regions"].sort(key=lambda x: x["z"])
