@@ -1,0 +1,65 @@
+import json
+from pathlib import Path
+
+from shared.adapters.types import Judgment, PostMeta, PostReceipt, Visibility
+from shared.hashing import input_hash, sha256_bytes
+
+
+class FixtureBackend:
+    """Replays canned outputs from fixtures_dir/<capability>/<input_hash>.<ext>."""
+
+    def __init__(self, fixtures_dir: Path):
+        self._dir = Path(fixtures_dir)
+
+    def _hash(self, **named_bytes: bytes) -> str:
+        return input_hash(
+            declared_input_digests={k: sha256_bytes(v) for k, v in named_bytes.items()},
+            resolved_config={}, stage_version="fake",
+        )
+
+    def _path(self, capability: str, h: str, ext: str) -> Path:
+        return self._dir / capability / f"{h}.{ext}"
+
+    def llm(self, prompt: str, seed: int | None = None) -> str:
+        return self._path("llm", self._hash(prompt=prompt.encode()), "txt").read_text()
+
+    def llm_json(self, prompt: str, seed: int | None = None) -> dict:
+        return json.loads(self.llm(prompt, seed))   # fixtures are valid JSON by construction
+
+    def generate_image(self, prompt: str, seed: int) -> Path:
+        return self._path("generate_image", self._hash(prompt=prompt.encode()), "png")
+
+    def img2vid(self, image: Path, seed: int) -> Path:
+        return self._path("img2vid", self._hash(image=Path(image).read_bytes()), "mp4")
+
+    def tts(self, text: str) -> Path:
+        return self._path("tts", self._hash(text=text.encode()), "wav")
+
+    def vlm_judge(self, frames: list[Path], script: dict) -> Judgment:
+        return Judgment(overall=0.82, scores={"hook": 0.8, "coherence": 0.85}, passed=True)
+
+    def restore(self, frames: list[Path]) -> list[Path]:
+        return list(frames)  # fake: passthrough
+
+
+class FixtureDistributionAdapter:
+    """In-memory exactly-once fake: publish records intent->confirm; confirm replays it."""
+
+    def __init__(self):
+        self._posted: dict[tuple[str, str], PostReceipt] = {}
+        self._counter = 0
+
+    def publish(self, render: Path, meta: PostMeta) -> PostReceipt:
+        self._counter += 1
+        rec = PostReceipt(video_id="fin-0001", platform="youtube",
+                          remote_post_id=f"fake_{self._counter}", visibility=meta.visibility)
+        self._posted[(rec.video_id, rec.platform)] = rec
+        return rec
+
+    def confirm_posted(self, video_id: str, platform: str) -> PostReceipt | None:
+        return self._posted.get((video_id, platform))
+
+    def allowed_visibility(self, audit_state: str) -> set[Visibility]:
+        if audit_state == "audited":
+            return {Visibility.PRIVATE, Visibility.SELF_ONLY, Visibility.PUBLIC}
+        return {Visibility.PRIVATE, Visibility.SELF_ONLY}
