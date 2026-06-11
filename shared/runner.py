@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from shared.adapters.fakes import FixtureBackend, FixtureDistributionAdapter
+from shared.adapters.fakes import FixtureBackend, FixtureDistributionAdapter, FixtureStockClient
 from shared.cache import StageCache
 from shared.config import resolve_config
 from shared.ctx import Quarantined, StageContext, StageResult
@@ -64,7 +64,8 @@ def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path,
                            input_paths=input_paths, output_paths=output_paths,
                            backends={"llm": backend, "generate_image": backend,
                                      "img2vid": backend, "tts": backend, "vlm_judge": backend,
-                                     "restore": backend, "distribution": dist})
+                                     "restore": backend, "distribution": dist,
+                                     "stock": FixtureStockClient()})
         ctx.set_status("running")                       # ADR 0012 §4 status transitions
         try:
             reg.fn(ctx) or StageResult()

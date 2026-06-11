@@ -52,6 +52,16 @@ class FixtureBackend:
         return list(frames)  # fake: passthrough
 
 
+class FixtureStockClient:
+    """Deterministic stock candidates for the offline DAG (no HTTP)."""
+
+    def search(self, query: str, n: int) -> list[dict]:
+        h = sha256_bytes(query.encode())[:16]   # deterministic per-query phash
+        return [{"path": f"stock/{h[:8]}_{i}.jpg", "phash": h, "score": 0.9 - 0.1 * i,
+                 "source": "pexels", "url": f"https://fixture/{h[:8]}/{i}",
+                 "license": "Pexels", "fetch_date": "2026-06-09"} for i in range(min(n, 2))]
+
+
 class FixtureDistributionAdapter:
     """In-memory exactly-once fake: publish records intent->confirm; confirm replays it."""
 
