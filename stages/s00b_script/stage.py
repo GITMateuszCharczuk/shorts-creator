@@ -1,36 +1,82 @@
 import json
+import random
 
 from shared.ctx import StageContext, StageResult
+from shared.finance.grounding import check_claims
 from shared.stage import StageManifest, stage
 
 
-@stage(StageManifest(id="00b", inputs=["data"], outputs=["script"], compute="cpu",
-                     capability="llm"))
+def pick_best(scored: list[tuple[dict, float]]) -> dict:
+    # max by score; ties resolve to the earliest index (deterministic)
+    best_i = max(range(len(scored)), key=lambda i: (scored[i][1], -i))
+    return scored[best_i][0]
+
+
+def build_judge_prompt(script: dict) -> str:
+    return ("Score this short-video script 0-1 on: hook strength; "
+            "does it say something NON-OBVIOUS with an ORIGINAL point of view "
+            "(not a generic template fill); visual-script coherence; payoff. "
+            "Return only a number.\n\n" + json.dumps(script))
+
+
+def clears_floor(scored: list[tuple[dict, float]], floor: float) -> bool:
+    """ADR 0016 D3: the provisional script-time floor — quarantine before any GPU work."""
+    return max(sc for _, sc in scored) >= floor
+
+
+@stage(
+    StageManifest(
+        id="00b", inputs=["data"], outputs=["script"], compute="cpu", capability="llm"
+    )
+)
 def run(ctx: StageContext) -> StageResult:
     data = json.loads(ctx.read_input("data").read_text())
-    # M0: the LLM backend is a fake replaying a fixture; real Qwen lands in M1.
-    _ = ctx.backend("llm").llm(json.dumps({"data": data, "seed": ctx.seed}))
-    # In M0 the canonical script is the golden fixture content the fake encodes.
+    llm = ctx.backend("llm")
+    rng = random.Random(ctx.seed)  # seed -> reproducible best-of-N (ADR 0009)
+    n = int(ctx.config.get("best_of_n", 3))
+
+    scored: list[tuple[dict, float]] = []
+    for i in range(n):
+        script = _generate_script(llm, data, ctx.config, rng.randint(0, 2**31))
+        score = float(llm.llm(build_judge_prompt(script)).strip().split()[0])
+        scored.append((script, score))
+
+    chosen = pick_best(scored)
+    chosen["hook_variants"] = [
+        {"spoken": s["hook"]["spoken"], "score": sc} for s, sc in scored
+    ]
+    if not clears_floor(scored, float(ctx.config.get("script_floor", 0.55))):
+        ctx.quarantine(
+            f"all {n} scripts below the script-time floor (ADR 0016 D3)"
+        )
+    from shared.finance.grounding import GroundingError
+    try:
+        check_claims(chosen.get("claims", []), data)
+    except GroundingError as e:
+        ctx.quarantine(f"numeric grounding failed: {e}")
+    if not chosen.get("disclaimer", "").strip():
+        ctx.quarantine("missing YMYL disclaimer")   # ADR 0004 YMYL (enforced, not just prompted)
+
     out = ctx.write_output("script")
-    out.write_text(json.dumps(_canonical_script(data, ctx.seed)))
-    ctx.log.info("script written", path=str(out))
+    out.write_text(json.dumps(chosen))
+    ctx.log.info("script chosen", n=n, best_score=max(sc for _, sc in scored))
     return StageResult(outputs={"script": out})
 
 
-def _canonical_script(data: dict, seed: int) -> dict:
-    # Minimal valid script.schema instance; M1 replaces with real generation.
-    return {
-        "schema_version": "1.0.0", "format": "ranked_list",
-        "treatment": {"thesis": "t", "angle": "a", "tone": "measured",
-                      "visual_motif": ["m"], "energy_curve": [0.3, 1.0]},
-        "hook": {"spoken": "h", "on_screen_text": "h", "first_frame_visual": "card",
-                 "duration": 1.8},
-        "narration_beats": [{"text": "n"}], "captions": [{"text": "c"}],
-        "music": {"mood": "confident", "energy": "mid"},
-        "platform_meta": {
-            "youtube": {"title": "t", "description": "Not advice.", "hashtags": ["x"]}},
-        "claims": [{"value": "7.2%", "source_ref": "data.cpi"}],
-        "disclaimer": "Not financial advice.",
-        "layout_data": {"kind": "ranked_list",
-            "items": [{"rank": 1, "title": "ACME", "body": "b", "media_query": "q"}]},
-    }
+def _generate_script(llm, data: dict, config: dict, seed: int) -> dict:
+    # Builds the finance-persona prompt (treatment + format + hook + beats + claims with
+    # {value, source_ref}) and parses the model's JSON into a script.schema instance.
+    # Prompt construction is deterministic given (data, config, seed); the model call is live.
+    prompt = _build_prompt(data, config, seed)
+    return llm.llm_json(prompt, seed=seed)  # constrained JSON + retry; seed -> sampler (ADR 0009)
+
+
+def _build_prompt(data: dict, config: dict, seed: int) -> str:
+    persona = config.get("persona", "a rigorous, data-first finance explainer")
+    return (f"You are {persona}. Using ONLY these figures (cite each as "
+            f'{{"value","source_ref"}} into the given keys): {json.dumps(data["market"])}. '
+            f"Recent news: {json.dumps(data['news'])}. Seed={seed}. "
+            "Write a vertical short-video script as JSON matching the script schema "
+            "(format, treatment, hook, narration_beats, captions, music, platform_meta, "
+            "claims, disclaimer, layout_data). Pick the ranked_list format. "
+            "Include a YMYL disclaimer. Make the take NON-OBVIOUS.")

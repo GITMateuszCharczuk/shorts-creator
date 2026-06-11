@@ -10,7 +10,7 @@ DATA_FIX = Path(__file__).parent / "fixtures" / "m1" / "data.json"
 def _seed_fixture(run_dir: Path) -> dict:
     """Copy the data fixture into run_dir as data_fixture.json and return the config dict."""
     (run_dir / "data_fixture.json").write_text(DATA_FIX.read_text())
-    return {"data_fixture": "data_fixture.json"}
+    return {"data_fixture": "data_fixture.json", "best_of_n": 1}
 
 
 def test_full_dag_produces_posts_record(run_dir, tmp_path):

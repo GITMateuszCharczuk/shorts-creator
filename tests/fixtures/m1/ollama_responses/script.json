@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0.0",
+  "format": "ranked_list",
+  "treatment": {"thesis": "3 dividend stocks quietly beating inflation", "angle": "data-first",
+                "tone": "measured", "visual_motif": ["green-candles"], "energy_curve": [0.3, 0.7, 1.0]},
+  "hook": {"spoken": "These 3 stocks quietly beat inflation.", "on_screen_text": "3 that beat inflation",
+           "first_frame_visual": "typographic-card", "duration": 1.8},
+  "narration_beats": [{"text": "Number three.", "prosody": "rising", "emphasis": ["three"]}],
+  "captions": [{"text": "3 that beat inflation", "emphasis": ["beat"]}],
+  "music": {"mood": "confident", "energy": "mid"},
+  "platform_meta": {"youtube": {"title": "3 Stocks Beating Inflation",
+                                "description": "Not financial advice. #investing",
+                                "hashtags": ["investing"]}},
+  "claims": [{"value": "3.2%", "source_ref": "market.cpi_yoy"}],
+  "disclaimer": "Not financial advice.",
+  "layout_data": {"kind": "ranked_list",
+    "items": [{"rank": 1, "title": "ACME", "body": "Yield 4.1%", "media_query": "acme logo", "stat": "4.1%"}]}
+}
