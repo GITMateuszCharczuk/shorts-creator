@@ -26,3 +26,22 @@ def test_budget_blocks_over_limit():
     b.spend("alpha_vantage")
     with pytest.raises(BudgetExceeded):
         b.spend("alpha_vantage")
+
+
+def test_corroboration_empty_topic_never_corroborates():
+    # "" is a substring of everything; an upstream bug clearing the topic must not pass the gate
+    news = [{"title": "A", "source": "Reuters"}, {"title": "B", "source": "AP"}]
+    assert corroborated("", news, min_sources=2) is False
+
+
+def test_corroboration_normalizes_source_case():
+    # "Reuters" vs "reuters" is ONE source, not two
+    news = [{"title": "Inflation cooled", "source": "Reuters"},
+            {"title": "Inflation eases", "source": "reuters "}]
+    assert corroborated("inflation", news, min_sources=2) is False
+
+
+def test_corroboration_tolerates_missing_source_key():
+    news = [{"title": "Inflation cooled"},  # no source -> ignored, not a KeyError
+            {"title": "Inflation eases", "source": "AP"}]
+    assert corroborated("inflation", news, min_sources=2) is False

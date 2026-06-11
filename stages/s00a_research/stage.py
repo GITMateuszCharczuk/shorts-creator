@@ -25,9 +25,13 @@ class Budget:
 def corroborated(topic: str, news: list[dict], min_sources: int = 2) -> bool:
     # ADR 0009: a story needs >=min_sources DISTINCT sources whose item is ABOUT `topic`
     # (title/summary match) — not merely global source diversity across unrelated items.
+    # Substring match is intentionally loose ("inflationary" counts for "inflation").
+    if not topic:
+        return False   # "" is a substring of everything -> every item would count as on-topic
     t = topic.lower()
-    sources = {n["source"] for n in news
-               if t in (n.get("title", "") + " " + n.get("summary", "")).lower()}
+    sources = {str(n.get("source", "")).lower().strip() for n in news
+               if n.get("source")
+               and t in (n.get("title", "") + " " + n.get("summary", "")).lower()}
     return len(sources) >= min_sources
 
 
@@ -37,7 +41,12 @@ def run(ctx: StageContext) -> StageResult:
     # (keeps the slice runnable + the stage CI-testable). Real HTTP client lives here.
     fixture = ctx.config.get("data_fixture")
     if fixture:
-        data = json.loads((ctx.run_dir / fixture).read_text())
+        p = (ctx.run_dir / fixture).resolve()
+        if not p.is_relative_to(ctx.run_dir.resolve()):   # config is data; never escape run_dir
+            raise ValueError(f"00a: data_fixture {fixture!r} escapes the run dir")
+        if not p.exists():
+            raise FileNotFoundError(f"00a: data_fixture {fixture!r} not found in {ctx.run_dir}")
+        data = json.loads(p.read_text())
     else:
         data = _fetch_live(ctx)  # uses httpx + Budget; raises -> ctx.degrade on partial
     out = ctx.write_output("data")
