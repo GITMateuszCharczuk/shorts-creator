@@ -34,7 +34,12 @@ class FixtureBackend:
         return json.loads(self.llm(prompt, seed))   # fixtures are valid JSON by construction
 
     def generate_image(self, prompt: str, seed: int) -> Path:
-        return self._path("generate_image", self._hash(prompt=prompt.encode()), "png")
+        p = self._path("generate_image", self._hash(prompt=prompt.encode()), "png")
+        if not p.exists():
+            # raise HERE so the error names this stage — otherwise the missing file surfaces one
+            # stage later in img2vid with a misattributed message
+            raise MissingFixtureError(f"no generate_image fixture at {p} — add the canned png")
+        return p
 
     def img2vid(self, image: Path, seed: int) -> Path:
         img = Path(image)

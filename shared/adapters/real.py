@@ -91,7 +91,13 @@ class ComfyUIBackend:
         graph = self._build_graph(capability, inputs, seed)  # JSON workflow for /prompt
         r = httpx.post(f"{self._base}/prompt", json={"prompt": graph}, timeout=self._timeout)
         r.raise_for_status()
-        return self._await_output(r.json()["prompt_id"])      # poll /history, return artifact path
+        try:
+            body = r.json()
+        except ValueError as e:   # same hardening class as OllamaBackend._response_text
+            raise ValueError(f"ComfyUI returned a non-JSON body: {r.text[:200]!r}") from e
+        if "prompt_id" not in body:
+            raise ValueError(f"ComfyUI response missing 'prompt_id' (error body? {body})")
+        return self._await_output(body["prompt_id"])          # poll /history, return artifact path
 
     def generate_image(self, prompt: str, seed: int):
         return self._submit("flux", {"prompt": prompt}, seed)
