@@ -3,10 +3,25 @@ def group_words(words: list[dict], max_words: int) -> list[list[dict]]:
 
 
 def _ts(sec: float) -> str:
-    h = int(sec // 3600)
-    m = int((sec % 3600) // 60)
-    s = sec % 60
-    return f"{h}:{m:02d}:{s:05.2f}"
+    # Round in CENTISECOND space, then divmod: %05.2f would round 59.999 -> "60.00", an illegal
+    # ASS seconds value that libass parses wrong or drops the line on. Rounding cs first makes
+    # the carry propagate (59.999 -> 0:01:00.00) and avoids float-floor undershoot (2.07 -> 02.06).
+    cs = round(sec * 100)
+    h, rem = divmod(cs, 360000)
+    m, rem = divmod(rem, 6000)
+    s, c = divmod(rem, 100)
+    return f"{h}:{m:02d}:{s:02d}.{c:02d}"
+
+
+def _bgr(rgb_hex: str) -> str:
+    """ASS colours are &HBBGGRR (BGR). Callers pass natural RGB hex; swap R<->B here."""
+    r, g, b = rgb_hex[0:2], rgb_hex[2:4], rgb_hex[4:6]
+    return f"{b}{g}{r}"
+
+
+def _clean(word: str) -> str:
+    # braces open ASS override blocks; a "{...}" in transcript text would inject styling tags
+    return word.replace("{", "").replace("}", "")
 
 
 def build_ass(words: list[dict], *, max_words: int, font: str, emphasis_hex: str,
@@ -20,12 +35,14 @@ def build_ass(words: list[dict], *, max_words: int, font: str, emphasis_hex: str
         f"Style: Base,{font},72,&H00FFFFFF,&H00000000,&H64000000,1,4,2,2,{margin_v}\n\n"
         "[Events]\nFormat: Layer, Start, End, Style, Text\n"
     )
+    emphasis_bgr = _bgr(emphasis_hex)
     lines = []
     for group in group_words(words, max_words):
         start, end = group[0]["start"], group[-1]["end"]
         text = " ".join(
-            (f"{{\\c&H{emphasis_hex}&}}{w['word']}{{\\c&HFFFFFF&}}" if w.get("emphasis")
-             else w["word"])
+            # {\r} resets to the STYLE colour (not a hardcoded white) so M3 brand kits inherit
+            (f"{{\\c&H{emphasis_bgr}&}}{_clean(w['word'])}{{\\r}}" if w.get("emphasis")
+             else _clean(w["word"]))
             for w in group
         )
         lines.append(f"Dialogue: 0,{_ts(start)},{_ts(end)},Base,{text}")
