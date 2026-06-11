@@ -25,3 +25,25 @@ def test_overnight_window_gate_on_the_box():
                for line in Path("runs/.metrics/timing.jsonl").read_text().splitlines()]
     report = project_batch(timings, n_videos=4, window_hours=8.0, raise_on_bust=True)
     Path("runs/.metrics/throughput_report.json").write_text(json.dumps(report))
+
+
+def test_empty_timings_never_pass_the_gate():
+    with pytest.raises(ThroughputBust):
+        project_batch([], n_videos=4, window_hours=8.0, raise_on_bust=True)
+
+
+def test_partial_run_timings_rejected_when_stage_set_required():
+    with pytest.raises(ThroughputBust, match="missing required stages"):
+        project_batch([{"stage": "00b", "elapsed_s": 1.0}], n_videos=1, window_hours=8.0,
+                      required_stages={"00b", "05"})
+
+
+def test_series_due_slot_honored_first():
+    from shared.planner.batch import plan_batch
+    fmts = [{"id": "surprising_stat", "lane_support": {"reach": True, "monetization": False}}]
+    b = plan_batch(batch_id="b", niches=["finance"], per_niche=1, formats=fmts,
+                   lane_history=[], topic_candidates=["cpi"], ledger_topics=set(),
+                   monetization_share=0.20, master_seed=1,
+                   series_due={"finance": {"format": "market_30s", "lane": "reach"}})
+    v = b["videos"][0]
+    assert v["format"] == "market_30s" and v["lane"] == "reach"   # the fixed series slot
