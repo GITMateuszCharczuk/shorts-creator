@@ -21,3 +21,11 @@ def test_clears_floor_gates_all_bad_batches():
     # ADR 0016 D3: best-of-N SELECTS, but an all-mediocre N must not reach the GPU lane
     assert clears_floor([({"h": 1}, 0.8), ({"h": 2}, 0.4)], floor=0.55) is True
     assert clears_floor([({"h": 1}, 0.4), ({"h": 2}, 0.5)], floor=0.55) is False
+
+
+def test_parse_score_handles_prefixed_replies():
+    from stages.s00b_script.stage import parse_score
+    assert parse_score("0.82") == 0.82
+    assert parse_score("Score: 0.82") == 0.82          # live models often prefix words
+    assert parse_score("I'd give it 0.9 overall") == 0.9
+    assert parse_score("no number here") is None        # caller quarantines

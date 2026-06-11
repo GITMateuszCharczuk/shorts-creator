@@ -1,9 +1,22 @@
 import json
 import random
+import re
 
 from shared.ctx import StageContext, StageResult
 from shared.finance.grounding import check_claims
 from shared.stage import StageManifest, stage
+
+_SCORE = re.compile(r"-?\d*\.?\d+")
+
+
+def parse_score(text: str) -> float | None:
+    """Extract the judge's numeric score from a free-form reply ('0.82', 'Score: 0.82', ...).
+
+    A live model often prefixes words; take the FIRST number. None when no number exists —
+    the caller quarantines (a judge that can't produce a score is a quality failure, not a crash).
+    """
+    m = _SCORE.search(text)
+    return float(m.group()) if m else None
 
 
 def pick_best(scored: list[tuple[dict, float]]) -> dict:
@@ -34,14 +47,18 @@ def run(ctx: StageContext) -> StageResult:
     llm = ctx.backend("llm")
     rng = random.Random(ctx.seed)  # seed -> reproducible best-of-N (ADR 0009)
     n = int(ctx.config.get("best_of_n", 3))
+    if n < 1:
+        raise ValueError(f"00b: best_of_n must be >= 1, got {n}")  # empty batch would crash below
 
     scored: list[tuple[dict, float]] = []
     for i in range(n):
         script = _generate_script(llm, data, ctx.config, rng.randint(0, 2**31))
-        score = float(llm.llm(build_judge_prompt(script)).strip().split()[0])
+        score = parse_score(llm.llm(build_judge_prompt(script)))
+        if score is None:
+            ctx.quarantine("judge returned an unparseable score")
         scored.append((script, score))
 
-    chosen = pick_best(scored)
+    chosen = dict(pick_best(scored))  # shallow copy: never mutate the dict held inside `scored`
     chosen["hook_variants"] = [
         {"spoken": s["hook"]["spoken"], "score": sc} for s, sc in scored
     ]
