@@ -38,4 +38,8 @@ def stage(manifest: StageManifest):
 
 def load_manifest(path: Path) -> StageManifest:
     raw = json.loads(path.read_text())
-    return StageManifest(**raw)
+    try:
+        return StageManifest(**raw)
+    except TypeError as e:
+        # an unknown or missing manifest field -> a CLEAR drift error (still strict, just legible).
+        raise ValueError(f"invalid stage manifest {path}: {e}") from e
