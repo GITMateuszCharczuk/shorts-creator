@@ -4,14 +4,13 @@
   "schema_version": "1.0.0",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "video_id", "platform", "state", "visibility", "timestamp"],
+  "required": ["schema_version", "video_id", "platform", "state", "idempotency_key"],
   "properties": {
     "schema_version": {"type": "string"},
     "video_id": {"type": "string"},
-    "platform": {"enum": ["youtube", "tiktok"]},
-    "state": {"enum": ["intent", "confirmed"]},
-    "visibility": {"enum": ["private", "self_only", "public"]},
-    "remote_post_id": {"type": "string"},
-    "timestamp": {"type": "string"}
+    "platform": {"type": "string", "minLength": 1},
+    "state": {"enum": ["intent", "publishing", "confirmed"]},
+    "idempotency_key": {"type": "string"},
+    "remote_id": {"type": "string"}, "url": {"type": "string"}, "ts": {"type": "string"}
   }
 }

@@ -1,3 +1,4 @@
 {"schema_version": "1.0.0", "video_id": "fin-0001", "platform": "youtube",
- "state": "confirmed", "visibility": "public", "remote_post_id": "yt_abc123",
- "timestamp": "2026-06-09T08:00:00Z"}
+ "state": "confirmed", "idempotency_key": "a66960407cadd62f",
+ "remote_id": "yt_abc123", "url": "https://youtu.be/yt_abc123",
+ "ts": "2026-06-09T08:00:00Z"}
