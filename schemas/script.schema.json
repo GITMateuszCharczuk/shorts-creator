@@ -118,6 +118,94 @@
               "required": ["metrics"],
               "properties": {"metrics": {"type": "object"}}}}
           }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "claim", "why_wrong", "truth"],
+          "properties": {
+            "kind": {"const": "myth_buster"},
+            "claim": {"type": "object", "additionalProperties": false,
+                      "required": ["text"], "properties": {"text": {"type": "string"}}},
+            "why_wrong": {"type": "object", "additionalProperties": false,
+                          "required": ["text"], "properties": {"text": {"type": "string"}}},
+            "truth": {"type": "object", "additionalProperties": false,
+                      "required": ["text"], "properties": {"text": {"type": "string"}}}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "concept", "steps", "takeaway"],
+          "properties": {
+            "kind": {"const": "explainer"},
+            "concept": {"type": "object", "additionalProperties": false,
+                        "required": ["title"], "properties": {"title": {"type": "string"}}},
+            "steps": {"type": "array", "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["label", "value"],
+              "properties": {"label": {"type": "string"}, "value": {"type": "string"}}}},
+            "takeaway": {"type": "object", "additionalProperties": false,
+                         "required": ["text"], "properties": {"text": {"type": "string"}}}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "event", "implications", "takeaway"],
+          "properties": {
+            "kind": {"const": "news_reaction"},
+            "event": {"type": "object", "additionalProperties": false,
+                      "required": ["headline", "source_ref"],
+                      "properties": {"headline": {"type": "string"}, "source_ref": {"type": "string"}}},
+            "implications": {"type": "array", "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["text"],
+              "properties": {"text": {"type": "string"}}}},
+            "takeaway": {"type": "object", "additionalProperties": false,
+                         "required": ["text"], "properties": {"text": {"type": "string"}}}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "setup", "mistake", "cost", "lesson"],
+          "properties": {
+            "kind": {"const": "cautionary_tale"},
+            "setup": {"type": "object", "additionalProperties": false,
+                      "required": ["text"], "properties": {"text": {"type": "string"}}},
+            "mistake": {"type": "object", "additionalProperties": false,
+                        "required": ["text"], "properties": {"text": {"type": "string"}}},
+            "cost": {"type": "object", "additionalProperties": false,
+                     "required": ["stat"], "properties": {"stat": {"type": "string"}}},
+            "lesson": {"type": "object", "additionalProperties": false,
+                       "required": ["text"], "properties": {"text": {"type": "string"}}}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "stat", "unpack", "so_what"],
+          "properties": {
+            "kind": {"const": "surprising_stat"},
+            "stat": {"type": "object", "additionalProperties": false,
+                     "required": ["value", "source_ref"],
+                     "properties": {"value": {"type": "string"}, "source_ref": {"type": "string"}}},
+            "unpack": {"type": "object", "additionalProperties": false,
+                       "required": ["text"], "properties": {"text": {"type": "string"}}},
+            "so_what": {"type": "object", "additionalProperties": false,
+                        "required": ["text"], "properties": {"text": {"type": "string"}}}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "steps"],
+          "properties": {
+            "kind": {"const": "how_to_steps"},
+            "steps": {"type": "array", "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["n", "title", "body"],
+              "properties": {
+                "n": {"type": "integer"},
+                "title": {"type": "string"},
+                "body": {"type": "string"}
+              }}}
+          }
         }
       ]
     }
