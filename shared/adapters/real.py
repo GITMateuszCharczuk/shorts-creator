@@ -20,11 +20,22 @@ class OllamaBackend:
             payload["options"] = {"seed": seed, "temperature": 0.8}  # seed the SAMPLER (ADR 0009)
         return (f"{self._base}/api/generate", payload)
 
+    def _response_text(self, r: httpx.Response) -> str:
+        # an Ollama error body ({"error": ...}) or a non-JSON body must become a CLEAR error,
+        # not a bare KeyError/JSONDecodeError escaping to the caller.
+        try:
+            body = r.json()
+        except ValueError as e:
+            raise ValueError(f"Ollama returned a non-JSON body: {r.text[:200]!r}") from e
+        if "response" not in body:
+            raise ValueError(f"Ollama response missing 'response' (error body? {body})")
+        return body["response"]
+
     def llm(self, prompt: str, seed: int | None = None) -> str:
         url, payload = self._request(prompt, seed)
         r = httpx.post(url, json=payload, timeout=self._timeout)
         r.raise_for_status()
-        return r.json()["response"]
+        return self._response_text(r)
 
     def llm_json(self, prompt: str, seed: int | None = None) -> dict:
         """Constrained decoding (Ollama format=json) + ONE bounded repair retry —
@@ -35,10 +46,9 @@ class OllamaBackend:
         for _ in range(2):
             r = httpx.post(url, json=payload, timeout=self._timeout)
             r.raise_for_status()
-            text = r.json()["response"]
             try:
-                return json.loads(text)
-            except json.JSONDecodeError as e:
+                return json.loads(self._response_text(r))
+            except (json.JSONDecodeError, ValueError) as e:
                 last_err = e
                 payload["prompt"] = (f"{prompt}\n\nYour previous output was invalid JSON "
                                      f"({e}). Return ONLY valid JSON.")

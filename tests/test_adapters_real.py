@@ -38,6 +38,51 @@ def test_real_module_imports_without_host_only_deps():
     KokoroBackend(out_dir="/tmp/x")                          # construct without kokoro present
 
 
+class _FakeResp:
+    def __init__(self, body, text=""):
+        self._body = body
+        self.text = text
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        if self._body is _NON_JSON:
+            raise ValueError("not json")
+        return self._body
+
+
+_NON_JSON = object()
+
+
+def test_llm_clear_error_on_ollama_error_shape(monkeypatch):
+    # a 200 with an error body must surface a clear ValueError, not a bare KeyError on ["response"]
+    be = OllamaBackend(base_url="http://h:11434", model="m")
+    monkeypatch.setattr("shared.adapters.real.httpx.post",
+                        lambda *a, **k: _FakeResp({"error": "model not found"}))
+    with pytest.raises(ValueError):
+        be.llm("hi")
+
+
+def test_llm_json_retries_then_raises_clear_error(monkeypatch):
+    be = OllamaBackend(base_url="http://h:11434", model="m")
+    calls = []
+    monkeypatch.setattr("shared.adapters.real.httpx.post",
+                        lambda *a, **k: calls.append(1) or _FakeResp({"response": "not json{"}))
+    with pytest.raises(ValueError):
+        be.llm_json("give me json")
+    assert len(calls) == 2   # one repair retry, then raise (bounded)
+
+
+def test_llm_json_succeeds_first_try(monkeypatch):
+    be = OllamaBackend(base_url="http://h:11434", model="m")
+    calls = []
+    monkeypatch.setattr("shared.adapters.real.httpx.post",
+                        lambda *a, **k: calls.append(1) or _FakeResp({"response": '{"ok": 1}'}))
+    assert be.llm_json("x") == {"ok": 1}
+    assert len(calls) == 1   # success returns immediately, no wasted retry
+
+
 @pytest.mark.integration
 def test_ollama_llm_live():
     be = OllamaBackend(base_url="http://127.0.0.1:11434", model="qwen2.5:14b-instruct")
