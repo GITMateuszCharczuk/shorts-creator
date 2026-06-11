@@ -1,11 +1,41 @@
+import json
+
 from shared.ctx import StageContext, StageResult
+from shared.finance.normalize import normalize
 from shared.stage import StageManifest, stage
 
 
-@stage(StageManifest(id="02", inputs=["script"], outputs=["narration"], compute="cpu",
-                     capability="tts"))
+def spoken_text(script: dict) -> str:
+    beats = [normalize(b["text"]) for b in script.get("narration_beats", [])]
+    return " ".join(beats)
+
+
+def keyword_in_opening(script: dict, window_beats: int = 1) -> bool:
+    # ADR 0006: the primary keyword should be SPOKEN in the opening lines (discoverability).
+    kw = script.get("primary_keyword", "").lower()
+    if not kw:
+        return False
+    opening = " ".join(
+        b["text"] for b in script.get("narration_beats", [])[:window_beats]
+    ).lower()
+    return kw in opening
+
+
+@stage(
+    StageManifest(
+        id="02", inputs=["script"], outputs=["narration"], compute="cpu", capability="tts"
+    )
+)
 def run(ctx: StageContext) -> StageResult:
-    ctx.backend("tts").tts("narration text")  # exercise the seam (fake returns a path)
+    script = json.loads(ctx.read_input("script").read_text())
+    if not keyword_in_opening(script):
+        ctx.log.warning(
+            "primary keyword not in opening lines", keyword=script.get("primary_keyword")
+        )
+    text = spoken_text(script)
+    wav = ctx.backend("tts").tts(text)  # KokoroBackend writes narration.wav
     out = ctx.write_output("narration")
-    out.write_bytes(b"RIFF\x00\x00\x00\x00WAVEfake-narration")  # placeholder wav (M0)
+    if wav != out:
+        out.write_bytes(wav.read_bytes())
+    ctx.log.info("narration synthesized", chars=len(text))
     return StageResult(outputs={"narration": out})
