@@ -1,0 +1,1 @@
+{"id": "03", "inputs": ["script", "narration"], "outputs": ["captions"], "compute": "cpu"}

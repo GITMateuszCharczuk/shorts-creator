@@ -1,0 +1,1 @@
+{"id": "01b", "inputs": ["script", "scenes_stock"], "outputs": ["scenes_gen"], "compute": "gpu", "capability": "generate_image"}

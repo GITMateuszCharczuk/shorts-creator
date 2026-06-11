@@ -1,0 +1,1 @@
+{"id": "06", "inputs": ["render", "qc", "creative_qc", "script"], "outputs": ["posts", "feature_record"], "compute": "cpu", "capability": "distribution"}

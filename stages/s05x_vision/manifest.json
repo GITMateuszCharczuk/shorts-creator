@@ -1,0 +1,1 @@
+{"id": "05x", "inputs": ["render", "script"], "outputs": ["vision"], "compute": "gpu", "capability": "vlm_judge"}

@@ -1,0 +1,1 @@
+{"id": "02", "inputs": ["script"], "outputs": ["narration"], "compute": "cpu", "capability": "tts"}

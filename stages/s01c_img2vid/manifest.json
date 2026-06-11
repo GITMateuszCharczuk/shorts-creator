@@ -1,0 +1,1 @@
+{"id": "01c", "inputs": ["scenes_gen"], "outputs": ["scenes_motion"], "compute": "gpu", "capability": "img2vid"}

@@ -1,0 +1,1 @@
+{"id": "05c", "inputs": ["render", "vision", "script"], "outputs": ["creative_qc"], "compute": "cpu", "capability": "llm"}

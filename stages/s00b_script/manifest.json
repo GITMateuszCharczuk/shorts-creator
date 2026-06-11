@@ -1,0 +1,1 @@
+{"id": "00b", "inputs": ["data"], "outputs": ["script"], "compute": "cpu", "capability": "llm"}
