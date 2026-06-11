@@ -27,15 +27,20 @@ def test_safe_rect_tiktok_insets_are_tighter_than_youtube():
 
 
 def test_delta_manifest_still_schema_validates():
-    # platform_delta injects a top-level "cta" — the schema must accept the DELTA'd manifest
+    # platform_delta injects a top-level "cta", inject_finishing a top-level "loop" + an end_card
+    # region + markers.end_card — the schema must accept the DELTA'd AND FINISHED manifest
     # (an M4/M5 gate re-validating it must not fail on additionalProperties)
     import json
     from pathlib import Path
 
+    from shared.layout.finishing import inject_finishing
     from shared.schema import SchemaRegistry
     golden = json.loads((Path(__file__).parent / "fixtures" / "m2"
                          / "render_manifest_golden.json").read_text())
-    SchemaRegistry().validate("render_manifest", platform_delta(golden, "tiktok"))
+    delta = platform_delta(golden, "tiktok")
+    SchemaRegistry().validate("render_manifest", delta)
+    finished = inject_finishing(delta, brand_kit={}, seed=3, platform="tiktok")
+    SchemaRegistry().validate("render_manifest", finished)
 
 
 def test_scene_spans_zero_beats_returns_empty():

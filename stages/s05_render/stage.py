@@ -5,6 +5,7 @@ from pathlib import Path
 
 from shared.ctx import StageContext, StageResult
 from shared.layout.encode import build_nvenc_cmd
+from shared.layout.finishing import assert_cut_rate, build_thumb_cmd, inject_finishing
 from shared.layout.remotion import render_manifest_to_frames
 from shared.layout.resolve import resolve
 from shared.layout.schema_load import load_layout
@@ -31,9 +32,18 @@ def _encode(*, frames_glob: str, audio: Path, fps: int, out: Path) -> None:
         raise RuntimeError(f"nvenc encode failed (exit {r.returncode}):\n{r.stderr[-2000:]}")
 
 
+def _thumbnail(render: Path, out: Path) -> None:
+    # the cover IS frame 1 of the primary cut (ADR 0005 D3) — grabbed, not designed twice
+    r = subprocess.run(build_thumb_cmd(render=str(render), out=str(out)),
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        # surface the ffmpeg stderr tail — a bare CalledProcessError gives the conductor nothing
+        raise RuntimeError(f"thumbnail grab failed (exit {r.returncode}):\n{r.stderr[-2000:]}")
+
+
 @stage(StageManifest(id="05", inputs=["script", "assets", "captions",
                                       "word_timings", "music", "data"],
-                     outputs=["render"], compute="cpu"))
+                     outputs=["render", "thumbnail"], compute="cpu"))
 def run(ctx: StageContext) -> StageResult:
     script = json.loads(ctx.read_input("script").read_text())
     layout = load_layout(ctx.run_dir / f"formats/{script['format']}/layout.json")
@@ -59,15 +69,22 @@ def run(ctx: StageContext) -> StageResult:
             # the per-platform workdir copy is rmtree'd right after encode
             (ctx.run_dir / "render_manifest.json").write_text(
                 json.dumps(manifest, sort_keys=True))
+        manifest = platform_delta(manifest, plat)
+        # render finishing (ADR 0005 D4 / 0006 D5/D8): end-card overlay + loop bridge, then the
+        # cut-rate guard — a slideshow-paced manifest must fail loudly, not render.
+        manifest = inject_finishing(manifest, brand_kit=brand_kit, seed=ctx.seed, platform=plat)
+        assert_cut_rate(manifest)
         workdir = out.parent / plat
-        frames = render_manifest_to_frames(platform_delta(manifest, plat), workdir)
+        frames = render_manifest_to_frames(manifest, workdir)
         _encode(frames_glob=str(frames[0].parent / "%05d.png"),
                 audio=ctx.read_input("music"),   # the 04 duck+loudnorm MIX
                 fps=30, out=cut)
         shutil.rmtree(workdir)    # frames are ~10 GB/cut — delete immediately after encode
+        if primary is None:       # the PRIMARY cut's hook frame is the cover (ADR 0005 D3)
+            _thumbnail(cut, ctx.write_output("thumbnail"))
         primary = primary or cut
         ctx.log.info("cut rendered", scenes=len(manifest["scenes"]), platform=plat)
-    return StageResult(outputs={"render": primary})
+    return StageResult(outputs={"render": primary, "thumbnail": ctx.write_output("thumbnail")})
 
 
 def _beats_from_script(script: dict) -> list[dict]:

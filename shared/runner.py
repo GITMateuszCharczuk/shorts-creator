@@ -89,5 +89,5 @@ def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path,
 
 def _default_path(name: str) -> str:
     binary = {"narration": "narration.wav", "music": "music.wav", "render": "renders/youtube.mp4",
-              "captions": "captions.ass"}
+              "thumbnail": "renders/thumbnail.jpg", "captions": "captions.ass"}
     return binary.get(name, f"{name}.json")

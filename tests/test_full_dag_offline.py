@@ -41,8 +41,13 @@ def _fake_compositor(monkeypatch):
     def fake_encode(*, frames_glob: str, audio: Path, fps: int, out: Path) -> None:
         Path(out).write_bytes(b"\x00\x00\x00\x18ftypmp42fake")
 
+    def fake_thumbnail(render: Path, out: Path) -> None:
+        # real ffmpeg can't grab a frame off the fake mp4 bytes; content is irrelevant here
+        Path(out).write_bytes(_PLACEHOLDER_PNG)
+
     monkeypatch.setattr(s05, "render_manifest_to_frames", fake_render)
     monkeypatch.setattr(s05, "_encode", fake_encode)
+    monkeypatch.setattr(s05, "_thumbnail", fake_thumbnail)
 
 
 @pytest.fixture(autouse=True)

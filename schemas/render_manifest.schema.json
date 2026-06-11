@@ -111,6 +111,10 @@
     "cta": {
       "type": "object",
       "description": "per-platform CTA delta (platform_delta injects it)"
+    },
+    "loop": {
+      "type": "object",
+      "description": "seamless-loop bridge flag (inject_finishing adds it, ADR 0006 D5)"
     }
   }
 }

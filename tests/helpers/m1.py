@@ -153,10 +153,18 @@ def run_m1_slice(*, run_dir: Path, seed: int, fixtures: Path, timing_log: Path) 
         def _fake_encode(*, frames_glob: str, audio: Path, fps: int, out: Path) -> None:
             Path(out).write_bytes(b"\x00\x00\x00\x18ftypmp42fake")
 
+        def _fake_thumbnail(render: Path, out: Path) -> None:
+            from stages.s01d_upscale.stage import _PLACEHOLDER_PNG
+
+            # real ffmpeg can't grab a frame off the fake mp4 bytes; content is irrelevant
+            Path(out).write_bytes(_PLACEHOLDER_PNG)
+
         orig_render, orig_encode = s05.render_manifest_to_frames, s05._encode
+        orig_thumb = s05._thumbnail
         try:
             s05.render_manifest_to_frames = _fake_render
             s05._encode = _fake_encode
+            s05._thumbnail = _fake_thumbnail
             produced.update(
                 _p(
                     run_05(
@@ -170,7 +178,8 @@ def run_m1_slice(*, run_dir: Path, seed: int, fixtures: Path, timing_log: Path) 
                                 "music": "music.wav",
                                 "data": "data.json",
                             },
-                            {"render": "renders/youtube.mp4"},
+                            {"render": "renders/youtube.mp4",
+                             "thumbnail": "renders/thumbnail.jpg"},
                             {},
                         )
                     )
@@ -179,6 +188,7 @@ def run_m1_slice(*, run_dir: Path, seed: int, fixtures: Path, timing_log: Path) 
         finally:
             s05.render_manifest_to_frames = orig_render
             s05._encode = orig_encode
+            s05._thumbnail = orig_thumb
     return produced
 
 
