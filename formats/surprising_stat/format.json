@@ -1,0 +1,3 @@
+{"schema_version": "1.0.0", "id": "surprising_stat",
+ "beat_pattern": ["hook", "stat", "unpack", "so_what", "cta"],
+ "lane_support": {"reach": true, "monetization": true}, "data_shape": "surprising_stat"}

@@ -1,0 +1,3 @@
+{"schema_version": "1.0.0", "id": "news_reaction",
+ "beat_pattern": ["hook", "event", "implication", "implication", "takeaway", "cta"],
+ "lane_support": {"reach": true, "monetization": true}, "data_shape": "news_reaction"}

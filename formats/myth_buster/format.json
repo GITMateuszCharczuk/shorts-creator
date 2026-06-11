@@ -1,0 +1,3 @@
+{"schema_version": "1.0.0", "id": "myth_buster",
+ "beat_pattern": ["hook", "claim", "truth", "cta"],
+ "lane_support": {"reach": true, "monetization": true}, "data_shape": "myth_buster"}

@@ -1,0 +1,3 @@
+{"schema_version": "1.0.0", "id": "cautionary_tale",
+ "beat_pattern": ["hook", "setup", "mistake", "cost", "lesson", "cta"],
+ "lane_support": {"reach": false, "monetization": true}, "data_shape": "cautionary_tale"}

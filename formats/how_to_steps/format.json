@@ -1,0 +1,3 @@
+{"schema_version": "1.0.0", "id": "how_to_steps",
+ "beat_pattern": ["hook", "step", "step", "step", "cta"],
+ "lane_support": {"reach": true, "monetization": true}, "data_shape": "how_to_steps"}

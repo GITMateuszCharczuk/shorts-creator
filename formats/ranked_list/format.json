@@ -1,0 +1,3 @@
+{"schema_version": "1.0.0", "id": "ranked_list",
+ "beat_pattern": ["hook", "item", "item", "item", "cta"],
+ "lane_support": {"reach": true, "monetization": true}, "data_shape": "ranked_list"}
