@@ -1,30 +1,28 @@
 #!/usr/bin/env bash
 #
-# up.sh — turn on the WHOLE system with one command.
+# up.sh — turn on the host services with one command (runner-first, ADR 0015).
 #
-# Brings up, in dependency order, the three planes the pipeline needs:
+# Brings up, in dependency order, the two host planes the conductor needs:
 #   1. host GPU plane — ComfyUI (FLUX/LTX/ESRGAN/RIFE/GFPGAN graphs)
 #   2. host LLM plane — Ollama serving the per-batch model
-#   3. control plane  — the kind cluster + Argo + the host-backed PVC
-# …then verifies a pod can actually reach the host endpoints (the ADR 0001
-# cluster<->host contract) before declaring the system ready.
+# …then runs the conductor's own preflight as the wire check. No cluster:
+# the Python conductor (`python -m shorts.run_batch`) orchestrates the DAG
+# directly; the k8s profile is the deferred M7 path (ADR 0015a).
 #
-# Idempotent: re-running skips anything already healthy. Pair with down.sh
-# to stop, and trigger.sh to kick a batch by hand.
-#
-# This is the convenience wrapper over the M0 `make` targets; where a piece is
-# not wired yet it is called through its make target so there is a single
-# source of truth (see Makefile). Adjust the CONFIG block for your machine.
+# Idempotent: re-running skips anything already healthy. Pidfiles + logs live
+# under .run/ so down.sh stops exactly what we started. Pair with down.sh to
+# stop, and trigger.sh to kick a batch by hand.
 
 set -euo pipefail
 
 # ---------- CONFIG (edit for your machine) ----------------------------------
 COMFYUI_HOST="${COMFYUI_HOST:-127.0.0.1}"
 COMFYUI_PORT="${COMFYUI_PORT:-8188}"
+COMFYUI_DIR="${COMFYUI_DIR:-$HOME/ComfyUI}"           # checkout that contains main.py
+COMFYUI_PY="${COMFYUI_PY:-$COMFYUI_DIR/.venv/bin/python}"
 OLLAMA_HOST="${OLLAMA_HOST:-127.0.0.1}"
 OLLAMA_PORT="${OLLAMA_PORT:-11434}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5:14b-instruct}"
-KIND_CLUSTER="${KIND_CLUSTER:-shorts}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"   # seconds to wait for each service
 # ----------------------------------------------------------------------------
 
@@ -52,8 +50,7 @@ wait_http() {
 
 # ---------- 0. preflight -----------------------------------------------------
 log "preflight: checking dependencies"
-need docker; need kind; need kubectl; need curl
-command -v argo  >/dev/null 2>&1 || warn "argo CLI not found — scripts/trigger.sh will need it to submit batches"
+need curl
 command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L || warn "nvidia-smi not found — GPU plane may be unavailable"
 ok "dependencies present"
 
@@ -62,7 +59,11 @@ if curl -fsS -o /dev/null "http://${COMFYUI_HOST}:${COMFYUI_PORT}/system_stats" 
   ok "ComfyUI already up"
 else
   log "starting ComfyUI (host GPU plane)"
-  make host-comfyui-up                     # M0: starts ComfyUI + ensures graphs/models
+  [ -f "$COMFYUI_DIR/main.py" ] || die "ComfyUI not found at $COMFYUI_DIR (set COMFYUI_DIR)"
+  [ -x "$COMFYUI_PY" ] || COMFYUI_PY="$(command -v python3)" || die "no python for ComfyUI"
+  (cd "$COMFYUI_DIR" && nohup "$COMFYUI_PY" main.py \
+      --listen "$COMFYUI_HOST" --port "$COMFYUI_PORT" >"$RUNDIR/comfyui.log" 2>&1 &
+   echo $! > "$RUNDIR/comfyui.pid")              # so down.sh stops this exact process
   wait_http "http://${COMFYUI_HOST}:${COMFYUI_PORT}/system_stats" "ComfyUI (process)"
   # /system_stats answers before models+custom-nodes finish loading; also wait for the
   # node registry so a batch never fires against a not-actually-ready ComfyUI.
@@ -74,12 +75,9 @@ if curl -fsS -o /dev/null "http://${OLLAMA_HOST}:${OLLAMA_PORT}/api/version" 2>/
   ok "Ollama already up"
 else
   log "starting Ollama (host LLM plane)"
-  if command -v ollama >/dev/null 2>&1; then
-    nohup ollama serve >"$RUNDIR/ollama.log" 2>&1 &
-    echo $! > "$RUNDIR/ollama.pid"         # so down.sh stops this exact process
-  else
-    make host-llm-up                       # M0: fallback bring-up if ollama not on PATH
-  fi
+  need ollama
+  nohup ollama serve >"$RUNDIR/ollama.log" 2>&1 &
+  echo $! > "$RUNDIR/ollama.pid"                 # so down.sh stops this exact process
   wait_http "http://${OLLAMA_HOST}:${OLLAMA_PORT}/api/version" "Ollama"
 fi
 log "ensuring model present: ${OLLAMA_MODEL}"
@@ -89,26 +87,10 @@ installed_models="$(ollama list 2>/dev/null | awk 'NR>1 {print $1}')" || true
 grep -qx "${OLLAMA_MODEL}" <<<"${installed_models}" || ollama pull "${OLLAMA_MODEL}"
 ok "LLM model ready"
 
-# ---------- 3. control plane: kind + Argo + PVC -----------------------------
-if kind get clusters 2>/dev/null | grep -qx "${KIND_CLUSTER}"; then
-  # NB: "exists" only skips cluster *creation*; it does not repair a half-installed
-  # Argo/PVC from a prior failed run. If the wire check below fails, `scripts/down.sh
-  # --purge` then re-run is the clean path.
-  ok "kind cluster '${KIND_CLUSTER}' already exists"
-else
-  log "creating kind cluster + Argo + host-backed PVC"
-  make cluster-up                          # M0: kind create + argo install + PVC (no GPU device-plugin)
-fi
-kubectl wait --for=condition=Available deployment --all -n argo --timeout="${HEALTH_TIMEOUT}s" 2>/dev/null \
-  || warn "argo deployments not all Available yet — check 'kubectl get pods -n argo'"
-
-# ---------- 3b. build + load stage images -----------------------------------
-log "building stage images and loading them into the cluster"
-make build                                 # M0: build stages/* images + kind load (no images => empty DAG)
-
-# ---------- 4. wire check: pod -> host endpoints ----------------------------
-log "verifying cluster→host reachability (ADR 0001 contract)"
-make wire                                  # M0: runs a pod that curls ComfyUI + Ollama over the gateway
+# ---------- 3. wire check: the conductor's own preflight --------------------
+log "verifying conductor→host reachability (the conductor's preflight, ADR 0015)"
+"${VENV:-$ROOT/.venv}/bin/python" -m shorts.run_batch --preflight-only \
+  || die "conductor preflight failed — see output above"
 
 # ---------- done -------------------------------------------------------------
 ok "system is UP"
@@ -116,8 +98,8 @@ cat <<EOF
 
   Next:
     scripts/trigger.sh                       # run a batch now (manual trigger)
-    scripts/trigger.sh --dry-run             # stage everything, post nothing
     scripts/down.sh                          # stop the system (host-backed data persists)
 
-  The CronWorkflow also fires the daily batch automatically — trigger.sh is for on-demand runs.
+  The systemd timer (deploy/host/shorts-batch.timer) fires the nightly batch
+  automatically — trigger.sh is for on-demand runs (same conductor, ADR 0015 D3).
 EOF

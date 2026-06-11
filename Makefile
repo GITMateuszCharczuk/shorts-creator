@@ -31,8 +31,8 @@ help: ## list targets (grouped by section)
 ## ---- one-command lifecycle (wrappers over scripts/) ----
 up: ## turn the whole system on with one command
 	@scripts/up.sh
-down: ## stop the system (add ARGS=--purge to delete the cluster)
-	@scripts/down.sh $(ARGS)
+down: ## stop the host services (data persists)
+	@scripts/down.sh
 trigger: ## manually trigger a batch now (ARGS forwarded to trigger.sh)
 	@scripts/trigger.sh $(ARGS)
 dry-run: ## manually trigger a batch that posts nothing
@@ -53,7 +53,8 @@ cluster-up: ## [deferred profile] kind cluster + the k8s profile (designed in AD
 build:      ## build the single shared image (the CI-proven deployable artifact, ADR 0015)
 	@echo "M4: docker build the shared image (entrypoint selects stage/runner)"; exit 1
 wire:       ## verify the conductor reaches host ComfyUI/LLM over localhost (ADR 0015)
-	@echo "M0: curl ComfyUI /system_stats + Ollama /api/version from the WSL2 distro"; exit 1
+	@curl -fsS http://127.0.0.1:8188/system_stats >/dev/null && echo "ComfyUI reachable (:8188/system_stats)"
+	@curl -fsS http://127.0.0.1:11434/api/version >/dev/null && echo "Ollama reachable (:11434/api/version)"
 
 ## ---- runs ----
 submit-batch: ## scheduled-equivalent batch submit (CronWorkflow uses the same template)

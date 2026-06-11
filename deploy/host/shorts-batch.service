@@ -1,0 +1,11 @@
+[Unit]
+Description=shorts-creator nightly batch (the conductor, ADR 0015)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=DATA_ROOT=/srv/shorts-data
+WorkingDirectory=/srv/shorts-creator
+ExecStart=/srv/shorts-creator/.venv/bin/python -m shorts.run_batch
+TimeoutStartSec=10h
