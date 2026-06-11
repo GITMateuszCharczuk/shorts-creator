@@ -7,6 +7,13 @@ VISUAL_LANE = ["01a", "01b", "01c", "01d", "01e"]
 AUDIO_LANE = ["02", "03", "04"]
 
 
+def default_stage_order() -> list[str]:
+    """Canonical 15-stage execution order (ADR 0011). Stages are stage-major (GPU-swap-minimizing).
+    Vision (05x) -> safety (05b) -> calibration (05c) -> distribute (06) order is significant."""
+    return ["00a", "00b", "01a", "01b", "01c", "01d", "01e",
+            "02", "03", "04", "05", "05x", "05b", "05c", "06"]
+
+
 class SystemicFailure(Exception):
     """Consecutive failures across videos within ONE stage — the host-down pattern, not
     per-video bad luck (ADR 0003 D4): halt the batch instead of failing N videos."""
@@ -33,7 +40,8 @@ def execute_batch(batch: dict, *, stage_order: list[str],
             # cause already-completed videos to be re-run (plan bug). Fixed to include "done"
             # so boot-reconciler resume semantics are correct: a video that reached "done" in
             # a prior run (and was not reset to "pending") is never re-executed.
-            if v["status"] in ("quarantined", "failed", "done"):
+            # "held" is also closed within a batch — the review CLI releases it for the next run.
+            if v["status"] in ("quarantined", "failed", "done", "held"):
                 continue                            # the video's domain is closed
             try:
                 out = run_stage(vid, stage_id)

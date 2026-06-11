@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from shared.ctx import Degraded, Quarantined, StageContext
-from shared.exitcodes import EXIT_DEGRADED, EXIT_OK, EXIT_QUARANTINED
+from shared.exitcodes import EXIT_DEGRADED, EXIT_HELD, EXIT_OK, EXIT_QUARANTINED
 from shared.stage import REGISTRY
 from stages.registry import load_all
 
@@ -30,8 +30,11 @@ def main() -> int:
                       config=cfg.get("stage_config", {}),
                       input_paths=cfg["input_paths"], output_paths=cfg["output_paths"],
                       backends=_build_backends(cfg, job))
+    from stages.s06_distribute.stage import HeldForReview
     try:
         reg.fn(ctx)
+    except HeldForReview:
+        return EXIT_HELD
     except Quarantined:
         return EXIT_QUARANTINED
     except Degraded:

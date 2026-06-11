@@ -62,7 +62,8 @@
               "running",
               "done",
               "quarantined",
-              "failed"
+              "failed",
+              "held"
             ]
           }
         }
