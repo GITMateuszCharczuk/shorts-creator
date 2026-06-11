@@ -1,0 +1,4 @@
+{"beats": [
+  {"kind": "item", "item": {"rank": 1, "title": "ACME", "body": "Yield 4.1%", "media_query": "acme", "stat": "4.1%"}},
+  {"kind": "item", "item": {"rank": 2, "title": "BETA", "body": "Yield 3.7%", "media_query": "beta", "stat": "3.7%"}}
+]}

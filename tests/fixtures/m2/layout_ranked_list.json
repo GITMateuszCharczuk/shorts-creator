@@ -1,0 +1,91 @@
+{
+  "schema_version": "1.0.0",
+  "format": "ranked_list",
+  "beat_pattern": [
+    "hook",
+    "item",
+    "item",
+    "item",
+    "cta"
+  ],
+  "regions": [
+    {
+      "name": "bg_media",
+      "bbox": {
+        "colA": 1,
+        "colB": 12,
+        "y": 0.0,
+        "h": 1.0
+      },
+      "z": 0,
+      "primitive": {
+        "type": "MediaZone",
+        "params": {
+          "fit": "cover",
+          "kenburns": true
+        }
+      },
+      "bind": "item.media_query",
+      "enter": "fade",
+      "exit": "fade",
+      "style": "brand.media"
+    },
+    {
+      "name": "rank_badge",
+      "bbox": {
+        "colA": 1,
+        "colB": 3,
+        "anchor": "badge"
+      },
+      "z": 3,
+      "primitive": {
+        "type": "Badge",
+        "params": {
+          "shape": "circle"
+        }
+      },
+      "bind": "item.rank",
+      "enter": "pop",
+      "exit": "fade",
+      "style": "brand.badge"
+    },
+    {
+      "name": "item_title",
+      "bbox": {
+        "colA": 1,
+        "colB": 12,
+        "anchor": "headline"
+      },
+      "z": 2,
+      "primitive": {
+        "type": "TextCard",
+        "params": {
+          "role": "display"
+        }
+      },
+      "bind": "item.title",
+      "enter": "slide_in_up",
+      "exit": "fade",
+      "style": "brand.title"
+    },
+    {
+      "name": "item_stat",
+      "bbox": {
+        "colA": 1,
+        "colB": 12,
+        "anchor": "stat"
+      },
+      "z": 2,
+      "primitive": {
+        "type": "TextCard",
+        "params": {
+          "role": "numeric"
+        }
+      },
+      "bind": "item.stat",
+      "enter": "count_up",
+      "exit": "fade",
+      "style": "brand.stat"
+    }
+  ]
+}
