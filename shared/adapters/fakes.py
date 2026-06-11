@@ -5,6 +5,10 @@ from shared.adapters.types import Judgment, PostMeta, PostReceipt, Visibility
 from shared.hashing import input_hash, sha256_bytes
 
 
+class MissingFixtureError(FileNotFoundError):
+    """No fixture for this (capability, input_hash) — add one under fixtures_dir/<capability>/."""
+
+
 class FixtureBackend:
     """Replays canned outputs from fixtures_dir/<capability>/<input_hash>.<ext>."""
 
@@ -21,7 +25,10 @@ class FixtureBackend:
         return self._dir / capability / f"{h}.{ext}"
 
     def llm(self, prompt: str, seed: int | None = None) -> str:
-        return self._path("llm", self._hash(prompt=prompt.encode()), "txt").read_text()
+        p = self._path("llm", self._hash(prompt=prompt.encode()), "txt")
+        if not p.exists():
+            raise MissingFixtureError(f"no llm fixture at {p} — add the canned response")
+        return p.read_text()
 
     def llm_json(self, prompt: str, seed: int | None = None) -> dict:
         return json.loads(self.llm(prompt, seed))   # fixtures are valid JSON by construction
@@ -30,7 +37,10 @@ class FixtureBackend:
         return self._path("generate_image", self._hash(prompt=prompt.encode()), "png")
 
     def img2vid(self, image: Path, seed: int) -> Path:
-        return self._path("img2vid", self._hash(image=Path(image).read_bytes()), "mp4")
+        img = Path(image)
+        if not img.exists():
+            raise MissingFixtureError(f"img2vid input {img} missing — upstream fixture absent")
+        return self._path("img2vid", self._hash(image=img.read_bytes()), "mp4")
 
     def tts(self, text: str) -> Path:
         return self._path("tts", self._hash(text=text.encode()), "wav")
@@ -51,7 +61,8 @@ class FixtureDistributionAdapter:
 
     def publish(self, render: Path, meta: PostMeta) -> PostReceipt:
         self._counter += 1
-        rec = PostReceipt(video_id="fin-0001", platform="youtube",
+        # unique per call so a multi-video offline batch doesn't collide on one ledger key
+        rec = PostReceipt(video_id=f"fin-{self._counter:04d}", platform="youtube",
                           remote_post_id=f"fake_{self._counter}", visibility=meta.visibility)
         self._posted[(rec.video_id, rec.platform)] = rec
         return rec
