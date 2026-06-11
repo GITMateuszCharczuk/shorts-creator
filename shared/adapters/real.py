@@ -71,6 +71,57 @@ class OllamaBackend:
         raise NotImplementedError("restore is an M2 ComfyUI backend")
 
 
+# ADR 0015 D4 — everything runs in one WSL2 filesystem under DATA_ROOT; ComfyUI's output dir is
+# under DATA_ROOT, so _await_output returns directly-addressable paths (no host<->pod translation).
+class ComfyUIBackend:
+    """ModelBackend for the host ComfyUI: FLUX (generate_image), LTX (img2vid),
+    ESRGAN+RIFE+GFPGAN (restore). Each capability maps to a named, versioned graph."""
+
+    def __init__(self, base_url: str, graphs: dict[str, str], timeout: float = 600.0):
+        self._base = base_url.rstrip("/")
+        self._graphs = graphs           # {capability: graph_version}
+        self._timeout = timeout
+        self.model_id = "comfyui"
+
+    def graph_version(self, capability: str) -> str:
+        return self._graphs[capability]
+
+    def _submit(self, capability: str, inputs: dict, seed: int):
+        import httpx
+        graph = self._build_graph(capability, inputs, seed)  # JSON workflow for /prompt
+        r = httpx.post(f"{self._base}/prompt", json={"prompt": graph}, timeout=self._timeout)
+        r.raise_for_status()
+        return self._await_output(r.json()["prompt_id"])      # poll /history, return artifact path
+
+    def generate_image(self, prompt: str, seed: int):
+        return self._submit("flux", {"prompt": prompt}, seed)
+
+    def img2vid(self, image, seed: int):
+        return self._submit("ltx", {"image": str(image)}, seed)
+
+    def restore(self, frames):
+        return self._submit("restore", {"frames": [str(f) for f in frames]}, seed=0)
+
+    def _build_graph(self, capability, inputs, seed):
+        raise NotImplementedError("ComfyUI workflow JSON wired at host bring-up")
+
+    def _await_output(self, prompt_id):
+        raise NotImplementedError("poll /history wired at host bring-up")
+
+    # llm/tts/vlm_judge not provided by ComfyUI
+    def llm(self, prompt, seed=None):
+        raise NotImplementedError
+
+    def llm_json(self, prompt, seed=None):
+        raise NotImplementedError
+
+    def tts(self, text):
+        raise NotImplementedError
+
+    def vlm_judge(self, frames, script):
+        raise NotImplementedError
+
+
 class KokoroBackend:
     """ModelBackend.tts via Kokoro-82M; writes a wav and returns its path."""
 
