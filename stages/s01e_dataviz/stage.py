@@ -20,6 +20,7 @@ def run(ctx: StageContext) -> StageResult:
     script = json.loads(ctx.read_input("script").read_text())
     brand = {"accent": ctx.config.get("brand_accent", "#00E5FF")}
     keys = list(ctx.config.get("viz_keys", list(data.get("market", {}).keys())[:2]))
+    keys = [k for k in keys if k in data.get("market", {})]   # a stale config key must not crash
     charts = []
     # ADR 0017 D2: data-viz is preferred wherever a number exists — M2-interim heuristic: any
     # beat whose text carries a digit gets a chart spec; Remotion renders them via the bridge.
