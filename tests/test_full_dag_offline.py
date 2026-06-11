@@ -1,10 +1,22 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from shared.cache import StageCache
 from shared.runner import run_dag
 
 DATA_FIX = Path(__file__).parent / "fixtures" / "m1" / "data.json"
+
+
+@pytest.fixture(autouse=True)
+def _fake_align(monkeypatch):
+    """The documented WhisperX seam: 03 runs in CI against the aligned-words fixture."""
+    import stages.s03_subs.stage as s03
+    aligned = json.loads(
+        (Path(__file__).parent / "fixtures" / "m1" / "aligned_words.json").read_text()
+    )
+    monkeypatch.setattr(s03, "_align_to_script", lambda wav, txt: aligned)
 
 
 def _seed_fixture(run_dir: Path) -> dict:
