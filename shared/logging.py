@@ -10,7 +10,8 @@ class StructuredLogger:
     def _emit(self, level: str, msg: str, **kw):
         rec = {"ts": datetime.now(timezone.utc).isoformat(), "level": level,
                "stage": self._stage, "msg": msg, **kw}
-        print(json.dumps(rec), file=sys.stderr)
+        # default=str so a Path/datetime/etc. in kw can never crash the stage from a log call
+        print(json.dumps(rec, default=str), file=sys.stderr)
 
     def info(self, msg: str, **kw): self._emit("info", msg, **kw)
     def warning(self, msg: str, **kw): self._emit("warning", msg, **kw)

@@ -1,4 +1,5 @@
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -38,12 +39,20 @@ class StageContext:
     def read_input(self, name: str) -> Path:
         if name not in self.input_paths:
             raise KeyError(f"{self.stage}: undeclared input {name!r}")
-        return self.run_dir / self.input_paths[name]
+        rel = self.input_paths[name]
+        if Path(rel).is_absolute():  # declared paths are run-dir-relative; never escape the sandbox
+            raise ValueError(
+                f"{self.stage}: input {name!r} must be run-dir-relative, got {rel!r}")
+        return self.run_dir / rel
 
     def write_output(self, name: str) -> Path:
         if name not in self.output_paths:
             raise KeyError(f"{self.stage}: undeclared output {name!r}")
-        p = self.run_dir / self.output_paths[name]
+        rel = self.output_paths[name]
+        if Path(rel).is_absolute():
+            raise ValueError(
+                f"{self.stage}: output {name!r} must be run-dir-relative, got {rel!r}")
+        p = self.run_dir / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
 
@@ -64,8 +73,10 @@ class StageContext:
         """Section-scoped atomic status update for THIS stage (ADR 0012 §4): read job.json,
         set stages[self.stage].status, write-temp + rename. One writer per <video-id>/ subtree."""
         job_path = self.run_dir / "job.json"
-        job = json.loads(job_path.read_text())
-        job.setdefault("stages", {})[self.stage] = {"status": status}
+        job = json.loads(job_path.read_text()) if job_path.exists() else {}
+        # nested setdefault: set only THIS stage's status, preserving any other sub-keys
+        # (started_at/attempts/... that M4/M6 may write) instead of clobbering the section.
+        job.setdefault("stages", {}).setdefault(self.stage, {})["status"] = status
         tmp = job_path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(job))
-        tmp.rename(job_path)   # atomic rename (ADR 0003 D6)
+        os.replace(tmp, job_path)   # atomic overwrite, POSIX-guaranteed (ADR 0003 D6)
