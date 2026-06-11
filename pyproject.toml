@@ -10,6 +10,7 @@ dev = ["pytest>=8.0", "ruff>=0.4"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+addopts = "--strict-markers"   # a typo'd marker (e.g. an integration test) must error, not silently run
 markers = ["integration: touches a live model/service; skipped in GPU-free CI"]
 
 [tool.ruff]
