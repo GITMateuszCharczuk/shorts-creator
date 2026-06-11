@@ -9,6 +9,7 @@
     "schema_version": {"type": "string"},
     "market": {
       "type": "object",
+      "minProperties": 1,
       "additionalProperties": {
         "type": "object", "additionalProperties": false,
         "required": ["value", "source", "as_of"],
