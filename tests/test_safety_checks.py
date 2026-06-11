@@ -83,3 +83,18 @@ def test_prohibited_claims_matches_term_in_captions():
     result = no_prohibited_claims(script, p)
     assert not result.ok, "denylist term in captions must be caught by no_prohibited_claims"
     assert "guaranteed" in result.detail
+
+
+def test_profanity_with_attached_punctuation_is_caught():
+    # "damn!" must NOT slip past the token match (HIGH false-negative class)
+    assert not profanity_clear({"narration_beats": [{"text": "oh damn!"}]},
+                               wordlist={"damn"}).ok
+    assert not profanity_clear({"captions": [{"text": "what the hell,"}]},
+                               wordlist={"hell"}).ok
+
+
+def test_prohibited_term_matches_hyphen_space_variants():
+    p = {"defaults": {"disclaimer": "d", "denylist_terms": ["risk-free"]}}
+    assert not no_prohibited_claims({"narration_beats": [{"text": "a risk free bet"}]}, p).ok
+    p2 = {"defaults": {"disclaimer": "d", "denylist_terms": ["risk free"]}}
+    assert not no_prohibited_claims({"narration_beats": [{"text": "a risk-free bet"}]}, p2).ok
