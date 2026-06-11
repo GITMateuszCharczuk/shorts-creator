@@ -1,0 +1,16 @@
+name: image
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  build-and-prove:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the shared image (ci stage = base + dev deps + tests)
+        run: docker build --target ci -t shorts-creator:ci .
+      - name: Prove it — run the offline DAG inside the image (ADR 0015 D2)
+        run: |
+          docker run --rm --entrypoint python shorts-creator:ci \
+            -m pytest tests/test_full_dag_offline.py -q

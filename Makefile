@@ -51,7 +51,7 @@ host-up: host-comfyui-up host-llm-up ## start the full host GPU+LLM plane
 cluster-up: ## [deferred profile] kind cluster + the k8s profile (designed in ADR 0015a; built in M7)
 	@echo "deferred (ADR 0015/0015a): the PoC needs no cluster — the Python conductor orchestrates (make trigger); the k8s profile is optional M7"; exit 1
 build:      ## build the single shared image (the CI-proven deployable artifact, ADR 0015)
-	@echo "M4: docker build the shared image (entrypoint selects stage/runner)"; exit 1
+	@docker build --target ci -t shorts-creator:ci .
 wire:       ## verify the conductor reaches host ComfyUI/LLM over localhost (ADR 0015)
 	@curl -fsS http://127.0.0.1:8188/system_stats >/dev/null && echo "ComfyUI reachable (:8188/system_stats)"
 	@curl -fsS http://127.0.0.1:11434/api/version >/dev/null && echo "Ollama reachable (:11434/api/version)"

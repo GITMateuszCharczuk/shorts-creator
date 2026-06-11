@@ -1,0 +1,15 @@
+# keep the build context small — only what the image COPYies matters
+.git
+.venv
+.run
+runs
+node_modules
+remotion/node_modules
+remotion/out
+__pycache__
+**/__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.ruff_cache
+docs
