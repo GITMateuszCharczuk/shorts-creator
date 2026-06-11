@@ -22,3 +22,8 @@ def test_host_health_gate_fails_on_unhealthy_service():
     with pytest.raises(PreflightFailure):
         host_health_gate(comfy_url="http://h:8188", ollama_url="http://h:11434",
                          get=lambda u: 503)       # fail fast — no retry-storm (ADR 0003 D2)
+
+
+def test_missing_data_root_is_a_preflight_failure(tmp_path):
+    with pytest.raises(PreflightFailure):
+        free_space_gate(tmp_path / "nope", min_free_gb=1)

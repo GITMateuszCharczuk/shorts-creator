@@ -8,6 +8,8 @@ class PreflightFailure(Exception):
 
 
 def free_space_gate(data_root: Path, *, min_free_gb: float = 80.0) -> None:
+    if not Path(data_root).exists():
+        raise PreflightFailure(f"data root missing: {data_root}")
     free_gb = shutil.disk_usage(data_root).free / 1e9
     if free_gb < min_free_gb:
         raise PreflightFailure(f"{free_gb:.0f} GB free < {min_free_gb} GB minimum "

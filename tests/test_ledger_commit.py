@@ -23,3 +23,11 @@ def test_corrupt_ledger_line_does_not_crash_commit(tmp_path):
     assert "not-json" in raw
     video_ids = [json.loads(line)["video_id"] for line in raw if line != "not-json"]
     assert video_ids == ["a", "b"]
+
+
+def test_invalid_entry_fails_whole_before_any_write(tmp_path):
+    import pytest
+    ledger = tmp_path / "ledger.jsonl"
+    with pytest.raises(ValueError):
+        commit_ledgers(ledger, [{"video_id": "a"}, {"topic": "no-id"}])
+    assert not ledger.exists() or ledger.read_text() == ""   # nothing partially appended
