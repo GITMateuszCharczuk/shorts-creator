@@ -58,3 +58,37 @@ def test_cmd_actually_renders_a_tiny_mp4(tmp_path):
     r = subprocess.run(cmd, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr[-2000:]
     assert (tmp_path / "youtube.mp4").stat().st_size > 0
+
+
+def test_guards_reject_empty_and_mismatched_scenes(tmp_path):
+    with pytest.raises(ValueError):
+        build_ffmpeg_cmd(scene_images=[], scene_durations=[], narration=tmp_path / "n.wav",
+                         captions_ass=tmp_path / "c.ass", brand_overlay=tmp_path / "l.png",
+                         out=tmp_path / "o.mp4", fps=30)
+    with pytest.raises(ValueError):
+        build_ffmpeg_cmd(scene_images=[tmp_path / "a.png"], scene_durations=[1.0, 2.0],
+                         narration=tmp_path / "n.wav", captions_ass=tmp_path / "c.ass",
+                         brand_overlay=tmp_path / "l.png", out=tmp_path / "o.mp4", fps=30)
+
+
+def test_subframe_duration_never_emits_d0(tmp_path):
+    cmd = build_ffmpeg_cmd(scene_images=[tmp_path / "a.png"], scene_durations=[0.02],
+                           narration=tmp_path / "n.wav", captions_ass=tmp_path / "c.ass",
+                           brand_overlay=tmp_path / "l.png", out=tmp_path / "o.mp4", fps=30)
+    assert "d=0:" not in " ".join(cmd)   # d=0 means infinite frames in zoompan
+
+
+def test_caption_path_with_space_is_escaped(tmp_path):
+    d = tmp_path / "my captions"
+    d.mkdir()
+    cmd = build_ffmpeg_cmd(scene_images=[tmp_path / "a.png"], scene_durations=[1.0],
+                           narration=tmp_path / "n.wav", captions_ass=d / "c.ass",
+                           brand_overlay=tmp_path / "l.png", out=tmp_path / "o.mp4", fps=30)
+    filters = cmd[cmd.index("-filter_complex") + 1]
+    assert "my\\ captions" in filters
+
+
+def test_zoom_out_uses_max_clamp():
+    from shared.render.kenburns import zoompan_expr
+    expr = zoompan_expr(zoom_start=1.08, zoom_end=1.0, frames=60)
+    assert expr.startswith("zoompan=z='max(")   # min() would undershoot immediately
