@@ -37,6 +37,9 @@ class _FakeTTS:
         sf.write(p, np.zeros(24000 * 3, dtype="float32"), 24000)
         return p
 
+    def tts_segments(self, segments):
+        return self.tts("")
+
 
 def run_m1_slice(*, run_dir: Path, seed: int, fixtures: Path, timing_log: Path) -> dict:
     repo = Path(__file__).resolve().parents[2]

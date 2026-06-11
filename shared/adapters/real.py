@@ -147,6 +147,27 @@ class KokoroBackend:
         sf.write(path, audio, self._sr)
         return path
 
+    def tts_segments(self, segments: list[dict]) -> Path:
+        """Per-beat prosody synthesis (ADR 0005 D6): each segment at its own rate (Kokoro
+        KPipeline speed=), with pause_after seconds of silence between, concatenated into one
+        narration.wav. Integration-scoped — host-only imports, never called live in CI."""
+        import numpy as np
+        import soundfile as sf
+        from kokoro import KPipeline  # host-only import
+        self._out.mkdir(parents=True, exist_ok=True)
+        pipe = KPipeline(lang_code="a")
+        chunks: list = []
+        for seg in segments:
+            audio = np.concatenate([
+                chunk.audio
+                for chunk in pipe(seg["text"], voice=self._voice, speed=seg["rate"])
+            ])
+            chunks.append(audio)
+            chunks.append(np.zeros(int(seg["pause_after"] * self._sr), dtype=audio.dtype))
+        path = self._out / "narration.wav"
+        sf.write(path, np.concatenate(chunks), self._sr)
+        return path
+
     def llm(self, prompt: str, seed: int | None = None) -> str:
         raise NotImplementedError("use OllamaBackend for llm")
 

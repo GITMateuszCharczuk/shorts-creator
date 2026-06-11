@@ -50,6 +50,13 @@ class FixtureBackend:
     def tts(self, text: str) -> Path:
         return self._path("tts", self._hash(text=text.encode()), "wav")
 
+    def tts_segments(self, segments: list[dict]) -> Path:
+        h = self._hash(segments=json.dumps(segments, sort_keys=True).encode())
+        p = self._path("tts", h, "wav")
+        if not p.exists():
+            raise MissingFixtureError(f"no tts fixture at {p} — add the canned wav")
+        return p
+
     def vlm_judge(self, frames: list[Path], script: dict) -> Judgment:
         return Judgment(overall=0.82, scores={"hook": 0.8, "coherence": 0.85}, passed=True)
 

@@ -1,5 +1,6 @@
 import json
 
+from shared.audio.prosody import speech_segments
 from shared.ctx import StageContext, StageResult
 from shared.finance.normalize import normalize
 from shared.stage import StageManifest, stage
@@ -32,12 +33,15 @@ def run(ctx: StageContext) -> StageResult:
         ctx.log.warning(
             "primary keyword not in opening lines", keyword=script.get("primary_keyword")
         )
-    text = spoken_text(script)
-    if not text.strip():
+    joined = spoken_text(script)
+    if not joined.strip():
         ctx.quarantine("empty narration text — nothing to synthesize")
-    wav = ctx.backend("tts").tts(text)  # KokoroBackend writes narration.wav
+    # per-beat prosody drives the voice (ADR 0005 D6): one segment per beat, each at its own
+    # rate + trailing pause; the backend synthesizes and concatenates into narration.wav.
+    segments = speech_segments(script)
+    wav = ctx.backend("tts").tts_segments(segments)
     out = ctx.write_output("narration")
     if wav.resolve() != out.resolve():  # resolve: a symlink/relative alias must not self-clobber
         out.write_bytes(wav.read_bytes())
-    ctx.log.info("narration synthesized", chars=len(text))
+    ctx.log.info("narration synthesized", chars=len(joined), segments=len(segments))
     return StageResult(outputs={"narration": out})
