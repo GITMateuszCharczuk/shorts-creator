@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0.0",
+  "format": "myth_buster",
+  "beat_pattern": ["hook", "claim", "truth", "cta"],
+  "anchors": {"claim": [0.20, 0.20], "false_stamp": [0.38, 0.14], "truth": [0.40, 0.20], "why": [0.62, 0.16]},
+  "regions": [
+    {
+      "name": "bg_media",
+      "bbox": {"colA": 1, "colB": 12, "y": 0.0, "h": 1.0},
+      "z": 0,
+      "primitive": {"type": "MediaZone", "params": {"fit": "cover", "kenburns": true}},
+      "bind": "claim.text",
+      "on": ["claim", "truth"],
+      "enter": "fade",
+      "exit": "fade",
+      "style": "brand.media"
+    },
+    {
+      "name": "claim",
+      "bbox": {"colA": 1, "colB": 12, "anchor": "claim"},
+      "z": 2,
+      "primitive": {"type": "TextCard", "params": {"role": "display"}},
+      "bind": "claim.text",
+      "on": ["claim"],
+      "enter": "slide_in_up",
+      "exit": "fade",
+      "style": "brand.title"
+    },
+    {
+      "name": "false_stamp",
+      "bbox": {"colA": 4, "colB": 9, "anchor": "false_stamp"},
+      "z": 4,
+      "primitive": {"type": "Badge", "params": {"shape": "stamp", "content": "MYTH"}},
+      "bind": "static",
+      "on": ["claim"],
+      "enter": "pop",
+      "exit": "fade",
+      "style": "brand.badge"
+    },
+    {
+      "name": "truth",
+      "bbox": {"colA": 1, "colB": 12, "anchor": "truth"},
+      "z": 2,
+      "primitive": {"type": "TextCard", "params": {"role": "display"}},
+      "bind": "truth.text",
+      "on": ["truth"],
+      "enter": "riser_reveal",
+      "exit": "fade",
+      "style": "brand.verdict"
+    },
+    {
+      "name": "why",
+      "bbox": {"colA": 1, "colB": 12, "anchor": "why"},
+      "z": 2,
+      "primitive": {"type": "TextCard", "params": {"role": "body"}},
+      "bind": "why_wrong.text",
+      "on": ["truth"],
+      "enter": "fade",
+      "exit": "fade",
+      "style": "brand.label"
+    }
+  ]
+}

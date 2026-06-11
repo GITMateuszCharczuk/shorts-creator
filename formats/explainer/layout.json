@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0.0",
+  "format": "explainer",
+  "beat_pattern": ["hook", "concept", "step", "step", "takeaway", "cta"],
+  "anchors": {"concept_title": [0.10, 0.14], "step_num": [0.40, 0.20], "takeaway": [0.70, 0.16]},
+  "regions": [
+    {"name": "bg_media", "bbox": {"colA": 1, "colB": 12, "y": 0.0, "h": 1.0}, "z": 0,
+     "primitive": {"type": "MediaZone", "params": {"fit": "cover", "kenburns": true}},
+     "bind": "concept.title", "on": ["concept", "step", "takeaway"], "enter": "fade", "exit": "fade", "style": "brand.media"},
+    {"name": "concept_title", "bbox": {"colA": 1, "colB": 12, "anchor": "concept_title"}, "z": 2,
+     "primitive": {"type": "TextCard", "params": {"role": "display"}},
+     "bind": "concept.title", "on": ["concept"], "enter": "slide_in_up", "exit": "fade", "style": "brand.title"},
+    {"name": "step_value", "bbox": {"colA": 1, "colB": 12, "anchor": "step_num"}, "z": 3,
+     "primitive": {"type": "TextCard", "params": {"role": "numeric"}},
+     "bind": "step.value", "on": ["step"], "enter": "count_up", "exit": "fade", "style": "brand.stat"},
+    {"name": "step_label", "bbox": {"colA": 1, "colB": 12, "anchor": "stat"}, "z": 2,
+     "primitive": {"type": "TextCard", "params": {"role": "label"}},
+     "bind": "step.label", "on": ["step"], "enter": "fade", "exit": "fade", "style": "brand.label"},
+    {"name": "takeaway", "bbox": {"colA": 1, "colB": 12, "anchor": "takeaway"}, "z": 2,
+     "primitive": {"type": "TextCard", "params": {"role": "display"}},
+     "bind": "takeaway.text", "on": ["takeaway"], "enter": "riser_reveal", "exit": "fade", "style": "brand.verdict"}
+  ]
+}

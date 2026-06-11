@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0.0",
+  "format": "news_reaction",
+  "beat_pattern": ["hook", "event", "implication", "implication", "takeaway", "cta"],
+  "anchors": {"headline": [0.12, 0.18], "implication": [0.42, 0.20], "takeaway": [0.70, 0.16]},
+  "regions": [
+    {
+      "name": "bg_media",
+      "bbox": {"colA": 1, "colB": 12, "y": 0.0, "h": 1.0},
+      "z": 0,
+      "primitive": {"type": "MediaZone", "params": {"fit": "cover", "kenburns": true}},
+      "bind": "event.headline",
+      "on": ["event", "implication", "takeaway"],
+      "enter": "fade",
+      "exit": "fade",
+      "style": "brand.media"
+    },
+    {
+      "name": "headline",
+      "bbox": {"colA": 1, "colB": 12, "anchor": "headline"},
+      "z": 2,
+      "primitive": {"type": "TextCard", "params": {"role": "display"}},
+      "bind": "event.headline",
+      "on": ["event"],
+      "enter": "slide_in_up",
+      "exit": "fade",
+      "style": "brand.title"
+    },
+    {
+      "name": "citation",
+      "bbox": {"colA": 1, "colB": 7, "y": 0.07, "h": 0.06},
+      "z": 4,
+      "primitive": {"type": "CitationChip"},
+      "bind": "event.source_ref",
+      "on": ["event"],
+      "enter": "fade",
+      "exit": "fade",
+      "style": "brand.citation"
+    },
+    {
+      "name": "implication",
+      "bbox": {"colA": 1, "colB": 12, "anchor": "implication"},
+      "z": 2,
+      "primitive": {"type": "TextCard", "params": {"role": "display"}},
+      "bind": "implications.0.text",
+      "on": ["implication"],
+      "enter": "slide_in_up",
+      "exit": "fade",
+      "style": "brand.title"
+    },
+    {
+      "name": "takeaway",
+      "bbox": {"colA": 1, "colB": 12, "anchor": "takeaway"},
+      "z": 2,
+      "primitive": {"type": "TextCard", "params": {"role": "display"}},
+      "bind": "takeaway.text",
+      "on": ["takeaway"],
+      "enter": "riser_reveal",
+      "exit": "fade",
+      "style": "brand.verdict"
+    }
+  ]
+}

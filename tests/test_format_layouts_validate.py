@@ -1,8 +1,28 @@
+import json
+from pathlib import Path
+
 import pytest
 
 from shared.schema import SchemaError, SchemaRegistry
 
 REG = SchemaRegistry()
+
+ROOT = Path(__file__).resolve().parents[1]
+ALL_FORMATS = [
+    "ranked_list",
+    "head_to_head",
+    "myth_buster",
+    "explainer",
+    "news_reaction",
+    "cautionary_tale",
+    "surprising_stat",
+    "how_to_steps",
+]
+
+
+@pytest.mark.parametrize("fmt", ALL_FORMATS)
+def test_layout_validates(fmt):
+    REG.validate("layout", json.loads((ROOT / f"formats/{fmt}/layout.json").read_text()))
 
 
 def _script(layout_data: dict) -> dict:
