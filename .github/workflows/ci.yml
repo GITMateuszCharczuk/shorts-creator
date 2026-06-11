@@ -1,0 +1,16 @@
+name: ci
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest   # GPU-less by design (ADR 0012)
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Sync deps
+        run: uv sync
+      - name: Run the full GPU-free suite
+        run: uv run pytest -q

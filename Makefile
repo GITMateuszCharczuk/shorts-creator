@@ -61,4 +61,4 @@ submit-batch: ## scheduled-equivalent batch submit (CronWorkflow uses the same t
 
 ## ---- dev ----
 test: ## schema validation + golden fixtures + GPU-free full-DAG run via shared/fakes (ADR 0010)
-	@echo "M0: run pytest over schemas + fixtures + faked DAG"; exit 1
+	@uv run pytest -q
