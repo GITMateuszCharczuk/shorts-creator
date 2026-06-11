@@ -9,6 +9,10 @@ from shared.stage import StageManifest, stage
 def scene_durations_from_words(words: list[dict], n_scenes: int) -> list[float]:
     # word-timed cuts (ADR 0005 D4 / 0007a §2): partition words into n_scenes contiguous
     # groups; each scene spans its group's first->last word, not a flat division.
+    # NB: inter-group gaps (silence between words) are DROPPED by design — with -shortest the
+    # video can come out shorter than the narration. The M2 compositor replaces this entirely.
+    if n_scenes == 0:
+        return []   # no scenes -> no durations (build_ffmpeg_cmd raises its own clear error)
     k, m = divmod(len(words), n_scenes)
     durs, idx = [], 0
     for s in range(n_scenes):
@@ -44,6 +48,9 @@ def run(ctx: StageContext) -> StageResult:
         out=out,
         fps=int(ctx.config.get("fps", 30)),
     )
-    subprocess.run(cmd, check=True)
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        # surface the ffmpeg stderr tail — a bare CalledProcessError gives the conductor nothing
+        raise RuntimeError(f"ffmpeg failed (exit {r.returncode}):\n{r.stderr[-2000:]}")
     ctx.log.info("render complete", path=str(out))
     return StageResult(outputs={"render": out})
