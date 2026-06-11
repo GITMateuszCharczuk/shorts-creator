@@ -1,5 +1,7 @@
 import threading
 
+# NOTE: single-PROCESS serialisation only (threading.Lock) — correct for the one-conductor
+# ThreadPoolExecutor design; M7's multi-conductor k8s profile needs its own mechanism.
 # Never-co-resident (ADR 0001/0003), conductor-enforced (ADR 0015 D5): every GPU-touching
 # stage execution holds this lock; the audio lane never takes it.
 GPU_LOCK = threading.Lock()

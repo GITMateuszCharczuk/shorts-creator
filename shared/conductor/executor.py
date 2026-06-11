@@ -35,7 +35,13 @@ def execute_batch(batch: dict, *, stage_order: list[str],
             # a prior run (and was not reset to "pending") is never re-executed.
             if v["status"] in ("quarantined", "failed", "done"):
                 continue                            # the video's domain is closed
-            out = run_stage(vid, stage_id)
+            try:
+                out = run_stage(vid, stage_id)
+            except Exception as e:   # a raising runner must become a FAILED outcome — an
+                # uncaught exception would bypass the circuit breaker and leave the video
+                # in an indeterminate status (review-driven)
+                out = StageOutcome(status="failed", exit_code=-1, elapsed_s=0.0)
+                _ = e
             if out.status == "failed":
                 consecutive_failed += 1
                 if consecutive_failed >= max_consecutive_failures:

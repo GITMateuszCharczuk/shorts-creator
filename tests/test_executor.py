@@ -59,3 +59,18 @@ def test_done_videos_not_rerun():
     batch = {"videos": [{"video_id": "already", "status": "done"}]}
     result = execute_batch(batch, stage_order=["00a", "00b"], run_stage=raising_runner)
     assert result["already"] == "done"
+
+
+def test_raising_runner_becomes_failed_not_batch_corruption():
+    # an exception in run_stage must mark the video failed, count toward the breaker,
+    # and never leave the batch in an indeterminate state
+    batch = {"videos": [{"video_id": "a", "status": "pending"},
+                        {"video_id": "b", "status": "pending"}]}
+
+    def boom(video_id, stage_id):
+        if video_id == "a":
+            raise RuntimeError("runner crashed")
+        return StageOutcome("done", 0, 0.1)
+
+    result = execute_batch(batch, stage_order=["00a"], run_stage=boom)
+    assert result == {"a": "failed", "b": "done"}
