@@ -10,8 +10,17 @@ def rank_candidates(
     """Rank image paths by scorer descending, filtering below threshold.
 
     Python's sorted() is stable — equal-score candidates preserve input order (ADR 0009).
+    A candidate whose scorer RAISES (corrupt/unreadable image) is skipped, not fatal: one bad
+    download must never sink the whole beat's candidate list.
+    NB: CLIP cosines live in [-1, 1]; the default threshold=0.0 intentionally filters
+    anti-correlated candidates.
     """
-    scored = [(p, scorer(p)) for p in paths]
+    scored = []
+    for p in paths:
+        try:
+            scored.append((p, scorer(p)))
+        except Exception:   # any per-candidate failure means "skip this one", never "skip all"
+            continue
     kept = [(p, s) for p, s in scored if s >= threshold]
     return [p for p, _ in sorted(kept, key=lambda x: x[1], reverse=True)]
 

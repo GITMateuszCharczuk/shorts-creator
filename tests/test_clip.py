@@ -35,4 +35,14 @@ def test_clip_module_imports_without_torch():
 @pytest.mark.integration
 def test_clip_ranker_scores_real_image(tmp_path):
     r = ClipRanker(model="ViT-B-32", pretrained="laion2b_s34b_b79k")
-    assert 0.0 <= r.score("a green stock chart", tmp_path / "chart.png") <= 1.0
+    # cosine similarity lives in [-1, 1] (the plan's 0..1 bound was wrong for anti-correlated pairs)
+    assert -1.0 <= r.score("a green stock chart", tmp_path / "chart.png") <= 1.0
+
+
+def test_rank_skips_candidates_whose_scorer_raises():
+    # one corrupt image must never sink the whole beat's candidate list
+    def scorer(p):
+        if p == "bad.jpg":
+            raise OSError("corrupt image")
+        return 0.5
+    assert rank_candidates(["bad.jpg", "ok.jpg"], scorer) == ["ok.jpg"]
