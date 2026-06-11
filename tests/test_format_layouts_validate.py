@@ -154,3 +154,15 @@ def test_zero_step_formats_rejected():
     with pytest.raises(SchemaError):
         REG.validate("script", _script({"kind": "explainer", "concept": {"title": "t"},
                                         "steps": [], "takeaway": {"text": "t"}}))
+
+
+def test_indexed_bind_resolves_and_missing_raises():
+    import pytest as _pt
+
+    from shared.layout.bind import BindError, _exists
+    from shared.layout.resolve import _resolve_bind
+    beat = {"kind": "implication", "implications": [{"text": "first"}]}
+    assert _exists("implications.0.text", beat) is True
+    assert _resolve_bind("implications.0.text", beat, {"params": {}}) == "first"
+    with _pt.raises(BindError):
+        _resolve_bind("implications.5.text", beat, {"params": {}})

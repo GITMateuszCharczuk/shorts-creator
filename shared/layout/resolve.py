@@ -1,7 +1,7 @@
 import random as _random
 from typing import Any
 
-from shared.layout.bind import BindError, validate_binds
+from shared.layout.bind import BindError, _walk, validate_binds
 
 # §7a default named anchors: name -> [y, h] as fractions of the safe rect.
 DEFAULT_ANCHORS = {
@@ -54,12 +54,10 @@ def _applies(region: dict, beat: dict) -> bool:
 def _resolve_bind(bind: str, beat: dict, primitive: dict) -> Any:
     if bind == "static":
         return primitive.get("params", {}).get("content")   # §3: content from the primitive
-    node: Any = beat
-    for part in bind.split("."):
-        if not isinstance(node, dict) or part not in node:
-            raise BindError(f"bind {bind!r} missing in beat {beat.get('kind')!r}")
-        node = node[part]
-    return node
+    value, found = _walk(beat, bind)
+    if not found:
+        raise BindError(f"bind {bind!r} missing in beat {beat.get('kind')!r}")
+    return value
 
 
 def resolve(
