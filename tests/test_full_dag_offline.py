@@ -51,6 +51,23 @@ def _fake_compositor(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _fake_safety_seams(monkeypatch):
+    """The documented 05b integration seams: the ffprobe/loudnorm `probe` and the history-window
+    `_recent_ledger` are faked in CI (the pure checks are unit-tested). The fixture ProbeResult is
+    clean: loudness in-window, no silences/black runs, duration ~equal, CTA inside the safe zone."""
+    import stages.s05b_safety.stage as s05b
+    from shared.safety.probe import ProbeResult
+
+    def fake_probe(run_dir, *, narration, music, render, render_manifest):
+        return ProbeResult(integrated_lufs=-14.0, true_peak_dbtp=-1.4, silences=[], black_spans=[],
+                           actual_s=30.0, projected_s=31.0,
+                           cta_rect={"x": 120, "y": 900, "w": 600, "h": 200})
+
+    monkeypatch.setattr(s05b, "probe", fake_probe)
+    monkeypatch.setattr(s05b, "_recent_ledger", lambda ctx: [])
+
+
+@pytest.fixture(autouse=True)
 def _fake_vision_extraction(monkeypatch, run_dir):
     """The documented 05x seams: ffprobe frame count + ffmpeg keyframe extraction are faked in
     CI (sampling stays unit-tested; the VLM judgment is the FixtureBackend's canned one)."""

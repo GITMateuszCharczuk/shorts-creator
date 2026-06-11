@@ -1,1 +1,1 @@
-{"id": "05b", "inputs": ["render", "vision", "script"], "outputs": ["qc"], "compute": "cpu", "capability": "llm"}
+{"id": "05b", "inputs": ["render", "script", "vision", "narration", "music"], "outputs": ["qc"], "compute": "cpu", "capability": "llm"}

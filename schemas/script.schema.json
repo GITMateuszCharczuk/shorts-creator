@@ -164,6 +164,11 @@
     },
     "platform_meta": {
       "type": "object",
+      "properties": {
+        "ai_disclosure": {
+          "type": "boolean"
+        }
+      },
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,

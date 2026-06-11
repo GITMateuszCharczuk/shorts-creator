@@ -31,8 +31,12 @@ def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path,
     cache_hits = 0
 
     # seed job.json
+    # 05b reads job["profile"] as the RESOLVED profile dict (ADR 0010 D5): the disclaimer here
+    # must match the fixture script's disclaimer EXACTLY for disclaimer_present to pass.
     job = {"schema_version": "1.0.0", "batch_id": "b", "video_id": "fin-0001",
-           "niche": "finance", "profile": "finance", "platform_targets": ["youtube"],
+           "niche": "finance",
+           "profile": {"defaults": {"disclaimer": "Not financial advice.", "denylist_terms": []}},
+           "platform_targets": ["youtube"],
            "seed": seed, "stages": {}, "paths": {}}
     (run_dir / "job.json").write_text(json.dumps(job))
 
