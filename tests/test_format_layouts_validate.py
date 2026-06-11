@@ -125,3 +125,12 @@ def test_malformed_layout_data_rejected() -> None:
                 }
             ),
         )
+
+
+def test_zero_step_formats_rejected():
+    # a steps/implications array with 0 entries would produce 0 render beats — fail at the gate
+    with pytest.raises(SchemaError):
+        REG.validate("script", _script({"kind": "how_to_steps", "steps": []}))
+    with pytest.raises(SchemaError):
+        REG.validate("script", _script({"kind": "explainer", "concept": {"title": "t"},
+                                        "steps": [], "takeaway": {"text": "t"}}))
