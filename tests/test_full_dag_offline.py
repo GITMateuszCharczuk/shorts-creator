@@ -7,6 +7,7 @@ from shared.cache import StageCache
 from shared.runner import run_dag
 from stages.s01d_upscale.stage import _PLACEHOLDER_PNG
 
+REPO = Path(__file__).resolve().parents[1]
 DATA_FIX = Path(__file__).parent / "fixtures" / "m1" / "data.json"
 
 
@@ -20,11 +21,39 @@ def _fake_align(monkeypatch):
     monkeypatch.setattr(s03, "_align_to_script", lambda wav, txt: aligned)
 
 
+@pytest.fixture(autouse=True)
+def _fake_compositor(monkeypatch):
+    """The documented compositor seams: 05's Remotion render + NVENC encode are faked in CI
+    (deterministic bytes, cache-stable); the REAL render proof is test_render_determinism
+    (integration)."""
+    import stages.s05_render.stage as s05
+
+    def fake_render(manifest: dict, out_dir: Path) -> list[Path]:
+        frames_dir = out_dir / "frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        paths = []
+        for i in range(2):
+            p = frames_dir / f"{i:05d}.png"
+            p.write_bytes(_PLACEHOLDER_PNG)
+            paths.append(p)
+        return paths
+
+    def fake_encode(*, frames_glob: str, audio: Path, fps: int, out: Path) -> None:
+        Path(out).write_bytes(b"\x00\x00\x00\x18ftypmp42fake")
+
+    monkeypatch.setattr(s05, "render_manifest_to_frames", fake_render)
+    monkeypatch.setattr(s05, "_encode", fake_encode)
+
+
 def _seed_fixture(run_dir: Path) -> dict:
     """Copy the data fixture into run_dir as data_fixture.json and return the config dict."""
     (run_dir / "data_fixture.json").write_text(DATA_FIX.read_text())
-    # Stage 05 reads run_dir/logo.png (brand overlay); write a real PNG so ffmpeg can open it.
-    (run_dir / "logo.png").write_bytes(_PLACEHOLDER_PNG)
+    # Stage 05 (compositor) reads run_dir/formats/<format>/layout.json + run_dir/brand_kit.json.
+    layout_dst = run_dir / "formats" / "ranked_list" / "layout.json"
+    layout_dst.parent.mkdir(parents=True, exist_ok=True)
+    layout_dst.write_text((REPO / "formats" / "ranked_list" / "layout.json").read_text())
+    (run_dir / "brand_kit.json").write_text(
+        (Path(__file__).parent / "fixtures" / "m2" / "brand_kit.json").read_text())
     return {"data_fixture": "data_fixture.json", "best_of_n": 1}
 
 
