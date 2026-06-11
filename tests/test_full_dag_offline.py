@@ -54,6 +54,16 @@ def _seed_fixture(run_dir: Path) -> dict:
     layout_dst.write_text((REPO / "formats" / "ranked_list" / "layout.json").read_text())
     (run_dir / "brand_kit.json").write_text(
         (Path(__file__).parent / "fixtures" / "m2" / "brand_kit.json").read_text())
+    # Stage 04 (music) reads run_dir/music/index.json and mixes a REAL track with ffmpeg:
+    # one confident/mid entry (the fixture script's music) pointing at a real 1s silent wav.
+    import numpy as np
+    import soundfile as sf
+    music_dir = run_dir / "music"
+    music_dir.mkdir(parents=True, exist_ok=True)
+    (music_dir / "index.json").write_text(json.dumps(
+        [{"id": "t1", "mood": "confident", "energy": "mid", "path": "music/t1.wav",
+          "license": "YouTubeAudioLibrary"}]))
+    sf.write(music_dir / "t1.wav", np.zeros(24000, dtype="float32"), 24000)
     return {"data_fixture": "data_fixture.json", "best_of_n": 1}
 
 
