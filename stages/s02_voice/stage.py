@@ -6,17 +6,17 @@ from shared.stage import StageManifest, stage
 
 
 def spoken_text(script: dict) -> str:
-    beats = [normalize(b["text"]) for b in script.get("narration_beats", [])]
+    beats = [normalize(b.get("text", "")) for b in script.get("narration_beats", [])]
     return " ".join(beats)
 
 
 def keyword_in_opening(script: dict, window_beats: int = 1) -> bool:
     # ADR 0006: the primary keyword should be SPOKEN in the opening lines (discoverability).
-    kw = script.get("primary_keyword", "").lower()
+    kw = (script.get("primary_keyword") or "").lower()   # explicit JSON null -> "" not a crash
     if not kw:
         return False
     opening = " ".join(
-        b["text"] for b in script.get("narration_beats", [])[:window_beats]
+        b.get("text", "") for b in script.get("narration_beats", [])[:window_beats]
     ).lower()
     return kw in opening
 
@@ -33,9 +33,11 @@ def run(ctx: StageContext) -> StageResult:
             "primary keyword not in opening lines", keyword=script.get("primary_keyword")
         )
     text = spoken_text(script)
+    if not text.strip():
+        ctx.quarantine("empty narration text — nothing to synthesize")
     wav = ctx.backend("tts").tts(text)  # KokoroBackend writes narration.wav
     out = ctx.write_output("narration")
-    if wav != out:
+    if wav.resolve() != out.resolve():  # resolve: a symlink/relative alias must not self-clobber
         out.write_bytes(wav.read_bytes())
     ctx.log.info("narration synthesized", chars=len(text))
     return StageResult(outputs={"narration": out})
