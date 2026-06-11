@@ -8,11 +8,12 @@ class TikTokAdapter(DistributionAdapter):
     platform = "tiktok"
     _PRIVACY = {"SELF_ONLY", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "PUBLIC_TO_EVERYONE"}
 
-    def __init__(self, token, *, init=None, upload=None, poll=None):
+    def __init__(self, token, *, init=None, upload=None, poll=None, find=None):
         self._token = token
         self._init = init
         self._upload = upload
         self._poll = poll
+        self._find = find
 
     def allowed_visibility(self, cfg):
         return set(self._PRIVACY)
@@ -37,8 +38,6 @@ class TikTokAdapter(DistributionAdapter):
         return publish_id, f"https://tiktok.com/@me/video/{publish_id}"
 
     def _find_existing(self, idempotency_key):
-        # the intent/publishing record stored the publish_id; recovery re-polls its terminal status.
-        if self._poll is None:
-            return None
-        pub = self._poll_by_marker(idempotency_key) if hasattr(self, "_poll_by_marker") else None
-        return (pub, f"https://tiktok.com/@me/video/{pub}") if pub else None
+        # injected recovery hook: host wiring re-polls the publish_id stored in the ledger's
+        # publishing record (TikTok has no search-by-marker; the publish_id IS the marker).
+        return self._find(idempotency_key) if self._find else None

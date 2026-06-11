@@ -1,14 +1,7 @@
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from shared.adapters.types import Judgment, PostMeta, PostReceipt, Visibility
-
-
-@runtime_checkable
-class DistributionAdapter(Protocol):
-    def publish(self, render: Path, meta: PostMeta) -> PostReceipt: ...
-    def confirm_posted(self, video_id: str, platform: str) -> PostReceipt | None: ...
-    def allowed_visibility(self, audit_state: str) -> set[Visibility]: ...
+from shared.adapters.types import Judgment
 
 
 @runtime_checkable

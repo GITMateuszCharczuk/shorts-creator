@@ -16,6 +16,36 @@ def test_protocol_and_aigc_flag_in_post_info():
     assert "is_ai_generated" not in body.get("source_info", {})
 
 
+def test_pending_post_recovers_via_injected_find_without_reposting(tmp_path):
+    # crash recovery: an intent record is pending and the post actually landed remotely. The
+    # injected `find` (host wiring re-polls the publish_id stored in the ledger's publishing
+    # record) returns it, so the base confirms WITHOUT calling init/upload (zero re-posts).
+    calls = {"init": 0, "upload": 0}
+
+    def init(_body, _media):
+        calls["init"] += 1
+        return "pub_never"
+
+    def upload(_pid, _media):
+        calls["upload"] += 1
+
+    a = TikTokAdapter(token=None, init=init, upload=upload, poll=None,
+                      find=lambda k: ("pub9", "https://tiktok.com/@me/video/pub9"))
+    led = tmp_path / "v" / "posts.jsonl"
+    from shared.distribution.posts_ledger import write_intent
+    write_intent(led, video_id="v", platform="tiktok")
+    rec = a.publish(video_id="v", media_path="m.mp4",
+                    metadata={"title": "t", "idempotency_key": "k"},
+                    visibility="SELF_ONLY", ledger_path=led)
+    assert rec == {"remote_id": "pub9", "url": "https://tiktok.com/@me/video/pub9",
+                   "recovered": True}
+    assert calls == {"init": 0, "upload": 0}               # posts == 0: recovery is a no-op post
+
+
+def test_find_existing_defaults_to_none_without_injection():
+    assert TikTokAdapter(token=None)._find_existing("k") is None
+
+
 @pytest.mark.integration
 def test_tiktok_confirms_only_after_publish_complete(tmp_path):
     # _post must block on /publish/status/fetch/ until PUBLISH_COMPLETE before returning, so a

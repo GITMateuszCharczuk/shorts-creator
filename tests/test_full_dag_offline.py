@@ -106,7 +106,14 @@ def _seed_fixture(run_dir: Path) -> dict:
         [{"id": "t1", "mood": "confident", "energy": "mid", "path": "music/t1.wav",
           "license": "YouTubeAudioLibrary"}]))
     sf.write(music_dir / "t1.wav", np.zeros(24000, dtype="float32"), 24000)
-    return {"data_fixture": "data_fixture.json", "best_of_n": 1}
+    # Stage 06 (ramp-gated distribute): a fresh ramp.json (never provisioned -> warmed=False ->
+    # "private") with the lift bar zeroed so the gate is INACTIVE (approved=True) offline.
+    return {"data_fixture": "data_fixture.json", "best_of_n": 1,
+            "ramp_state_path": str(run_dir / "ramp.json"),
+            "disclosure_line": "AI-generated. Educational only.",
+            "ramp": {"lift": {"min_approved": 0, "min_days": 0, "max_rejected": 999,
+                              "max_strikes": 999}},
+            "visibility": {"youtube": {"public_after_warming": True}}}
 
 
 def test_full_dag_produces_posts_record(run_dir, tmp_path):

@@ -1,36 +1,64 @@
 import json
+from datetime import datetime, timezone
 
-from shared.adapters import PostMeta, Visibility
 from shared.ctx import StageContext, StageResult
+from shared.distribution.caption import build_caption
 from shared.distribution.posts_ledger import idempotency_key
+from shared.distribution.visibility import resolve_visibility
+from shared.ramp.policy import gate_active
+from shared.ramp.state import is_warmed, load_state
 from shared.stage import StageManifest, stage
 
 
-@stage(StageManifest(id="06", inputs=["render", "qc", "creative_qc", "script"],
+class HeldForReview(Exception):
+    """The ramp gate is active and this video has no approval yet — a resumable HOLD, not a failure
+    (maps to exit 70 / status 'held'). The review CLI releases it on the next batch."""
+
+
+def distribute(*, video_id, platforms, adapters, renders, metadata, visibilities, ledger_path,
+               approved):
+    if not approved:
+        raise HeldForReview(f"{video_id} awaiting human approval (ramp gate active)")
+    return {p: (adapters[p].publish(video_id=video_id, media_path=renders[p], metadata=metadata[p],
+                                    visibility=visibilities[p], ledger_path=ledger_path)
+                or {"skipped": "already confirmed"}) for p in platforms}
+
+
+@stage(StageManifest(id="06", inputs=["render", "script", "qc", "creative_qc"],
                      outputs=["posts", "feature_record"], compute="cpu", capability="distribution"))
 def run(ctx: StageContext) -> StageResult:
     script = json.loads(ctx.read_input("script").read_text())
-    ad = ctx.backend("distribution")
-    plat = ctx.job["platform_targets"][0]
-    # exactly-once: confirm first; only publish if not already posted (ADR 0003 D1)
-    receipt = ad.confirm_posted(ctx.job["video_id"], plat) or ad.publish(
-        ctx.read_input("render"),
-        PostMeta(title=script["platform_meta"][plat]["title"],
-                 description=script["platform_meta"][plat]["description"],
-                 hashtags=tuple(script["platform_meta"][plat]["hashtags"]),
-                 visibility=Visibility.PRIVATE))
-    posts = ctx.write_output("posts")
-    # Minimal M0-stub patch (controller-approved, M5 Task 9): emit the NEW posts shape so the
-    # Task-9 posts.schema change and the full-DAG boundary validation stay consistent. The REAL
-    # ledger rewire (per-video posts.jsonl, ramp gate) still lands in Task 13.
-    posts.write_text(json.dumps(
-        {"schema_version": "1.0.0", "video_id": receipt.video_id,
-         "platform": receipt.platform, "state": "confirmed",
-         "idempotency_key": idempotency_key(receipt.video_id, receipt.platform),
-         "remote_id": receipt.remote_post_id, "url": "",
-         "ts": "2026-06-09T00:00:00Z"}))
+    state = load_state(ctx.config["ramp_state_path"])          # explicit path (no run-dir guessing)
+    warmed = is_warmed(state)                          # CALENDAR predicate (now >= warming_until)
+    active = gate_active(state, ctx.config.get("ramp", {}))
+    approved = (not active) or state.get("approved_videos", {}).get(ctx.job["video_id"], False)
+    platforms, adapters = ctx.job.get("platform_targets", ["youtube"]), ctx.backend("distribution")
+    vis_cfg = ctx.config.get("visibility", {})
+    affiliate = script.get("affiliate") if ctx.config.get("affiliate_enabled") else None
+    metadata = {p: {**build_caption(script["platform_meta"][p], platform=p,
+                                    disclosure_line=ctx.config["disclosure_line"],
+                                    affiliate=affiliate),
+                    "idempotency_key": idempotency_key(ctx.job["video_id"], p)} for p in platforms}
+    posted = distribute(
+        video_id=ctx.job["video_id"], platforms=platforms, adapters=adapters,
+        renders={p: ctx.run_dir / f"renders/{p}.mp4" for p in platforms}, metadata=metadata,
+        visibilities={p: resolve_visibility(adapters[p], vis_cfg, warmed=warmed)
+                      for p in platforms},
+        ledger_path=ctx.run_dir / "posts.jsonl", approved=approved)               # PER-VIDEO ledger
+    out = ctx.write_output("posts")
+    # The posts ARTIFACT is the schema-valid record for the PRIMARY platform (the full
+    # per-platform map lives in the per-video posts.jsonl ledger, which the M4 fan-in merges
+    # into history/posts.jsonl — ADR 0003 D6).
+    primary = platforms[0]
+    out.write_text(json.dumps(
+        {"schema_version": "1.0.0", "video_id": ctx.job["video_id"], "platform": primary,
+         "state": "confirmed", "idempotency_key": idempotency_key(ctx.job["video_id"], primary),
+         "remote_id": posted[primary].get("remote_id", ""),
+         "url": posted[primary].get("url", ""),
+         "ts": datetime.now(timezone.utc).isoformat()}))
     fr = ctx.write_output("feature_record")
-    fr.write_text(json.dumps({"schema_version": "1.0.0", "video_id": receipt.video_id,
+    fr.write_text(json.dumps({"schema_version": "1.0.0", "video_id": ctx.job["video_id"],
                               "format": script["format"], "seed": ctx.seed,
                               "hook_variant_id": "chosen", "judge_scores": {}, "metrics": {}}))
-    return StageResult(outputs={"posts": posts, "feature_record": fr})
+    ctx.log.info("distributed", platforms=list(posted))
+    return StageResult(outputs={"posts": out, "feature_record": fr})

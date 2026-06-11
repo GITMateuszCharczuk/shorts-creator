@@ -29,7 +29,7 @@ def main() -> int:
     ctx = StageContext(stage=a.stage_id, run_dir=run_dir, seed=a.seed, job=job,
                       config=cfg.get("stage_config", {}),
                       input_paths=cfg["input_paths"], output_paths=cfg["output_paths"],
-                      backends=_build_backends(cfg))
+                      backends=_build_backends(cfg, job))
     try:
         reg.fn(ctx)
     except Quarantined:
@@ -39,14 +39,17 @@ def main() -> int:
     return EXIT_OK
 
 
-def _build_backends(cfg: dict):
+def _build_backends(cfg: dict, job: dict):
     # resolved from config: real Ollama/ComfyUI/Kokoro/QwenVL clients per capability (M1-M3),
     # or the fixture fakes when cfg["backends"] == "fake" (CI / the offline DAG).
     from shared.adapters.fakes import FixtureBackend, FixtureDistributionAdapter
     if cfg.get("backends") == "fake":
         be = FixtureBackend(fixtures_dir=Path(cfg["fixtures_dir"]))
         caps = ["llm", "generate_image", "img2vid", "tts", "vlm_judge", "restore"]
-        return {**{c: be for c in caps}, "distribution": FixtureDistributionAdapter()}
+        # 06 expects a dict[platform, adapter] (one DistributionAdapter per platform, Task 13)
+        dist = {p: FixtureDistributionAdapter(p)
+                for p in job.get("platform_targets", ["youtube"])}
+        return {**{c: be for c in caps}, "distribution": dist}
     # real wiring resolves per-stage via shared.config.resolve_config (ADR 0010 D5)
     raise NotImplementedError("real-backend wiring lands at host bring-up; CI uses backends=fake")
 

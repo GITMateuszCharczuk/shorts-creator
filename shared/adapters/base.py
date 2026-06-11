@@ -14,10 +14,9 @@ class DistributionAdapter(ABC):
     the shared history/posts.jsonl is the M4 fan-in's job (ADR 0003 D6). A retry recovers via
     _find_existing — never a blind re-post.
 
-    NOTE: this ABC coexists with the M0 ``shared.adapters.protocols.DistributionAdapter`` Protocol
-    (same name, different module). The Protocol is the structural contract M0 stubs are typed
-    against; this ABC is the real base the M5 YouTube/TikTok adapters inherit. They do not collide
-    — callers import the one they mean by module path. The M0 Protocol is retired in Task 13."""
+    This is THE distribution contract: the M0 ``shared.adapters.protocols.DistributionAdapter``
+    Protocol it briefly coexisted with was retired in Task 13 (the fixture fake now subclasses
+    this ABC like the real YouTube/TikTok adapters do)."""
     platform: str
 
     def publish(self, *, video_id, media_path, metadata, visibility,
