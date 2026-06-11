@@ -85,10 +85,11 @@ def normalize(text: str) -> str:
 
     text = re.sub(r"\$(\d*\.?\d+)", _money_plain, text)
 
-    # N% — percentages (Fix #1 + #2: leading-dot decimals and optional leading minus)
+    # N% — percentages (leading-dot decimals; a minus counts as a SIGN only when not preceded
+    # by a digit, so "3-5%" stays a range instead of becoming "3negative five percent")
     def _percent(m: re.Match) -> str:
         return f"{_say_number(m.group(1))} percent"
 
-    text = re.sub(r"(-?\d*\.?\d+)%", _percent, text)
+    text = re.sub(r"((?<!\d)-?\d*\.?\d+)%", _percent, text)
 
     return text.strip()

@@ -102,3 +102,15 @@ def test_money_billions_upper():
 
 def test_money_billions_lower():
     assert normalize("$2b") == "two billion dollars"
+
+
+def test_range_hyphen_is_not_a_negative_sign():
+    # "3-5%" is a range; the minus must not be eaten as a sign (re-review regression)
+    out = normalize("3-5%")
+    assert "negative" not in out
+    assert out == "3-five percent"  # only the bound adjacent to % converts (documented behavior)
+
+
+def test_true_negative_percent_still_works():
+    assert normalize("-5%") == "negative five percent"
+    assert normalize("down -5%") == "down negative five percent"
