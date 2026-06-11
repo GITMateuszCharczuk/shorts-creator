@@ -1,3 +1,5 @@
+import pytest
+
 from stages.s02_voice.stage import keyword_in_opening, spoken_text
 
 
@@ -42,3 +44,11 @@ def test_empty_narration_quarantines():
                        output_paths={"narration": "narration.wav"}, backends={})
     with pytest.raises(Quarantined):
         run(ctx)
+
+
+@pytest.mark.integration
+def test_kokoro_tts_live(tmp_path):
+    # host-only: requires kokoro installed + model weights (M1 acceptance criterion 6)
+    from shared.adapters.real import KokoroBackend
+    wav = KokoroBackend(out_dir=tmp_path).tts("Inflation cooled to three point two percent.")
+    assert wav.exists() and wav.stat().st_size > 0
