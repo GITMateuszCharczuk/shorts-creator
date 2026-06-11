@@ -4,23 +4,70 @@
   "schema_version": "1.0.0",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "batch_id", "monetization_share", "videos"],
+  "required": [
+    "schema_version",
+    "batch_id",
+    "monetization_share",
+    "videos"
+  ],
   "properties": {
-    "schema_version": {"type": "string"},
-    "batch_id": {"type": "string"},
-    "monetization_share": {"type": "number"},
+    "schema_version": {
+      "type": "string"
+    },
+    "batch_id": {
+      "type": "string"
+    },
+    "monetization_share": {
+      "type": "number"
+    },
     "videos": {
       "type": "array",
       "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["video_id", "niche", "format", "lane", "topic", "seed", "status"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "video_id",
+          "niche",
+          "format",
+          "lane",
+          "topic",
+          "seed",
+          "status"
+        ],
         "properties": {
-          "video_id": {"type": "string"}, "niche": {"type": "string"},
-          "format": {"type": "string"}, "lane": {"enum": ["reach", "monetization"]},
-          "topic": {"type": "string"}, "seed": {"type": "integer"},
-          "status": {"enum": ["pending", "running", "done", "quarantined", "failed"]}
+          "video_id": {
+            "type": "string"
+          },
+          "niche": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "lane": {
+            "enum": [
+              "reach",
+              "monetization"
+            ]
+          },
+          "topic": {
+            "type": "string"
+          },
+          "seed": {
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "done",
+              "quarantined",
+              "failed"
+            ]
+          }
         }
-      }
+      },
+      "minItems": 1
     }
   }
 }

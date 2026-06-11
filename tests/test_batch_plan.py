@@ -60,3 +60,24 @@ def test_too_few_topic_candidates_raises_topic_starvation():
             monetization_share=0.20,
             master_seed=42,
         )
+
+
+def test_empty_videos_batch_rejected():
+    import pytest
+
+    from shared.schema import SchemaError, SchemaRegistry
+    with pytest.raises(SchemaError):
+        SchemaRegistry().validate("batch", {"schema_version": "1.0.0", "batch_id": "x",
+                                            "monetization_share": 0.2, "videos": []})
+
+
+def test_format_starvation_names_the_slot():
+    import pytest
+
+    from shared.planner.batch import plan_batch
+    from shared.planner.rotation import NoFormatError
+    fmts = [{"id": "only_one", "lane_support": {"reach": True, "monetization": False}}]
+    with pytest.raises(NoFormatError, match="niche=finance"):
+        plan_batch(batch_id="b", niches=["finance"], per_niche=2, formats=fmts,
+                   lane_history=["monetization"] * 20, topic_candidates=["a", "b"],
+                   ledger_topics=set(), monetization_share=0.20, master_seed=1)
