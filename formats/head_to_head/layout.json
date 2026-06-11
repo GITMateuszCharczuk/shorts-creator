@@ -1,0 +1,163 @@
+{
+  "schema_version": "1.0.0",
+  "format": "head_to_head",
+  "beat_pattern": [
+    "hook",
+    "round",
+    "round",
+    "verdict",
+    "cta"
+  ],
+  "regions": [
+    {
+      "name": "side_a_media",
+      "bbox": {
+        "colA": 1,
+        "colB": 12,
+        "y": 0.0,
+        "h": 0.5
+      },
+      "z": 0,
+      "primitive": {
+        "type": "MediaZone",
+        "params": {
+          "fit": "cover"
+        }
+      },
+      "bind": "side_a.media_query",
+      "enter": "slide_in_down",
+      "exit": "fade",
+      "style": "brand.media"
+    },
+    {
+      "name": "side_b_media",
+      "bbox": {
+        "colA": 1,
+        "colB": 12,
+        "y": 0.5,
+        "h": 0.5
+      },
+      "z": 0,
+      "primitive": {
+        "type": "MediaZone",
+        "params": {
+          "fit": "cover"
+        }
+      },
+      "bind": "side_b.media_query",
+      "enter": "slide_in_up",
+      "exit": "fade",
+      "style": "brand.media"
+    },
+    {
+      "name": "side_a_label",
+      "bbox": {
+        "colA": 1,
+        "colB": 8,
+        "y": 0.04,
+        "h": 0.08
+      },
+      "z": 2,
+      "primitive": {
+        "type": "TextCard",
+        "params": {
+          "role": "label"
+        }
+      },
+      "bind": "side_a.label",
+      "enter": "fade",
+      "exit": "fade",
+      "style": "brand.label"
+    },
+    {
+      "name": "side_b_label",
+      "bbox": {
+        "colA": 1,
+        "colB": 8,
+        "y": 0.88,
+        "h": 0.08
+      },
+      "z": 2,
+      "primitive": {
+        "type": "TextCard",
+        "params": {
+          "role": "label"
+        }
+      },
+      "bind": "side_b.label",
+      "enter": "fade",
+      "exit": "fade",
+      "style": "brand.label"
+    },
+    {
+      "name": "vs_badge",
+      "bbox": {
+        "colA": 5,
+        "colB": 8,
+        "y": 0.44,
+        "h": 0.12
+      },
+      "z": 4,
+      "primitive": {
+        "type": "Badge",
+        "params": {
+          "shape": "stamp",
+          "content": "VS"
+        }
+      },
+      "bind": "static",
+      "on": [
+        "round"
+      ],
+      "enter": "pop",
+      "exit": "none",
+      "style": "brand.vs"
+    },
+    {
+      "name": "stat_bars",
+      "bbox": {
+        "colA": 2,
+        "colB": 11,
+        "y": 0.4,
+        "h": 0.2
+      },
+      "z": 3,
+      "primitive": {
+        "type": "DataVizSlot",
+        "params": {
+          "viz": "bars"
+        }
+      },
+      "bind": "round.metrics",
+      "on": [
+        "round"
+      ],
+      "enter": "count_up_stagger",
+      "exit": "fade",
+      "style": "brand.viz"
+    },
+    {
+      "name": "verdict",
+      "bbox": {
+        "colA": 2,
+        "colB": 11,
+        "y": 0.42,
+        "h": 0.16
+      },
+      "z": 5,
+      "primitive": {
+        "type": "TextCard",
+        "params": {
+          "role": "display"
+        }
+      },
+      "bind": "verdict.text",
+      "on": [
+        "verdict"
+      ],
+      "enter": "riser_reveal",
+      "exit": "fade",
+      "style": "brand.verdict"
+    }
+  ]
+}

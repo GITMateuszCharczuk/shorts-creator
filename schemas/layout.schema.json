@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "layout.schema.json",
+  "schema_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "format",
+    "beat_pattern",
+    "regions"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "format": {
+      "type": "string"
+    },
+    "beat_pattern": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "anchors": {
+      "description": "format-local named anchors merged OVER the \u00a77a defaults (name -> [y,h]).",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "number"
+        },
+        "minItems": 2,
+        "maxItems": 2
+      }
+    },
+    "regions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "bbox",
+          "z",
+          "primitive",
+          "bind"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "bbox": {
+            "description": "ADR 0007a \u00a73/\u00a77a: inclusive colA-colB on a 12-col grid; vertical is EITHER a named anchor OR a literal {y,h} fraction of the safe rect.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "colA",
+              "colB"
+            ],
+            "properties": {
+              "colA": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "colB": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "anchor": {
+                "type": "string"
+              },
+              "y": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "h": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "anchor"
+                ]
+              },
+              {
+                "required": [
+                  "y",
+                  "h"
+                ]
+              }
+            ]
+          },
+          "z": {
+            "type": "integer"
+          },
+          "primitive": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "MediaZone",
+                  "TextCard",
+                  "Badge",
+                  "KaraokeCaption",
+                  "DataVizSlot",
+                  "CitationChip",
+                  "CTABump",
+                  "BrandOverlay"
+                ]
+              },
+              "params": {
+                "type": "object"
+              }
+            }
+          },
+          "bind": {
+            "type": "string",
+            "description": "dotted beat-field path, or the literal \"static\" (content then from primitive.params.content)"
+          },
+          "on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "optional: beat kinds this region appears on (gates static regions like vs_badge to round beats)"
+          },
+          "enter": {
+            "enum": [
+              "none",
+              "fade",
+              "slide_in_up",
+              "slide_in_down",
+              "pop",
+              "count_up",
+              "count_up_stagger",
+              "riser_reveal"
+            ]
+          },
+          "exit": {
+            "enum": [
+              "none",
+              "fade",
+              "slide_out_up",
+              "slide_out_down"
+            ]
+          },
+          "style": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
