@@ -52,7 +52,9 @@ def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path) 
         key = cache_key(sid, ih, seed)
 
         hit = cache.get(key)
-        if hit is not None:
+        # honor the cache's stale-hit contract: trust a hit only if its outputs are still on
+        # disk (M6 GC or a cross-run_dir entry can leave the recorded paths absent) -> else re-run
+        if hit is not None and all((run_dir / rel).exists() for rel in hit.values()):
             produced.update(hit)
             cache_hits += 1
             continue
