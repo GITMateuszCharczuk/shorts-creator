@@ -4,19 +4,17 @@
   "schema_version": "1.0.0",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "verdict", "checks"],
+  "required": ["schema_version", "checks", "passed"],
   "properties": {
     "schema_version": {"type": "string"},
-    "verdict": {"enum": ["pass", "quarantine"]},
+    "passed": {"type": "boolean"},
     "checks": {
-      "type": "object",
-      "additionalProperties": {
+      "type": "array",
+      "items": {
         "type": "object", "additionalProperties": false,
-        "required": ["pass"],
-        "properties": {
-          "pass": {"type": "boolean"},
-          "detail": {"type": "string"}
-        }
+        "required": ["name", "ok"],
+        "properties": {"name": {"type": "string"}, "ok": {"type": "boolean"},
+                       "detail": {"type": "string"}}
       }
     }
   }
