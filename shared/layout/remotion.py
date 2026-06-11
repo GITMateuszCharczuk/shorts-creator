@@ -23,6 +23,9 @@ def render_manifest_to_frames(manifest: dict, out_dir: Path) -> list[Path]:
     frames_dir.mkdir(exist_ok=True)
     raws = sorted(raw.glob("*.png"),
                   key=lambda p: int("".join(c for c in p.stem if c.isdigit()) or 0))
+    if not raws:
+        # a render that produced 0 frames is broken — never hand ffmpeg an empty sequence
+        raise RuntimeError(f"Remotion produced 0 frames in {raw}")
     out = []
     for i, src in enumerate(raws):
         dst = frames_dir / f"{i:05d}.png"
