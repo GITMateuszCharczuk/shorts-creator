@@ -1,4 +1,5 @@
 {"schema_version": "1.0.0", "niche": "finance",
- "persona": {"voice": "rigorous, data-first"},
+ "persona": {"voice": "rigorous, data-first",
+             "stances": ["fees and time compound louder than stock picks"]},
  "brand_kit": {"palette": ["#0C1E12", "#00E5FF"], "font": "Inter", "logo": "brand/finance.svg"},
  "defaults": {"voice_backend": "kokoro"}}

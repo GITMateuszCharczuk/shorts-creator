@@ -8,16 +8,34 @@
   "properties": {
     "schema_version": {"type": "string"},
     "niche": {"type": "string"},
-    "persona": {"type": "object"},
+    "persona": {
+      "type": "object",
+      "required": ["stances"],
+      "properties": {
+        "voice": {"type": "string"},
+        "pov": {"type": "string"},
+        "stances": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "catchphrase": {"type": "string"},
+        "series": {"type": "array", "items": {"type": "object"}}
+      }
+    },
     "brand_kit": {
       "type": "object", "additionalProperties": false,
       "required": ["palette", "font", "logo"],
       "properties": {
         "palette": {"type": "array", "items": {"type": "string"}},
         "font": {"type": "string"},
-        "logo": {"type": "string"}
+        "logo": {"type": "string"},
+        "mascot": {"type": "string"}
       }
     },
-    "defaults": {"type": "object"}
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "voice_backend": {"type": "string"},
+        "music_index": {"type": "string"},
+        "emphasis_hex": {"type": "string"}
+      }
+    }
   }
 }
