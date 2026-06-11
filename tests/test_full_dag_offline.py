@@ -5,6 +5,7 @@ import pytest
 
 from shared.cache import StageCache
 from shared.runner import run_dag
+from stages.s01d_upscale.stage import _PLACEHOLDER_PNG
 
 DATA_FIX = Path(__file__).parent / "fixtures" / "m1" / "data.json"
 
@@ -22,6 +23,8 @@ def _fake_align(monkeypatch):
 def _seed_fixture(run_dir: Path) -> dict:
     """Copy the data fixture into run_dir as data_fixture.json and return the config dict."""
     (run_dir / "data_fixture.json").write_text(DATA_FIX.read_text())
+    # Stage 05 reads run_dir/logo.png (brand overlay); write a real PNG so ffmpeg can open it.
+    (run_dir / "logo.png").write_bytes(_PLACEHOLDER_PNG)
     return {"data_fixture": "data_fixture.json", "best_of_n": 1}
 
 
