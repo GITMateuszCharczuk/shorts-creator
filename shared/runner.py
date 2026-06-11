@@ -22,7 +22,8 @@ OUTPUT_SCHEMA = {"data": None, "script": "script", "assets": "assets", "provenan
 REG = SchemaRegistry()
 
 
-def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path) -> dict:
+def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path,
+            config: dict | None = None) -> dict:
     load_all()
     backend = FixtureBackend(fixtures_dir=fixtures_dir)
     dist = FixtureDistributionAdapter()
@@ -45,7 +46,7 @@ def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path) 
                    for name, p in input_paths.items()}
         # ADR 0012 §1: resolved_config is part of the hash; generative stages also fold
         # in model_id + graph_version so a model/graph bump is a miss (ADR 0010 D4).
-        resolved = resolve_config(global_defaults={}, niche={}, batch={}, per_platform={})
+        resolved = resolve_config(global_defaults=config or {}, niche={}, batch={}, per_platform={})
         gen = {"model_id": "m0-fake", "graph_version": "m0"} if m.compute == "gpu" else {}
         ih = input_hash(declared_input_digests=digests, resolved_config=resolved,
                         stage_version="m0", **gen)

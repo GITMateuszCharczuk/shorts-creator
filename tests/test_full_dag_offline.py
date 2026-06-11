@@ -1,12 +1,23 @@
 import json
+from pathlib import Path
 
 from shared.cache import StageCache
 from shared.runner import run_dag
 
+DATA_FIX = Path(__file__).parent / "fixtures" / "m1" / "data.json"
+
+
+def _seed_fixture(run_dir: Path) -> dict:
+    """Copy the data fixture into run_dir as data_fixture.json and return the config dict."""
+    (run_dir / "data_fixture.json").write_text(DATA_FIX.read_text())
+    return {"data_fixture": "data_fixture.json"}
+
 
 def test_full_dag_produces_posts_record(run_dir, tmp_path):
     cache = StageCache(root=tmp_path / "cache")
-    result = run_dag(run_dir=run_dir, seed=7, cache=cache, fixtures_dir=_backend_fixtures())
+    cfg = _seed_fixture(run_dir)
+    result = run_dag(run_dir=run_dir, seed=7, cache=cache, fixtures_dir=_backend_fixtures(),
+                     config=cfg)
     posts = json.loads((run_dir / result["posts"]).read_text())
     assert posts["state"] == "confirmed"
     assert posts["platform"] in ("youtube", "tiktok")
@@ -14,20 +25,23 @@ def test_full_dag_produces_posts_record(run_dir, tmp_path):
 
 def test_rerun_is_cache_hit(run_dir, tmp_path):
     cache = StageCache(root=tmp_path / "cache")
-    run_dag(run_dir=run_dir, seed=7, cache=cache, fixtures_dir=_backend_fixtures())
-    second = run_dag(run_dir=run_dir, seed=7, cache=cache, fixtures_dir=_backend_fixtures())
+    cfg = _seed_fixture(run_dir)
+    run_dag(run_dir=run_dir, seed=7, cache=cache, fixtures_dir=_backend_fixtures(), config=cfg)
+    second = run_dag(run_dir=run_dir, seed=7, cache=cache, fixtures_dir=_backend_fixtures(),
+                     config=cfg)
     assert second["cache_hits"] > 0
 
 
 def test_seed_change_is_a_miss(run_dir, tmp_path):
     cache = StageCache(root=tmp_path / "cache")
-    run_dag(run_dir=run_dir, seed=7, cache=cache, fixtures_dir=_backend_fixtures())
-    third = run_dag(run_dir=run_dir, seed=8, cache=cache, fixtures_dir=_backend_fixtures())
+    cfg = _seed_fixture(run_dir)
+    run_dag(run_dir=run_dir, seed=7, cache=cache, fixtures_dir=_backend_fixtures(), config=cfg)
+    third = run_dag(run_dir=run_dir, seed=8, cache=cache, fixtures_dir=_backend_fixtures(),
+                    config=cfg)
     assert third["cache_hits"] == 0
 
 
 def _backend_fixtures():
-    from pathlib import Path
     return Path(__file__).parent / "fixtures" / "backends"
 
 
