@@ -27,7 +27,7 @@ _NUM = re.compile(r"-?\d[\d,]*\.?\d*")
 def parse_number(text: str) -> float:
     # Assumes the claim value is a single normalized figure ("3.2%", "$184.21") in the SAME unit
     # as the data.json anchor; it extracts the first number and does NOT understand scale suffixes
-    # (M/B/bps) or ranges -- those parse conservatively (a mismatch quarantines, never passes wrong).
+    # (M/B/bps) or ranges -- those parse conservatively (a mismatch quarantines, never passes).
     m = _NUM.search(text.replace(",", ""))
     if not m:
         raise GroundingError(f"no number in claim value {text!r}")
