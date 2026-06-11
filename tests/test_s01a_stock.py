@@ -37,3 +37,33 @@ def test_cross_beat_dedup_blocks_repeating_the_same_clip(tmp_path):
     choices = _json.loads((tmp_path / "scenes_stock.json").read_text())["choices"]
     assert choices[0]["kind"] == "stock"
     assert choices[1]["kind"] != "stock" or choices[1]["ref"] != choices[0]["ref"]
+
+
+def test_denylist_and_bias_applied_to_search(tmp_path):
+    import json as _json
+
+    from shared.ctx import StageContext
+    from stages.s01a_stock.stage import run
+
+    seen_queries = []
+
+    class _Stock:
+        def search(self, query, n):
+            seen_queries.append(query)
+            return [{"path": "stock/coins_jar.jpg", "phash": "ffff0000ffff0000", "score": 0.9,
+                     "source": "pexels", "url": "https://x/coins", "license": "Pexels",
+                     "fetch_date": "2026-06-09"},
+                    {"path": "stock/texture_ok.jpg", "phash": "0000ffff0000ffff", "score": 0.8,
+                     "source": "pexels", "url": "https://x/tex", "license": "Pexels",
+                     "fetch_date": "2026-06-09"}]
+
+    (tmp_path / "script.json").write_text(_json.dumps({"narration_beats": [{"text": "gold"}]}))
+    ctx = StageContext(stage="01a", run_dir=tmp_path, seed=1, job={},
+                       config={"stock_denylist": ["coins"]},
+                       input_paths={"script": "script.json"},
+                       output_paths={"scenes_stock": "s.json", "provenance": "p.json"},
+                       backends={"stock": _Stock()})
+    run(ctx)
+    assert "abstract textural" in seen_queries[0]          # the style bias rides every query
+    choice = _json.loads((tmp_path / "s.json").read_text())["choices"][0]
+    assert choice["ref"] != "stock/coins_jar.jpg"          # the cliché candidate was dropped

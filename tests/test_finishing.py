@@ -41,3 +41,10 @@ def test_cut_rate_guard():
     slow = {"fps": 30, "scenes": [{"start": 0.0, "end": 9.0, "kind": "item", "regions": []}]}
     with pytest.raises(CutRateError):
         assert_cut_rate(slow, max_scene_s=4.0)     # the no-slideshow target (ADR 0005 D4)
+
+
+def test_end_card_verb_fallback_when_phrase_lacks_slot():
+    m = inject_finishing(_manifest(), brand_kit={"end_card_phrases": ["Don't miss out"]},
+                         seed=7, platform="youtube")
+    card = next(r for r in m["scenes"][-1]["regions"] if r["name"] == "end_card")
+    assert "Subscribe" in card["value"]

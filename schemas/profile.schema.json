@@ -4,37 +4,90 @@
   "schema_version": "1.0.0",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "niche", "persona", "brand_kit", "defaults"],
+  "required": [
+    "schema_version",
+    "niche",
+    "persona",
+    "brand_kit",
+    "defaults"
+  ],
   "properties": {
-    "schema_version": {"type": "string"},
-    "niche": {"type": "string"},
+    "schema_version": {
+      "type": "string"
+    },
+    "niche": {
+      "type": "string"
+    },
     "persona": {
       "type": "object",
-      "required": ["stances"],
+      "required": [
+        "catchphrase",
+        "series",
+        "stances"
+      ],
       "properties": {
-        "voice": {"type": "string"},
-        "pov": {"type": "string"},
-        "stances": {"type": "array", "minItems": 1, "items": {"type": "string"}},
-        "catchphrase": {"type": "string"},
-        "series": {"type": "array", "items": {"type": "object"}}
+        "voice": {
+          "type": "string"
+        },
+        "pov": {
+          "type": "string"
+        },
+        "stances": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "catchphrase": {
+          "type": "string"
+        },
+        "series": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
       }
     },
     "brand_kit": {
-      "type": "object", "additionalProperties": false,
-      "required": ["palette", "font", "logo"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "palette",
+        "font",
+        "logo"
+      ],
       "properties": {
-        "palette": {"type": "array", "items": {"type": "string"}},
-        "font": {"type": "string"},
-        "logo": {"type": "string"},
-        "mascot": {"type": "string"}
+        "palette": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "font": {
+          "type": "string"
+        },
+        "logo": {
+          "type": "string"
+        },
+        "mascot": {
+          "type": "string"
+        }
       }
     },
     "defaults": {
       "type": "object",
       "properties": {
-        "voice_backend": {"type": "string"},
-        "music_index": {"type": "string"},
-        "emphasis_hex": {"type": "string"}
+        "voice_backend": {
+          "type": "string"
+        },
+        "music_index": {
+          "type": "string"
+        },
+        "emphasis_hex": {
+          "type": "string"
+        }
       }
     }
   }

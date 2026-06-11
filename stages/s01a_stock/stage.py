@@ -30,13 +30,20 @@ def run(ctx: StageContext) -> StageResult:
                                   "the offline DAG injects a fixture client)")
     used = set(ctx.config.get("used_hashes", []))   # cross-video ledger arrives in M3; config seam
     thr = float(ctx.config.get("stock_threshold", 0.30))
+    # ADR 0017 D2 knobs: abstract/textural style bias appended to every query; the literal-cliché
+    # denylist drops scam-ad-vocabulary candidates (matched against path/url metadata).
+    bias = str(ctx.config.get("query_style_bias", "abstract textural"))
+    denylist = [d.lower() for d in ctx.config.get("stock_denylist", [])]
     choices, prov, ai_needed = [], [], []
     for i, beat in enumerate(script.get("narration_beats", [])):
         text = beat.get("text", "")
         if not text.strip():
             choices.append({"beat": i, "kind": "card", "ref": None})  # no query -> branded card
             continue
-        cands = stock.search(text, n=4)   # [{"path","phash","score","source","url","license"}...]
+        cands = stock.search(f"{text} {bias}".strip(), n=4)
+        cands = [c for c in cands
+                 if not any(d in (c.get("path", "") + " " + c.get("url", "")).lower()
+                            for d in denylist)]
         pairs = [(c["path"], c["phash"]) for c in cands if license_ok(c.get("license", ""))]
         scores = {c["path"]: float(c.get("score", 0.0)) for c in cands}
         choice = select_for_beat(beat=text, candidates=pairs,

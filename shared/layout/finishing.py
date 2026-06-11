@@ -10,6 +10,8 @@ def inject_finishing(manifest: dict, *, brand_kit: dict, seed: int, platform: st
     phrases = brand_kit.get("end_card_phrases",
                             ["Follow — the algorithm only shows us once"])
     phrase = phrases[seed % len(phrases)].replace("Follow", verb, 1)
+    if verb not in phrase:   # a phrase without the "Follow" slot still gets the platform CTA verb
+        phrase = f"{phrase} — {verb}"
     last = manifest["scenes"][-1]
     last["regions"].append({
         "name": "end_card", "primitive": {"type": "TextCard", "params": {"role": "display"}},
