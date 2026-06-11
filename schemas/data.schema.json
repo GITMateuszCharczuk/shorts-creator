@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "data.schema.json",
+  "schema_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "market", "news"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "market": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false,
+        "required": ["value", "source", "as_of"],
+        "properties": {"value": {"type": "number"}, "source": {"type": "string"},
+                       "as_of": {"type": "string"}}
+      }
+    },
+    "news": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["title", "url", "source", "published"],
+        "properties": {"title": {"type": "string"}, "url": {"type": "string"},
+                       "source": {"type": "string"}, "published": {"type": "string"},
+                       "summary": {"type": "string"}}
+      }
+    }
+  }
+}

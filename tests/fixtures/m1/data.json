@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "market": {
+    "cpi_yoy": {"value": 3.2, "source": "FRED:CPIAUCSL", "as_of": "2026-06-08"},
+    "fed_funds": {"value": 4.5, "source": "FRED:FEDFUNDS", "as_of": "2026-06-08"},
+    "ACME_price": {"value": 184.21, "source": "AlphaVantage:GLOBAL_QUOTE", "as_of": "2026-06-08"}
+  },
+  "news": [
+    {"title": "Inflation cools to 3.2%", "url": "https://ex.com/a", "source": "Reuters",
+     "published": "2026-06-08", "summary": "CPI eased."},
+    {"title": "Fed holds rates", "url": "https://ex.com/b", "source": "AP",
+     "published": "2026-06-07", "summary": "No change."}
+  ]
+}
