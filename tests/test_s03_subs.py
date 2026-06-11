@@ -11,3 +11,9 @@ def test_tag_emphasis_marks_script_punch_words():
 def test_tag_emphasis_matches_numeric_token():
     aligned = [{"word": "3.2%", "start": 1.0, "end": 1.6}]
     assert tag_emphasis(aligned, {"3.2%"})[0]["emphasis"] is True   # raw numeric punch word
+
+
+def test_tag_emphasis_tolerates_missing_word_key():
+    # WhisperX can emit silence segments without "word"
+    out = tag_emphasis([{"start": 0.0, "end": 0.2}], {"x"})
+    assert out[0]["emphasis"] is False

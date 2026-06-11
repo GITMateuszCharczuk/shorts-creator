@@ -14,7 +14,8 @@ def tag_emphasis(aligned: list[dict], emphasis_words: set[str]) -> list[dict]:
         # sentence-punctuation-stripped form — but never strip % or $ (they carry meaning).
         return w in ew or w.strip(".,!?") in ew
 
-    return [{**w, "emphasis": hit(w["word"])} for w in aligned]
+    # .get: WhisperX can emit silence segments without a "word" key
+    return [{**w, "emphasis": hit(w.get("word", ""))} for w in aligned]
 
 
 @stage(StageManifest(
@@ -25,7 +26,7 @@ def tag_emphasis(aligned: list[dict], emphasis_words: set[str]) -> list[dict]:
 ))
 def run(ctx: StageContext) -> StageResult:
     script = json.loads(ctx.read_input("script").read_text())
-    script_text = " ".join(b["text"] for b in script.get("narration_beats", []))
+    script_text = " ".join(b.get("text", "") for b in script.get("narration_beats", []))
     aligned = _align_to_script(ctx.read_input("narration"), script_text)  # WhisperX, integration
     emphasis = {w for c in script.get("captions", []) for w in c.get("emphasis", [])}
     words = tag_emphasis(aligned, emphasis)
