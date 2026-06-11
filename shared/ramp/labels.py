@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -9,4 +10,7 @@ def record_label(feature_record_path: Path, *, approved: bool, reason: str = "")
     rec = json.loads(Path(feature_record_path).read_text())
     rec["ramp_label"] = {"approved": approved, "reason": reason,
                          "ts": datetime.now(timezone.utc).isoformat()}
-    Path(feature_record_path).write_text(json.dumps(rec))
+    # Atomic write: a crash mid-write must not corrupt feature_record (same pattern as state._save).
+    tmp = Path(f"{feature_record_path}.tmp")
+    tmp.write_text(json.dumps(rec))
+    os.replace(tmp, feature_record_path)

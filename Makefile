@@ -21,7 +21,7 @@ COUNT        ?= 2
 
 .PHONY: help up down trigger dry-run \
         host-comfyui-up host-comfyui-down host-llm-up \
-        host-up cluster-up build wire submit-batch test voice-ab
+        host-up cluster-up build wire submit-batch test voice-ab review
 
 help: ## list targets (grouped by section)
 	@awk 'BEGIN{FS=":.*?## "} \
@@ -65,3 +65,5 @@ test: ## schema validation + golden fixtures + GPU-free full-DAG run via shared/
 	@uv run pytest -q -m "not integration"
 voice-ab: ## expressive-voice A/B: reference script through each TTS backend (host-only, ADR 0017 D1)
 	@uv run python -m shared.audio.voice_ab
+review: ## human-at-publish ramp review CLI (ADR 0014 D2 / 0016 D2)
+	@uv run python -m shorts.review
