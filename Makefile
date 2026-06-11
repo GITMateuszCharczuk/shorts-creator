@@ -21,7 +21,7 @@ COUNT        ?= 2
 
 .PHONY: help up down trigger dry-run \
         host-comfyui-up host-comfyui-down host-llm-up \
-        host-up cluster-up build wire submit-batch test
+        host-up cluster-up build wire submit-batch test voice-ab
 
 help: ## list targets (grouped by section)
 	@awk 'BEGIN{FS=":.*?## "} \
@@ -62,3 +62,5 @@ submit-batch: ## scheduled-equivalent batch submit (CronWorkflow uses the same t
 ## ---- dev ----
 test: ## schema validation + golden fixtures + GPU-free full-DAG run via shared/fakes (ADR 0010)
 	@uv run pytest -q
+voice-ab: ## expressive-voice A/B: reference script through each TTS backend (host-only, ADR 0017 D1)
+	@uv run python -m shared.audio.voice_ab

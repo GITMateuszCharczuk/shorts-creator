@@ -182,3 +182,47 @@ class KokoroBackend:
         raise NotImplementedError
     def restore(self, frames: list[Path]) -> list[Path]:
         raise NotImplementedError
+
+
+class _CandidateTTSBackend:
+    """Shared shape for the expressive-voice A/B candidates (ADR 0017 D1): constructed cheaply
+    (no model imports), satisfies ModelBackend; the live synth is wired at host bring-up and
+    exercised only by the `make voice-ab` harness — never in CI."""
+
+    _name = "candidate"
+
+    def __init__(self, out_dir: Path, voice: str | None = None, sample_rate: int = 24000):
+        self._out = Path(out_dir)
+        self._voice = voice
+        self._sr = sample_rate
+
+    def tts(self, text: str) -> Path:
+        raise NotImplementedError(f"wired at host bring-up — {self._name}")
+
+    def tts_segments(self, segments: list[dict]) -> Path:
+        raise NotImplementedError(f"wired at host bring-up — {self._name}")
+
+    def llm(self, prompt: str, seed: int | None = None) -> str:
+        raise NotImplementedError("use OllamaBackend for llm")
+
+    def llm_json(self, prompt: str, seed: int | None = None) -> dict:
+        raise NotImplementedError("use OllamaBackend for llm_json")
+
+    def generate_image(self, prompt: str, seed: int) -> Path:
+        raise NotImplementedError
+    def img2vid(self, image: Path, seed: int) -> Path:
+        raise NotImplementedError
+    def vlm_judge(self, frames: list[Path], script: dict) -> Judgment:
+        raise NotImplementedError
+    def restore(self, frames: list[Path]) -> list[Path]:
+        raise NotImplementedError
+
+
+class OrpheusBackend(_CandidateTTSBackend):
+    """ModelBackend.tts via Orpheus-TTS — expressive-voice A/B candidate (ADR 0017 D1)."""
+    _name = "orpheus"
+
+
+class ChatterboxBackend(_CandidateTTSBackend):
+    """ModelBackend.tts via Chatterbox — expressive-voice A/B candidate (ADR 0017 D1)."""
+    _name = "chatterbox"
