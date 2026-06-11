@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "vision.schema.json",
+  "schema_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "keyframes"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "keyframes": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["frame_id", "kind", "observations"],
+        "properties": {
+          "frame_id": {"type": "string"},
+          "kind": {"enum": ["hook", "end_card", "beat"]},
+          "observations": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

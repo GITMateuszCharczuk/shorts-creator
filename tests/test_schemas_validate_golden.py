@@ -41,5 +41,10 @@ def test_rejects_unknown_status_enum():
         REG.validate("job", bad)
 
 
-def test_script_golden_validates():
-    REG.validate("script", json.loads((GOLDEN / "script.json").read_text()))
+ALL_SCHEMAS = ["job", "script", "assets", "provenance", "vision", "qc",
+               "creative_qc", "posts", "profile", "format", "feature_record"]
+
+
+@pytest.mark.parametrize("name", ALL_SCHEMAS)
+def test_golden_fixture_validates(name):
+    REG.validate(name, json.loads((GOLDEN / f"{name}.json").read_text()))

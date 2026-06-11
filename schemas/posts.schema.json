@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "posts.schema.json",
+  "schema_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "video_id", "platform", "state", "visibility", "timestamp"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "video_id": {"type": "string"},
+    "platform": {"enum": ["youtube", "tiktok"]},
+    "state": {"enum": ["intent", "confirmed"]},
+    "visibility": {"enum": ["private", "self_only", "public"]},
+    "remote_post_id": {"type": "string"},
+    "timestamp": {"type": "string"}
+  }
+}

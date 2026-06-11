@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "profile.schema.json",
+  "schema_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "niche", "persona", "brand_kit", "defaults"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "niche": {"type": "string"},
+    "persona": {"type": "object"},
+    "brand_kit": {
+      "type": "object", "additionalProperties": false,
+      "required": ["palette", "font", "logo"],
+      "properties": {
+        "palette": {"type": "array", "items": {"type": "string"}},
+        "font": {"type": "string"},
+        "logo": {"type": "string"}
+      }
+    },
+    "defaults": {"type": "object"}
+  }
+}

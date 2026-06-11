@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "creative_qc.schema.json",
+  "schema_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "scores", "overall", "floor", "pass"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "scores": {"type": "object", "additionalProperties": {"type": "number"}},
+    "overall": {"type": "number"},
+    "floor": {"type": "number"},
+    "pass": {"type": "boolean"}
+  }
+}

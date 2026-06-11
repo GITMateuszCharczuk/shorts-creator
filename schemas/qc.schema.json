@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qc.schema.json",
+  "schema_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "verdict", "checks"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "verdict": {"enum": ["pass", "quarantine"]},
+    "checks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false,
+        "required": ["pass"],
+        "properties": {
+          "pass": {"type": "boolean"},
+          "detail": {"type": "string"}
+        }
+      }
+    }
+  }
+}

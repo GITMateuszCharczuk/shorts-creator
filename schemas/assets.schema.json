@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "assets.schema.json",
+  "schema_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "scenes"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "scenes": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["beat_id", "clip_path", "duration"],
+        "properties": {
+          "beat_id": {"type": "string"},
+          "clip_path": {"type": "string"},
+          "duration": {"type": "number"}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "feature_record.schema.json",
+  "schema_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "video_id", "format", "seed", "hook_variant_id",
+               "judge_scores", "metrics"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "video_id": {"type": "string"},
+    "format": {"type": "string"},
+    "seed": {"type": "integer"},
+    "hook_variant_id": {"type": "string"},
+    "judge_scores": {"type": "object", "additionalProperties": {"type": "number"}},
+    "metrics": {"type": "object"}
+  }
+}
