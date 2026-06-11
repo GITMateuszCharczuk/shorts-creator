@@ -24,3 +24,19 @@ def test_scene_spans_partition_words_into_contiguous_beat_spans():
 
 def test_safe_rect_tiktok_insets_are_tighter_than_youtube():
     assert _safe_rect("tiktok", {})["h"] < _safe_rect("youtube", {})["h"]
+
+
+def test_delta_manifest_still_schema_validates():
+    # platform_delta injects a top-level "cta" — the schema must accept the DELTA'd manifest
+    # (an M4/M5 gate re-validating it must not fail on additionalProperties)
+    import json
+    from pathlib import Path
+
+    from shared.schema import SchemaRegistry
+    golden = json.loads((Path(__file__).parent / "fixtures" / "m2"
+                         / "render_manifest_golden.json").read_text())
+    SchemaRegistry().validate("render_manifest", platform_delta(golden, "tiktok"))
+
+
+def test_scene_spans_zero_beats_returns_empty():
+    assert _scene_spans([{"start": 0.0, "end": 1.0}], {"beats": []}) == []

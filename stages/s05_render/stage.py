@@ -43,6 +43,10 @@ def run(ctx: StageContext) -> StageResult:
         (ctx.run_dir / ctx.config.get("brand_kit", "brand_kit.json")).read_text())
     beat_data = {"beats": _beats_from_script(script)}  # the typed per-beat data 00b emitted
     media = {i: s["clip_path"] for i, s in enumerate(assets["scenes"])}  # beat -> CHOSEN asset
+    if len(media) < len(beat_data["beats"]):
+        # an asset under-delivery renders the brand-dark fallback — visible in QC, but log it
+        ctx.log.warning("fewer assets than beats", assets=len(media),
+                        beats=len(beat_data["beats"]))
     out = ctx.write_output("render")                   # primary cut: renders/youtube.mp4
     primary = None
     for plat in ctx.job.get("platform_targets", ["youtube"]):   # a REAL cut per platform target
@@ -80,6 +84,8 @@ def _scene_spans(words: list[dict], beat_data: dict) -> list[dict]:
     # word-timed cuts (ADR 0007a §2): partition words into n contiguous groups; each scene
     # spans its group's first->last word — NOT a flat division.
     n = len(beat_data["beats"])
+    if n == 0:
+        return []   # resolve() pairs beats with timings; zero beats -> zero spans (no crash)
     k, m = divmod(len(words), n)
     spans, idx = [], 0
     for s in range(n):
