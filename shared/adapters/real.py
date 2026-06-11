@@ -128,6 +128,67 @@ class ComfyUIBackend:
         raise NotImplementedError
 
 
+_OBSERVE_PROMPT = (
+    "You are inspecting rendered video keyframes. Return STRICT JSON: "
+    '{"coherence": 0-1, "pacing": 0-1, "observations": ["..."]} — observations are concrete, '
+    "per-frame notes (artifacts, morphing hands, garbled/occluded text, caption overlap, "
+    "composition). Score ONLY what you can SEE; do not judge the script's ideas.\n\nSCRIPT: ")
+
+
+class QwenVLBackend:
+    """ModelBackend.vlm_judge via an OpenAI-compatible chat endpoint with image content
+    (e.g. Ollama /v1/chat/completions serving Qwen2.5-VL) — ADR 0016 D5. Returns
+    OBSERVATIONS + the visual sub-scores (coherence/pacing); verdicts belong to the gates."""
+
+    def __init__(self, base_url: str, model: str = "qwen2.5-vl", timeout: float = 300.0):
+        self._base = base_url.rstrip("/")
+        self._model = model
+        self._timeout = timeout
+
+    def vlm_judge(self, frames, script):
+        import base64
+        import json
+
+        import httpx
+
+        from shared.adapters.types import Judgment
+        content = [{"type": "text", "text": _OBSERVE_PROMPT + json.dumps(script)}]
+        for f in frames:
+            b64 = base64.b64encode(Path(f).read_bytes()).decode()
+            content.append({"type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{b64}"}})
+        r = httpx.post(f"{self._base}/v1/chat/completions",
+                       json={"model": self._model,
+                             "messages": [{"role": "user", "content": content}],
+                             # constrained JSON (re-review)
+                             "response_format": {"type": "json_object"}},
+                       timeout=self._timeout)
+        r.raise_for_status()
+        d = json.loads(r.json()["choices"][0]["message"]["content"])
+        visual = {"coherence": float(d["coherence"]), "pacing": float(d["pacing"])}
+        # overall/passed are advisory — 05c owns the authoritative, config-driven quality floor.
+        return Judgment(overall=sum(visual.values()) / len(visual), scores=visual,
+                        passed=False, observations=tuple(d.get("observations", [])))
+
+    def llm(self, prompt, seed=None):
+        raise NotImplementedError
+
+    def llm_json(self, prompt, seed=None):
+        raise NotImplementedError
+
+    def tts(self, text):
+        raise NotImplementedError
+
+    def generate_image(self, prompt, seed):
+        raise NotImplementedError
+
+    def img2vid(self, image, seed):
+        raise NotImplementedError
+
+    def restore(self, frames):
+        raise NotImplementedError
+
+
 class KokoroBackend:
     """ModelBackend.tts via Kokoro-82M; writes a wav and returns its path."""
 
