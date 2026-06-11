@@ -165,6 +165,9 @@ class QwenVLBackend:
                        timeout=self._timeout)
         r.raise_for_status()
         d = json.loads(r.json()["choices"][0]["message"]["content"])
+        if "coherence" not in d or "pacing" not in d:
+            # a malformed VLM reply must be a CLEAR error, not a bare KeyError mid-pipeline
+            raise ValueError(f"VLM response missing visual keys; got {sorted(d)}")
         visual = {"coherence": float(d["coherence"]), "pacing": float(d["pacing"])}
         # overall/passed are advisory — 05c owns the authoritative, config-driven quality floor.
         return Judgment(overall=sum(visual.values()) / len(visual), scores=visual,

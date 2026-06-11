@@ -4,6 +4,9 @@ CRITERIA = set(RUBRIC)
 
 
 def weighted_overall(scores: dict[str, float]) -> float:
+    extra = set(scores) - CRITERIA
+    if extra:
+        raise ValueError(f"unexpected score keys: {sorted(extra)}")  # silent pollution guard
     return sum(scores[c] * w for c, w in RUBRIC.items())   # KeyError if a criterion is missing
 
 

@@ -29,3 +29,12 @@ def test_vision_judgment_schema():
     with pytest.raises(SchemaError):   # missing pacing — the pinned visual keys can't drift
         reg.validate("vision", _vision(
             {"visual_scores": {"coherence": 0.85}, "observations": []}))
+
+
+def test_cap_always_retains_hook_and_endcard():
+    # >8 candidates force truncation; the endpoints must survive (the 05b kind contract)
+    manifest = {"fps": 30, "markers": {},
+                "scenes": [{"start": float(i), "end": i + 1.0} for i in range(12)]}
+    idx = sample_frames(manifest, 400)
+    assert len(idx) <= 8
+    assert 0 in idx and 399 in idx
