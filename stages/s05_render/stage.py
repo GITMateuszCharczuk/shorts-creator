@@ -55,6 +55,10 @@ def run(ctx: StageContext) -> StageResult:
                            safe_rect=_safe_rect(plat, ctx.config),   # per-platform reflow (D4)
                            media=media, words=words)
         cut = out if plat == "youtube" else out.parent / f"{plat}.mp4"
+        if primary is None:   # persist the PRIMARY cut's manifest for 05x keyframe sampling —
+            # the per-platform workdir copy is rmtree'd right after encode
+            (ctx.run_dir / "render_manifest.json").write_text(
+                json.dumps(manifest, sort_keys=True))
         workdir = out.parent / plat
         frames = render_manifest_to_frames(platform_delta(manifest, plat), workdir)
         _encode(frames_glob=str(frames[0].parent / "%05d.png"),

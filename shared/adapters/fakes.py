@@ -58,7 +58,9 @@ class FixtureBackend:
         return p
 
     def vlm_judge(self, frames: list[Path], script: dict) -> Judgment:
-        return Judgment(overall=0.82, scores={"hook": 0.8, "coherence": 0.85}, passed=True)
+        # visual sub-scores only (ADR 0016 D5) — the vision schema pins exactly these keys
+        return Judgment(overall=0.82, scores={"coherence": 0.85, "pacing": 0.8}, passed=True,
+                        observations=("clean frames",))
 
     def restore(self, frames: list[Path]) -> list[Path]:
         return list(frames)  # fake: passthrough

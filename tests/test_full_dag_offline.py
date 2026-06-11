@@ -45,6 +45,26 @@ def _fake_compositor(monkeypatch):
     monkeypatch.setattr(s05, "_encode", fake_encode)
 
 
+@pytest.fixture(autouse=True)
+def _fake_vision_extraction(monkeypatch, run_dir):
+    """The documented 05x seams: ffprobe frame count + ffmpeg keyframe extraction are faked in
+    CI (sampling stays unit-tested; the VLM judgment is the FixtureBackend's canned one)."""
+    import stages.s05x_vision.stage as s05x
+
+    def fake_extract(render, indices):
+        frames_dir = run_dir / "qc_frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        paths = []
+        for i in range(2):
+            p = frames_dir / f"{i:05d}.png"
+            p.write_bytes(_PLACEHOLDER_PNG)
+            paths.append(p)
+        return paths
+
+    monkeypatch.setattr(s05x, "_frame_count", lambda render: 180)
+    monkeypatch.setattr(s05x, "_extract_frames", fake_extract)
+
+
 def _seed_fixture(run_dir: Path) -> dict:
     """Copy the data fixture into run_dir as data_fixture.json and return the config dict."""
     (run_dir / "data_fixture.json").write_text(DATA_FIX.read_text())

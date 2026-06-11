@@ -18,6 +18,18 @@
           "observations": {"type": "array", "items": {"type": "string"}}
         }
       }
+    },
+    "judgment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["visual_scores", "observations"],
+      "properties": {
+        "visual_scores": {
+          "type": "object", "additionalProperties": false,
+          "required": ["coherence", "pacing"],
+          "properties": {"coherence": {"type": "number"}, "pacing": {"type": "number"}}
+        },
+        "observations": {"type": "array", "items": {"type": "string"}}
+      }
     }
   }
 }
