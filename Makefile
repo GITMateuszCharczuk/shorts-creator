@@ -21,7 +21,7 @@ COUNT        ?= 2
 
 .PHONY: help up down trigger dry-run \
         host-comfyui-up host-comfyui-down host-llm-up \
-        host-up cluster-up build wire submit-batch test voice-ab review calibrate \
+        host-up cluster-up build wire submit-batch test voice-ab review calibrate audit \
         obs-up obs-lint
 
 help: ## list targets (grouped by section)
@@ -70,6 +70,8 @@ review: ## human-at-publish ramp review CLI (ADR 0014 D2 / 0016 D2)
 	@uv run python -m shorts.review
 calibrate: ## per-niche 05c floor recommendation from ramp labels (ADR 0016 D2)
 	@uv run python -m shorts.calibrate --data-root $${DATA_ROOT:-data}
+audit: ## weekly spot-audit report vs the live floor (DoD clause 2)
+	@uv run python -m shorts.audit --data-root $${DATA_ROOT:-data}
 
 ## ---- observability (M6) ----
 obs-up: ## start node-exporter + nvidia-smi + queue pollers + Prometheus + Alertmanager + Grafana (host only)
