@@ -21,7 +21,8 @@ COUNT        ?= 2
 
 .PHONY: help up down trigger dry-run \
         host-comfyui-up host-comfyui-down host-llm-up \
-        host-up cluster-up build wire submit-batch test voice-ab review
+        host-up cluster-up build wire submit-batch test voice-ab review \
+        obs-up obs-lint
 
 help: ## list targets (grouped by section)
 	@awk 'BEGIN{FS=":.*?## "} \
@@ -67,3 +68,14 @@ voice-ab: ## expressive-voice A/B: reference script through each TTS backend (ho
 	@uv run python -m shared.audio.voice_ab
 review: ## human-at-publish ramp review CLI (ADR 0014 D2 / 0016 D2)
 	@uv run python -m shorts.review
+
+## ---- observability (M6) ----
+obs-up: ## start node-exporter + nvidia-smi + queue pollers + Prometheus + Alertmanager + Grafana (host only)
+	@echo "M6: start the obs stack on the host (node-exporter :9100, pollers, Prometheus :9090, Alertmanager :9093, Grafana :3000)"; \
+	 echo "    see deploy/obs/nvidia-smi-exporter.md and deploy/obs/comfyui-queue-exporter.md"; exit 1
+obs-lint: ## validate prometheus.yml, alerts.yml, alertmanager.yml and grafana JSON (CI gate)
+	@python3 -c "import json,sys; json.load(open('deploy/obs/grafana-dashboard.json'))" \
+	    && echo "obs-lint: grafana JSON OK"
+	@promtool check config deploy/obs/prometheus.yml
+	@promtool check rules deploy/obs/alerts.yml
+	@amtool check-config deploy/obs/alertmanager.yml
