@@ -21,7 +21,7 @@ COUNT        ?= 2
 
 .PHONY: help up down trigger dry-run \
         host-comfyui-up host-comfyui-down host-llm-up \
-        host-up cluster-up build wire submit-batch test voice-ab review calibrate audit \
+        host-up cluster-up build wire submit-batch test soak voice-ab review calibrate audit \
         obs-up obs-lint
 
 help: ## list targets (grouped by section)
@@ -63,7 +63,9 @@ submit-batch: ## scheduled-equivalent batch submit (CronWorkflow uses the same t
 
 ## ---- dev ----
 test: ## schema validation + golden fixtures + GPU-free full-DAG run via shared/fakes (ADR 0010)
-	@uv run pytest -q -m "not integration"
+	@uv run pytest -q -m "not integration and not soak"
+soak: ## offline stability soak over the REAL batch_flow (make soak N=14)
+	@SOAK_BATCHES=$${N:-14} uv run pytest tests/test_soak_offline.py -m soak -q
 voice-ab: ## expressive-voice A/B: reference script through each TTS backend (host-only, ADR 0017 D1)
 	@uv run python -m shared.audio.voice_ab
 review: ## human-at-publish ramp review CLI (ADR 0014 D2 / 0016 D2)
