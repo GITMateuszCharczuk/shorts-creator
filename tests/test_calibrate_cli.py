@@ -222,6 +222,22 @@ def test_main_writes_recommendation_files(tmp_path):
     assert "floor" in rec
 
 
+def test_main_warns_on_degenerate_f1_zero_recommendation(tmp_path, capsys):
+    """All-rejected niche: recommend_floor lands data_anchored with f1=0.0 (no separating floor
+    exists — the 'best' threshold just excludes everything). The operator must be warned off."""
+    records = [_make_record(f"finance-r{i}", "finance", 0.55, False) for i in range(35)]
+    for r in records:
+        p = tmp_path / "runs" / "b1" / r["video_id"] / "feature_record.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(r))
+
+    rc = main(["--data-root", str(tmp_path), "--out-dir", str(tmp_path / "out")])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "WARNING: finance recommendation has f1=0.0" in out
+    assert "do not promote" in out
+
+
 def test_main_no_labelled_records_returns_0(tmp_path):
     rc = main(["--data-root", str(tmp_path)])
     assert rc == 0

@@ -1,9 +1,11 @@
 """python -m shorts.run_batch — the nightly conductor entrypoint (ADR 0015)."""
+import json
 import shutil
 import time
 from pathlib import Path
 from typing import Callable
 
+from shared.conductor.ledger import commit_ledgers
 from shared.conductor.lock import acquire_lock, release_lock
 from shared.conductor.preflight import (
     free_space_gate,
@@ -37,7 +39,13 @@ def build_preflight(hooks: dict) -> list:
     """The config-driven pre-flight in the canonical order (ADR 0003 D2/D8, ADR 0009 #8/#10):
     cheap local checks first, then host health, then the credential/quota/budget gates. A gate
     not wired in (tests, partial bring-up) defaults to a no-op; production_preflight always
-    supplies all five."""
+    supplies all five. An UNKNOWN key is a typo (e.g. "oauht") that would silently no-op a real
+    gate — fail loudly instead."""
+    known = {"free_space", "host_health", "oauth", "youtube_quota", "data_budget"}
+    unknown = hooks.keys() - known
+    if unknown:
+        raise ValueError(
+            f"unknown preflight hook key(s): {sorted(unknown)} (known: {sorted(known)})")
     noop = lambda: None   # noqa: E731
     return [hooks.get("free_space", noop), hooks.get("host_health", noop),
             hooks.get("oauth", noop), hooks.get("youtube_quota", noop),
@@ -103,20 +111,66 @@ def _age_days(p: Path, now: float) -> float:
 
 def _rmtree_guarded(data_root: Path, path: Path) -> None:
     """Defense-in-depth around shutil.rmtree: only ever under data_root, never a PROTECTED tree
-    (history/models) — a bad scan must crash loudly, not reclaim unrecoverable state."""
+    (history/models), never data_root itself, and never THROUGH a symlink (run/quarantine/cache
+    dirs are real dirs — a symlink in a GC scan is suspicious, and resolve() would otherwise
+    launder its target into an apparently-safe path) — a bad scan must crash loudly, not reclaim
+    unrecoverable state."""
+    if Path(path).is_symlink():
+        raise ValueError(f"refusing to GC a symlink: {path}")
     root = Path(data_root).resolve()
     p = Path(path).resolve()
+    if p == root:
+        raise ValueError(f"refusing to GC data_root itself: {p}")
     if not p.is_relative_to(root) or any(part in PROTECTED for part in p.relative_to(root).parts):
         raise ValueError(f"refusing to GC outside data_root or a protected tree: {p}")
     shutil.rmtree(p, ignore_errors=True)
 
 
+def load_outcome_history(data_root: Path, *, niche: str | None = None) -> list[str]:
+    """Per-video terminal statuses across PRIOR batches, oldest-first, from history/batches.jsonl
+    (one {"video_id","niche","batch_id","status"} line per video, appended by post_batch_sweep —
+    history/ is PROTECTED so GC never reclaims it). Tolerant by design: a missing file returns []
+    (cold start) and malformed/short lines are skipped, never crash the sweep."""
+    path = Path(data_root) / "history" / "batches.jsonl"
+    if not path.exists():
+        return []
+    statuses: list[str] = []
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(rec, dict) or "status" not in rec:
+            continue
+        if niche is not None and rec.get("niche") != niche:
+            continue
+        statuses.append(rec["status"])
+    return statuses
+
+
+def historical_baseline(history_outcomes: list[str], *, window: int) -> float:
+    """The QuarantineSpike baseline: the trailing quarantine rate over CROSS-BATCH history (the
+    last `window` outcomes that landed BEFORE this batch). Computing it from the current batch's
+    own pre-window slice is degenerate — any real batch is smaller than the window, so the slice
+    is always empty -> 0.0 -> the rate > 2*baseline alert arm fires on ANY nonzero quarantine.
+    [] (no history yet) -> 0.0, and is_spike's strict > keeps the cold start alarm-free."""
+    return trailing_rate(history_outcomes, window=window)
+
+
 def post_batch_sweep(data_root: Path, *, batch_id: str, resumed_ids: set[str], cfg: dict,
-                     outcomes: dict[str, str], niche: str, textfile_dir: Path) -> dict:
+                     outcomes_by_niche: dict[str, dict[str, str]], textfile_dir: Path) -> dict:
     """Runs after backup() (ADR 0003 D8/D9): GC runs/ (keep_days/keep_count, never the active or
-    reconciler-resumed batch), quarantine/ (quarantine_keep_days), and the .cache LRU (cap_gb),
-    then emit the batch-level series the alerts read. All knobs from cfg["gc"] — the gc-module
-    defaults are documentation only."""
+    reconciler-resumed batch), quarantine/ (quarantine_keep_days), the .cache LRU (cap_gb), and
+    stale per-stage .prom files (keep_days), then emit the batch-level series the alerts read —
+    ONE render_batch_metrics block PER NICHE (outcomes_by_niche: niche -> {video_id: status};
+    the QuarantineSpike alert is per-niche via labels), all blocks in ONE atomic write so a
+    scrape never sees a half-written file. The per-niche baseline comes from cross-batch history
+    (historical_baseline over load_outcome_history), read BEFORE this batch's outcomes are
+    appended to history/batches.jsonl for the next batch. All knobs from cfg["gc"] — the
+    gc-module defaults are documentation only."""
     data_root = Path(data_root)
     gc = cfg["gc"]
     now = time.time()
@@ -142,18 +196,33 @@ def post_batch_sweep(data_root: Path, *, batch_id: str, resumed_ids: set[str], c
         _rmtree_guarded(data_root, e["path"])
         deleted.append(str(e["path"]))
 
-    statuses = list(outcomes.values())
+    # Stale per-stage .prom files (metered writes one per video-stage): unlink past keep_days so
+    # the textfile dir doesn't grow unbounded — but NEVER the batch file written just below.
+    batch_prom = Path(textfile_dir) / f"batch-{batch_id}.prom"
+    for prom in sorted(Path(textfile_dir).glob("*.prom")):
+        if prom != batch_prom and _age_days(prom, now) > gc.get("keep_days", 7):
+            prom.unlink(missing_ok=True)
+            deleted.append(str(prom))
+
     window = cfg.get("obs", {}).get("quarantine_window", 20)
-    write_metrics(
-        Path(textfile_dir) / f"batch-{batch_id}.prom",
-        render_batch_metrics(batch_id=batch_id, niche=niche, videos_total=len(statuses),
-                             quarantined=statuses.count("quarantined"),
-                             failed=statuses.count("failed"),
-                             quarantine_rate=trailing_rate(statuses, window=window),
-                             # the pre-batch trailing baseline (everything before this window);
-                             # 0.0 on cold start — is_spike's strict > never false-alarms on it
-                             quarantine_baseline=trailing_rate(statuses[:-window],
-                                                               window=window)))
+    blocks: list[str] = []
+    for niche in sorted(outcomes_by_niche):
+        statuses = list(outcomes_by_niche[niche].values())
+        blocks.append(render_batch_metrics(
+            batch_id=batch_id, niche=niche, videos_total=len(statuses),
+            quarantined=statuses.count("quarantined"), failed=statuses.count("failed"),
+            quarantine_rate=trailing_rate(statuses, window=window),
+            quarantine_baseline=historical_baseline(
+                load_outcome_history(data_root, niche=niche), window=window)))
+    write_metrics(batch_prom, "".join(blocks))
+
+    # Append this batch's outcomes so the NEXT batch has a real baseline. commit_ledgers is
+    # idempotent on video_id — a reconciler-resumed batch never double-counts.
+    entries = [{"video_id": vid, "niche": niche, "batch_id": batch_id, "status": status}
+               for niche, vids in outcomes_by_niche.items() for vid, status in vids.items()]
+    if entries:
+        (data_root / "history").mkdir(parents=True, exist_ok=True)
+        commit_ledgers(data_root / "history" / "batches.jsonl", entries)
     return {"deleted": deleted}
 
 
@@ -184,11 +253,18 @@ def main() -> int:
                               baselines=b.get("baselines")),
             persist=b["persist"]))
 
-    batch_flow(lock_path=data_root / ".batch.lock", data_root=data_root,
-               preflight=production_preflight(cfg=cfg, data_root=data_root, usage=b["usage"]),
-               plan=b["plan"], execute=execute, commit=b["commit"], backup=b["backup"])
+    batch = batch_flow(
+        lock_path=data_root / ".batch.lock", data_root=data_root,
+        preflight=production_preflight(cfg=cfg, data_root=data_root, usage=b["usage"]),
+        plan=b["plan"], execute=execute, commit=b["commit"], backup=b["backup"])
+    # Per-niche tally for the sweep: plan videos carry their niche (shared/planner/batch.py) —
+    # a batch spans niches, and the QuarantineSpike alert is per-niche via labels.
+    niche_of = {v["video_id"]: v.get("niche", "unknown") for v in (batch or {}).get("videos", [])}
+    outcomes_by_niche: dict[str, dict[str, str]] = {}
+    for vid, status in outcomes.items():
+        outcomes_by_niche.setdefault(niche_of.get(vid, "unknown"), {})[vid] = status
     post_batch_sweep(data_root, batch_id=batch_id, resumed_ids=b.get("resumed_ids", set()),
-                     cfg=cfg, outcomes=outcomes, niche=cfg["niche"], textfile_dir=textfile_dir)
+                     cfg=cfg, outcomes_by_niche=outcomes_by_niche, textfile_dir=textfile_dir)
     return 0
 
 

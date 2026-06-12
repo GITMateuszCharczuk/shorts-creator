@@ -29,11 +29,10 @@ from shared.calibration.anchor import PROVISIONAL, recommend_floor
 def calibrate_records(records: list[dict]) -> tuple[dict[str, dict], int]:
     """Group labelled records by niche, call recommend_floor per niche.
 
-    Returns (recommendations, n_skipped).
+    Returns (recommendations, n_skipped) — the skip count travels ONLY as the tuple's second
+    element; the recommendations dict maps niche -> recommend_floor output and nothing else.
 
     Skipped = record has no ramp_label, no niche, or no creative_qc_overall.
-    The '_skipped' count is also embedded in the returned dict under the key '_skipped'
-    for convenience when serialising, but the caller receives it as a second return value too.
     """
     by_niche: dict[str, list[dict]] = {}
     n_skipped = 0
@@ -181,6 +180,10 @@ def main(argv: list[str] | None = None) -> int:
             + (f"  [promote by setting config quality.floor.{niche}={recommended:.3f}]"
                if recommended != live else "")
         )
+        if rec["reason"] == "data_anchored" and rec.get("f1") == 0.0:
+            # the all-rejected degenerate: the "best" threshold merely excludes everything
+            print(f"WARNING: {niche} recommendation has f1=0.0 — no separating floor found; "
+                  "do not promote")
 
     appended = append_to_index(data_root, records)
     if appended:
