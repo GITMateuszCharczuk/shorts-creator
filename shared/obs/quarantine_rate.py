@@ -1,0 +1,9 @@
+def trailing_rate(outcomes: list[str], *, window: int = 20) -> float:
+    recent = outcomes[-window:]
+    return sum(1 for o in recent if o == "quarantined") / len(recent) if recent else 0.0
+
+
+def is_spike(*, rate: float, baseline: float, abs_floor: float = 0.30, mult: float = 2.0) -> bool:
+    """The SAME two-part condition the alert rule uses (no divergence): trip on the absolute floor
+    OR a multiple of the trailing baseline."""
+    return rate >= abs_floor or rate >= baseline * mult
