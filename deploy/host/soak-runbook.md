@@ -35,7 +35,7 @@ M5 ships on a real box
 
 **The 05c floor during the soak is provisional (0.70).**  A 1–2 week ramp at
 ~1 video/day/niche yields ≈7–14 labels per niche — below the `min_labels=30`
-guard in `shorts/calibrate.py`.  `make calibrate` will flag every niche as
+guard in `shared/calibration/anchor.py`.  `make calibrate` will flag every niche as
 `low_confidence` until ~50 labels accumulate.  The 0.70 floor is
 operator-confirmed and intentionally not empirically anchored for the PoC run.
 A genuinely data-anchored floor is a post-PoC outcome; the calibration machinery
@@ -250,7 +250,7 @@ wsl -- systemctl enable --now shorts-batch.timer
 
 ## 4. Start the soak
 
-1. Enable the M4 `shorts-batch.timer` if not already running (step 3d above).
+1. Enable the `shorts-batch.timer` if not already running (step 3d above).
 2. Trigger one manual batch to confirm the end-to-end path before going
    unattended:
 
@@ -321,7 +321,8 @@ It reports:
 - `creative_qc` score distribution
 - label↔score agreement drift vs the **live** floor in config
 
-Output is written to `DATA_ROOT/.metrics/audit_<date>.json` (durable; outside
+Output is written to `DATA_ROOT/.metrics/audit_<date>.<niche>.json` (one file
+per niche; durable; outside
 GC scope).  Keep the weekly audit JSON files — they are part of the evidence
 bundle (Section 7).
 
@@ -381,7 +382,7 @@ Capture the following before declaring the DoD met:
 | Artefact | Location |
 |---|---|
 | Acceptance log (daily table) | `DATA_ROOT/.metrics/soak-acceptance-log.md` |
-| Weekly audit reports | `DATA_ROOT/.metrics/audit_<date>.json` (one per week) |
+| Weekly audit reports | `DATA_ROOT/.metrics/audit_<date>.<niche>.json` (one per niche per week) |
 | Grafana dashboard screenshots | exported from `http://127.0.0.1:3000` |
 | Final calibration reports | `DATA_ROOT/.metrics/floor_recommendation.<niche>.json` |
 | Posted-state ledger | `DATA_ROOT/history/posts.jsonl` (all post URLs) |
