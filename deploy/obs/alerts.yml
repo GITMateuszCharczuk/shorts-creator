@@ -1,0 +1,107 @@
+groups:
+  - name: shorts.rules
+    rules:
+
+      # ---------- host / infrastructure ----------
+
+      - alert: HostDown
+        expr: up{job="node"} == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Host exporter down ({{ $labels.instance }})"
+          description: >
+            node-exporter on {{ $labels.instance }} has not been scraped for 2 minutes.
+            The host may be unreachable or the exporter process may have crashed.
+
+      - alert: DiskAlmostFull
+        expr: >
+          node_filesystem_avail_bytes{mountpoint="/"}
+          / node_filesystem_size_bytes{mountpoint="/"}
+          < 0.20
+        labels:
+          severity: page
+        annotations:
+          summary: "Root filesystem below 20 % free ({{ $labels.instance }})"
+          description: >
+            Available space on {{ $labels.instance }} mountpoint / has dropped below 20 %.
+            Free up space or expand the volume before writes start failing.
+
+      # ---------- batch-level ----------
+
+      - alert: BatchFailed
+        expr: increase(shorts_batch_failed_total[1h]) > 0
+        labels:
+          severity: page
+        annotations:
+          summary: "Batch failure detected (niche={{ $labels.niche }})"
+          description: >
+            shorts_batch_failed_total increased in the last hour for
+            batch={{ $labels.batch }} niche={{ $labels.niche }}.
+            Inspect the conductor logs for the failed batch.
+
+      - alert: QuarantineSpike
+        # Exact two-part condition from shared/obs/quarantine_rate.py::is_spike.
+        # Both arms use strict > (matches Python: rate > abs_floor or rate > baseline * mult).
+        # Strict > also prevents a zero-baseline cold-start false alarm (0.0 > 0.0 is False).
+        # Series carry batch/niche labels so the alert fires per-niche automatically.
+        expr: >
+          shorts_quarantine_rate > 0.30
+          or shorts_quarantine_rate > 2 * shorts_quarantine_baseline
+        labels:
+          severity: warn
+        annotations:
+          summary: "Quarantine spike — niche={{ $labels.niche }} rate={{ $value | humanizePercentage }}"
+          description: >
+            Quarantine rate for batch={{ $labels.batch }} niche={{ $labels.niche }}
+            exceeded the absolute floor (0.30) or 2× the trailing baseline.
+            Review recent video quality and gate decisions.
+
+      # ---------- stage-level ----------
+
+      - alert: StageStuck
+        # Running gauge is 1 while the stage is active; heartbeat_timestamp stops advancing when
+        # the subprocess crashes.  180 s = 3× the 60 s heartbeat write interval.
+        expr: >
+          shorts_stage_running == 1
+          and time() - shorts_stage_heartbeat_timestamp > 180
+        labels:
+          severity: page
+        annotations:
+          summary: "Stage stuck — {{ $labels.stage }} (batch={{ $labels.batch }})"
+          description: >
+            Stage {{ $labels.stage }} for batch={{ $labels.batch }} video={{ $labels.video }}
+            has been running with no heartbeat advancement for > 180 s.
+            The subprocess may have deadlocked or crashed silently.
+
+      - alert: StageSlow
+        # The conductor emits shorts_stage_slow == 1 only for stages classify() returns "slow"
+        # (i.e. shorts_stage_running == 1 is already implied by the emission logic in classify()).
+        # A StageSlow alert for the same stage is inhibited when StageStuck fires (see alertmanager.yml).
+        expr: shorts_stage_slow == 1
+        labels:
+          severity: warn
+        annotations:
+          summary: "Stage slow — {{ $labels.stage }} (batch={{ $labels.batch }})"
+          description: >
+            Stage {{ $labels.stage }} for batch={{ $labels.batch }} video={{ $labels.video }}
+            is running but has exceeded the p95 baseline.
+            No action needed unless the slowness persists across many videos.
+
+      # ---------- GPU ----------
+
+      - alert: GPUVramLow
+        # Diffusion floor: 2048 MiB keeps the pipeline stable; tune per host if VRAM differs.
+        # Metric arrives via nvidia-smi textfile-collector poller (deploy/obs/nvidia-smi-exporter.md).
+        # XID hardware-error detection is unavailable under WSL2 — VRAM-free floor is the proxy.
+        expr: nvidia_gpu_mem_free_mib < 2048
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "GPU VRAM critically low ({{ $value | humanize }} MiB free)"
+          description: >
+            Free GPU VRAM has been below 2048 MiB for 5 minutes on {{ $labels.instance }}.
+            ComfyUI diffusion jobs may OOM.  Restart any stray VRAM-holding processes.
+            Note: XID errors are not surfaced under WSL2; this floor is the only GPU health signal.
