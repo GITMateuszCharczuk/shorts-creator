@@ -74,7 +74,7 @@ obs-up: ## start node-exporter + nvidia-smi + queue pollers + Prometheus + Alert
 	@echo "M6: start the obs stack on the host (node-exporter :9100, pollers, Prometheus :9090, Alertmanager :9093, Grafana :3000)"; \
 	 echo "    see deploy/obs/nvidia-smi-exporter.md and deploy/obs/comfyui-queue-exporter.md"; exit 1
 obs-lint: ## validate prometheus.yml, alerts.yml, alertmanager.yml and grafana JSON (CI gate)
-	@python3 -c "import json,sys; json.load(open('deploy/obs/grafana-dashboard.json'))" \
+	@uv run python -c "import json,sys; json.load(open('deploy/obs/grafana-dashboard.json'))" \
 	    && echo "obs-lint: grafana JSON OK"
 	@promtool check config deploy/obs/prometheus.yml
 	@promtool check rules deploy/obs/alerts.yml

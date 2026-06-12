@@ -28,13 +28,13 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (stage, le) (rate(shorts_stage_duration_seconds_bucket[5m])))",
-          "legendFormat": "p50 {{stage}}",
+          "expr": "quantile by (stage) (0.50, shorts_stage_duration_seconds)",
+          "legendFormat": "{{stage}} p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (stage, le) (rate(shorts_stage_duration_seconds_bucket[5m])))",
-          "legendFormat": "p95 {{stage}}",
+          "expr": "quantile by (stage) (0.95, shorts_stage_duration_seconds)",
+          "legendFormat": "{{stage}} p95",
           "refId": "B"
         }
       ],
@@ -172,8 +172,8 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "100 - (node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} * 100)",
-          "legendFormat": "disk used %",
+          "expr": "node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"} * 100",
+          "legendFormat": "disk free %",
           "refId": "A"
         }
       ],
@@ -185,9 +185,9 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 70 },
-              { "color": "red", "value": 90 }
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 20 },
+              { "color": "green", "value": 30 }
             ]
           }
         },
