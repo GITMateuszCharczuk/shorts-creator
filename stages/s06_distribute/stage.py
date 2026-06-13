@@ -56,9 +56,14 @@ def run(ctx: StageContext) -> StageResult:
          "remote_id": posted[primary].get("remote_id", ""),
          "url": posted[primary].get("url", ""),
          "ts": datetime.now(timezone.utc).isoformat()}))
+    cqc = json.loads(ctx.read_input("creative_qc").read_text())
     fr = ctx.write_output("feature_record")
     fr.write_text(json.dumps({"schema_version": "1.0.0", "video_id": ctx.job["video_id"],
+                              "niche": ctx.job.get("niche"),
                               "format": script["format"], "seed": ctx.seed,
-                              "hook_variant_id": "chosen", "judge_scores": {}, "metrics": {}}))
+                              "hook_variant_id": "chosen",
+                              "judge_scores": cqc.get("scores", {}),
+                              "metrics": {},
+                              "creative_qc_overall": cqc.get("overall")}))
     ctx.log.info("distributed", platforms=list(posted))
     return StageResult(outputs={"posts": out, "feature_record": fr})

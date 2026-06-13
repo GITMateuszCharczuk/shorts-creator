@@ -12,8 +12,10 @@
     "format": {"type": "string"},
     "seed": {"type": "integer"},
     "hook_variant_id": {"type": "string"},
+    "niche": {"type": ["string", "null"]},
     "judge_scores": {"type": "object", "additionalProperties": {"type": "number"}},
     "metrics": {"type": "object"},
+    "creative_qc_overall": {"type": ["number", "null"]},
     "ramp_label": {
       "type": "object", "additionalProperties": false, "required": ["approved"],
       "properties": {"approved": {"type": "boolean"}, "reason": {"type": "string"}, "ts": {"type": "string"}}
