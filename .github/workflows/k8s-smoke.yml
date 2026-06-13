@@ -1,0 +1,47 @@
+# M7 GATE (ADR 0015a D6) — the SLOW gate: the golden offline DAG on a real kind cluster
+# through Variant A (conductor Job) and Variant B (Argo CronWorkflow).
+#
+# This is NOT a per-commit check: it needs kind + kubectl + the argo CLI + a built image and
+# takes minutes, so it runs nightly and on-demand only. The fast per-commit sweep (ci.yml)
+# deselects these `@pytest.mark.integration` tests with -m "not integration and not soak".
+name: k8s-smoke
+on:
+  schedule:
+    - cron: "0 4 * * *"      # nightly at 04:00 UTC (after the host 02:00 batch cadence)
+  workflow_dispatch: {}       # manual trigger from the Actions tab
+
+jobs:
+  k8s-smoke:
+    name: golden DAG on kind (Variant A + B) — slow gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up kind + kubectl
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: shorts          # matches Makefile KIND_CLUSTER default
+          install_only: true            # `make cluster-up` creates the cluster from our kind config
+
+      - name: Install the argo CLI
+        run: |
+          ARGO_VERSION=v3.5.8
+          curl -sSL -o /tmp/argo.gz \
+            "https://github.com/argoproj/argo-workflows/releases/download/${ARGO_VERSION}/argo-linux-amd64.gz"
+          gunzip /tmp/argo.gz
+          chmod +x /tmp/argo
+          sudo mv /tmp/argo /usr/local/bin/argo
+          argo version --short
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync
+
+      - name: Build the CI image (the deployable artifact, ADR 0015)
+        run: docker build --target ci -t shorts-creator:ci .
+
+      - name: make k8s-smoke (the M7 gate)
+        run: make k8s-smoke

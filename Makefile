@@ -24,7 +24,7 @@ COUNT        ?= 2
         host-up build wire submit-batch test soak voice-ab review calibrate audit \
         obs-up obs-lint \
         host-gateway-ip cluster-up cluster-down k8s-secrets print-data-root \
-        argo-generate
+        argo-generate k8s-smoke
 
 help: ## list targets (grouped by section)
 	@awk 'BEGIN{FS=":.*?## "} \
@@ -130,3 +130,10 @@ print-data-root: ## [M7] print the resolved DATA_ROOT (used by the smoke harness
 	@echo $${DATA_ROOT:-/data}
 argo-generate: ## regenerate the committed Argo WorkflowTemplate (the only sanctioned way to update it)
 	@uv run python -m deploy.argo.generator.generate > deploy/argo/generated/shorts-workflowtemplate.yaml
+k8s-smoke: cluster-up ## the M7 gate — golden offline DAG on kind through Variant A and B (slow, host/CI)
+	@# Load the CI-built image into the kind node (no registry), then run the two integration
+	@# smoke tests (Variant A: conductor Job; Variant B: Argo CronWorkflow). HOST/CI-ONLY:
+	@# needs kind + kubectl + argo + a built shorts-creator:ci image — not present in the
+	@# GPU-free sandbox, so these are deselected from the default sweep.
+	@kind load docker-image shorts-creator:ci
+	@uv run pytest tests/test_k8s_smoke.py -m integration -q
