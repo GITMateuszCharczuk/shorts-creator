@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -32,6 +33,11 @@ def _append(path: Path, rec: dict) -> None:
     rec["ts"] = datetime.now(timezone.utc).isoformat()
     with path.open("a") as f:
         f.write(json.dumps(rec) + "\n")
+        # Durability (H2): an exactly-once ledger must survive an OS crash. Without fsync a
+        # buffered intent/publishing/confirmed record can be lost, and a retry would then
+        # blind re-post. Force the bytes to disk before returning.
+        f.flush()
+        os.fsync(f.fileno())
 
 
 def _states(path, video_id, platform) -> set[str]:

@@ -1,5 +1,11 @@
-from shared.adapters.base import DistributionAdapter
-from shared.distribution.posts_ledger import already_confirmed, write_intent
+import pytest
+
+from shared.adapters.base import DistributionAdapter, UnresolvedPendingPost
+from shared.distribution.posts_ledger import (
+    already_confirmed,
+    idempotency_key,
+    write_intent,
+)
 
 
 class FakeAdapter(DistributionAdapter):
@@ -15,7 +21,8 @@ class FakeAdapter(DistributionAdapter):
     def _post(self, media_path, metadata, visibility):
         self.posts += 1
         rid = f"rid{self.posts}"
-        self.searchable[metadata["idempotency_key"]] = rid
+        # key off the INTERNALLY-derived key the base exposes (never caller metadata) — C1
+        self.searchable[self._idempotency_key] = rid
         return rid, f"https://yt/{rid}"
 
     def _find_existing(self, idempotency_key):
@@ -46,18 +53,36 @@ def test_retry_after_crash_confirms_via_find_existing(tmp_path):
     led = tmp_path / "v" / "posts.jsonl"
     a = FakeAdapter()
     write_intent(led, video_id="v", platform="youtube")
-    a.searchable["k"] = "rid_prior"                         # the post actually landed
+    # the post actually landed — keyed under the INTERNALLY-derived key (C1), not caller metadata
+    key = idempotency_key("v", "youtube")
+    a.searchable[key] = "rid_prior"
     a.publish(video_id="v", media_path="m.mp4",
               metadata={"title": "t", "idempotency_key": "k"},
               visibility="private", ledger_path=led)
     assert a.posts == 0                                     # found remote -> no re-post
 
 
-def test_retry_when_post_did_not_land_reposts_cleanly(tmp_path):
+def test_pending_without_findable_remote_raises_instead_of_blind_reposting(tmp_path):
+    # C1: a pending intent with NO findable remote post must NOT be blind-reposted (the video may
+    # already be live and only transiently unfindable). The base raises for a human/bounded retry.
     led = tmp_path / "v" / "posts.jsonl"
     a = FakeAdapter()
-    write_intent(led, video_id="v", platform="youtube")     # intent only; nothing landed remotely
-    a.publish(video_id="v", media_path="m.mp4",
-              metadata={"title": "t", "idempotency_key": "k"},
-              visibility="private", ledger_path=led)
-    assert a.posts == 1                                     # legitimate single re-post
+    write_intent(led, video_id="v", platform="youtube")     # intent only; nothing findable remotely
+    with pytest.raises(UnresolvedPendingPost):
+        a.publish(video_id="v", media_path="m.mp4",
+                  metadata={"title": "t", "idempotency_key": "k"},
+                  visibility="private", ledger_path=led)
+    assert a.posts == 0                                     # NEVER a blind re-post
+
+
+def test_wrong_metadata_key_does_not_defeat_derived_key_recovery(tmp_path):
+    # C1: the recovery lookup uses the internally-derived key, so a wrong/missing caller-supplied
+    # metadata["idempotency_key"] cannot silently defeat crash-recovery into a double-post.
+    led = tmp_path / "v" / "posts.jsonl"
+    a = FakeAdapter()
+    write_intent(led, video_id="v", platform="youtube")
+    a.searchable[idempotency_key("v", "youtube")] = "rid_prior"     # landed under the DERIVED key
+    rec = a.publish(video_id="v", media_path="m.mp4",
+                    metadata={"title": "t", "idempotency_key": "WRONG"},   # caller key is bogus
+                    visibility="private", ledger_path=led)
+    assert a.posts == 0 and rec["recovered"] is True and rec["remote_id"] == "rid_prior"

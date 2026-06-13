@@ -12,13 +12,15 @@ class RetryPolicy:
 
 
 def run_with_retries(attempt: Callable[[], StageOutcome],
-                     policy: RetryPolicy) -> tuple[StageOutcome, int]:
+                     policy: RetryPolicy,
+                     *, sleep: Callable[[float], None] = time.sleep) -> tuple[StageOutcome, int]:
     """Retries only `failed` outcomes (transient). `quarantined` is a deliberate gate verdict —
-    retrying it would re-spend GPU on a parked video."""
+    retrying it would re-spend GPU on a parked video. `sleep` is injectable (consistent with the
+    codebase's IO-injection pattern) so tests need not pass backoff_s=0 to avoid real waits."""
     attempts = 0
     while True:
         attempts += 1
         out = attempt()
         if out.status != "failed" or attempts > policy.retries:
             return out, attempts
-        time.sleep(policy.backoff_s * attempts)
+        sleep(policy.backoff_s * attempts)

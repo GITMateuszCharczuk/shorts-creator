@@ -1,7 +1,7 @@
 from shared.adapters import ModelBackend
 from shared.adapters.base import DistributionAdapter
 from shared.adapters.fakes import FixtureBackend, FixtureDistributionAdapter
-from shared.distribution.posts_ledger import write_intent
+from shared.distribution.posts_ledger import idempotency_key, write_intent
 
 
 def test_fake_backend_satisfies_protocol(tmp_path):
@@ -44,7 +44,8 @@ def test_retry_after_crash_recovers_via_the_searchable_store(tmp_path):
     led = tmp_path / "posts.jsonl"
     ad = FixtureDistributionAdapter()
     write_intent(led, video_id="v", platform="youtube")     # pending from a crashed attempt
-    ad.searchable["k"] = ("fake_9", "https://fake/9")       # ...but the post actually landed
+    # ...but the post actually landed — keyed under the INTERNALLY-derived key (C1), not metadata
+    ad.searchable[idempotency_key("v", "youtube")] = ("fake_9", "https://fake/9")
     rec = ad.publish(video_id="v", media_path="m.mp4",
                      metadata={"title": "t", "idempotency_key": "k"},
                      visibility="private", ledger_path=led)

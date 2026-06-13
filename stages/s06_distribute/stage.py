@@ -39,9 +39,12 @@ def run(ctx: StageContext) -> StageResult:
                                     disclosure_line=ctx.config["disclosure_line"],
                                     affiliate=affiliate),
                     "idempotency_key": idempotency_key(ctx.job["video_id"], p)} for p in platforms}
+    # per-platform cuts are siblings of the declared "render" input (05 writes renders/<plat>.mp4);
+    # derive them from the input path, not an ad-hoc one, so the cache key stays input-bound.
+    render = ctx.read_input("render")
     posted = distribute(
         video_id=ctx.job["video_id"], platforms=platforms, adapters=adapters,
-        renders={p: ctx.run_dir / f"renders/{p}.mp4" for p in platforms}, metadata=metadata,
+        renders={p: render.with_name(f"{p}.mp4") for p in platforms}, metadata=metadata,
         visibilities={p: resolve_visibility(adapters[p], vis_cfg, warmed=warmed)
                       for p in platforms},
         ledger_path=ctx.run_dir / "posts.jsonl", approved=approved)               # PER-VIDEO ledger
