@@ -17,6 +17,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # smoke gate never pushes; don't persist the token
 
       - name: Set up kind + kubectl
         uses: helm/kind-action@v1
@@ -26,8 +28,12 @@ jobs:
 
       - name: Install the argo CLI
         run: |
+          set -euo pipefail
           ARGO_VERSION=v3.5.8
-          curl -sSL -o /tmp/argo.gz \
+          # --fail so an HTTP error (e.g. a moved asset) aborts here instead of feeding a broken
+          # blob to gunzip. NOTE (operator): pin ARGO_SHA256 and `sha256sum -c` the .gz against the
+          # release's published checksum before first production use (verified value required).
+          curl -fsSL -o /tmp/argo.gz \
             "https://github.com/argoproj/argo-workflows/releases/download/${ARGO_VERSION}/argo-linux-amd64.gz"
           gunzip /tmp/argo.gz
           chmod +x /tmp/argo

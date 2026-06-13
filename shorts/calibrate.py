@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 from shared.calibration.anchor import PROVISIONAL, recommend_floor
@@ -37,7 +38,8 @@ def calibrate_records(records: list[dict]) -> tuple[dict[str, dict], int]:
     by_niche: dict[str, list[dict]] = {}
     n_skipped = 0
     for r in records:
-        if "ramp_label" not in r:
+        ramp_label = r.get("ramp_label")
+        if not isinstance(ramp_label, dict) or "approved" not in ramp_label:
             n_skipped += 1
             continue
         niche = r.get("niche")
@@ -45,7 +47,12 @@ def calibrate_records(records: list[dict]) -> tuple[dict[str, dict], int]:
         if niche is None or overall is None:
             n_skipped += 1
             continue
-        label = {"overall": float(overall), "approved": bool(r["ramp_label"]["approved"])}
+        try:                                  # a malformed record skips, never aborts the run
+            overall_f = float(overall)
+        except (TypeError, ValueError):
+            n_skipped += 1
+            continue
+        label = {"overall": overall_f, "approved": bool(ramp_label["approved"])}
         by_niche.setdefault(niche, []).append(label)
 
     recommendations: dict[str, dict] = {}
@@ -167,7 +174,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     for niche, rec in recommendations.items():
-        out_path = out_dir / f"floor_recommendation.{niche}.json"
+        safe = re.sub(r"[^a-z0-9_-]", "_", str(niche).lower()) or "unknown"  # niche -> filename
+        out_path = out_dir / f"floor_recommendation.{safe}.json"
         out_path.write_text(json.dumps(rec, indent=2))
 
         recommended = rec["floor"]

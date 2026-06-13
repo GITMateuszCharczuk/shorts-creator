@@ -1,4 +1,5 @@
 import random
+import re
 from pathlib import Path
 
 from shared.planner.lanes import next_lane
@@ -52,6 +53,10 @@ def build_job(video: dict, *, batch_id: str, platform_targets: list[str] | None 
     start empty: each stage owns its own section. An unknown niche (a profiles_root without its
     profile.yaml) fails LOUD with the niche named — a silently-missing profile is a safety hole."""
     niche = video["niche"]
+    # niche indexes a filesystem path (profiles/<niche>/profile.yaml); a separator or `..` could
+    # escape profiles_root, so constrain it to a slug before any path construction.
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", niche):
+        raise ValueError(f"invalid niche {niche!r}")
     root = Path(profiles_root) if profiles_root is not None else _PROFILES_ROOT
     profile_path = root / niche / "profile.yaml"
     if not profile_path.exists():
@@ -59,5 +64,7 @@ def build_job(video: dict, *, batch_id: str, platform_targets: list[str] | None 
     profile = load_profile(profile_path)
     return {"schema_version": "1.0.0", "batch_id": batch_id, "video_id": video["video_id"],
             "niche": niche, "seed": video["seed"],
-            "platform_targets": platform_targets or ["youtube"],
+            # an explicit empty list is a config error, not an implicit YouTube publish — only a
+            # missing (None) value falls back to the default target.
+            "platform_targets": ["youtube"] if platform_targets is None else platform_targets,
             "profile": profile, "stages": {}, "paths": {}}

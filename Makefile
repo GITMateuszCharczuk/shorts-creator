@@ -116,8 +116,11 @@ cluster-up: ## [M7] kind cluster + apply the kind-local overlay (host-only; need
 	@# then apply the overlay. kustomize reads the patch file as committed, so we
 	@# rewrite the placeholder IP to the resolved gateway before `apply -k`.
 	@gw="$$(ip route | awk '/default/{print $$3}')"; \
+	 patch=deploy/k8s/overlays/kind-local/patch-host-gpu-endpoints.yaml; \
 	 echo "cluster-up: patching host-gpu Endpoints -> $$gw"; \
-	 sed -i "s|ip: \"[0-9.]*\"|ip: \"$$gw\"|" deploy/k8s/overlays/kind-local/patch-host-gpu-endpoints.yaml; \
+	 cp "$$patch" "$$patch.orig"; \
+	 trap 'mv "$$patch.orig" "$$patch"' EXIT; \
+	 sed -i "s|ip: \"[0-9.]*\"|ip: \"$$gw\"|" "$$patch"; \
 	 kubectl apply -k deploy/k8s/overlays/kind-local
 	@echo "cluster-up: applied kind-local overlay. Run 'make k8s-secrets VAULT=...' before any real publish."
 cluster-down: ## [M7] delete the kind cluster (host data persists on the bind-mounted DATA_ROOT)
@@ -135,5 +138,5 @@ k8s-smoke: cluster-up ## the M7 gate — golden offline DAG on kind through Vari
 	@# smoke tests (Variant A: conductor Job; Variant B: Argo CronWorkflow). HOST/CI-ONLY:
 	@# needs kind + kubectl + argo + a built shorts-creator:ci image — not present in the
 	@# GPU-free sandbox, so these are deselected from the default sweep.
-	@kind load docker-image shorts-creator:ci
+	@kind load docker-image --name "$(KIND_CLUSTER)" shorts-creator:ci
 	@uv run pytest tests/test_k8s_smoke.py -m integration -q

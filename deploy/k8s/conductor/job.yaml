@@ -30,6 +30,15 @@ spec:
           image: shorts-creator:ci   # prod overlay patches name+tag/digest (kustomize images:)
           command: ["python", "-m", "shorts.run_batch"]
           # For a dry run, override command/args as shown in the header comment.
+          # Least-privilege — mirrors the CronJob (root FS writable for /data + tmp).
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           env:
             - name: DATA_ROOT
               value: "/data"

@@ -23,6 +23,19 @@ ARGO_QUICK_START = (
     "v3.5.8/quick-start-minimal.yaml"
 )
 
+# Every cluster call gets a timeout: a stalled kind/kubectl/argo must abort the (nightly) job
+# rather than hang to the workflow's own 45m ceiling and burn CI capacity. Long blocking waits
+# pass an explicit override sized to their own --timeout.
+_DEFAULT_TIMEOUT_S = 300
+
+
+def _run(cmd, *, timeout=_DEFAULT_TIMEOUT_S, **kw):
+    return subprocess.run(cmd, timeout=timeout, **kw)
+
+
+def _check_output(cmd, *, timeout=_DEFAULT_TIMEOUT_S, **kw):
+    return subprocess.check_output(cmd, timeout=timeout, **kw)
+
 
 def kind_cluster() -> None:
     """Bring up the kind cluster (the kind-local overlay) and load the CI image into its node.
@@ -32,8 +45,8 @@ def kind_cluster() -> None:
     registry — the manifests reference that exact tag with imagePullPolicy defaulting to
     IfNotPresent, so the loaded image is used directly.
     """
-    subprocess.run(["make", "cluster-up"], check=True)
-    subprocess.run(["kind", "load", "docker-image", IMAGE_TAG], check=True)
+    _run(["make", "cluster-up"], check=True, timeout=600)   # kind create can take a few minutes
+    _run(["kind", "load", "docker-image", IMAGE_TAG], check=True)
 
 
 def argo_installed(namespace: str = NAMESPACE) -> None:
@@ -48,17 +61,17 @@ def argo_installed(namespace: str = NAMESPACE) -> None:
     resolves correctly; without this the CronWorkflow DAG step that references the template would
     fail with an "unknown template" error at runtime.
     """
-    subprocess.run(
+    _run(
         ["kubectl", "apply", "-n", namespace, "-f", ARGO_QUICK_START], check=True
     )
-    subprocess.run(
+    _run(
         ["kubectl", "rollout", "status", "-n", namespace,
          "deploy/workflow-controller", "--timeout=180s"],
         check=True,
     )
     # Apply the WorkflowTemplate BEFORE the cronworkflow is submitted so the templateRef
     # shorts-batch is resolvable by the workflow-controller at fanout time.
-    subprocess.run(
+    _run(
         ["kubectl", "apply", "-f",
          "deploy/argo/generated/shorts-workflowtemplate.yaml", "-n", namespace],
         check=True,
@@ -73,7 +86,7 @@ def data_root_pvc() -> Path:
     in-cluster conductor writes under /data/runs land here on the host where the test can glob
     them.
     """
-    out = subprocess.check_output(["make", "-s", "print-data-root"])
+    out = _check_output(["make", "-s", "print-data-root"])
     return Path(out.decode().strip())
 
 
@@ -91,9 +104,12 @@ def run_one_off_job(*, image, args, timeout_s: int = 600) -> None:
     NOTE: exercised only on a real cluster (integration); never runs in the GPU-free sweep.
     """
     name = "shorts-smoke"
+    # Idempotent: a prior smoke run leaves a Job of this name, which would fail `create` with
+    # AlreadyExists before validation even starts. Delete any leftover first.
+    _run(["kubectl", "delete", "job", name, "-n", NAMESPACE, "--ignore-not-found"], check=True)
     # Start from the committed CronJob so the podSpec (mounts, env, host-gpu endpoints) is
     # identical to a scheduled run — only the args differ for the offline golden path.
-    subprocess.run(
+    _run(
         ["kubectl", "create", "job", name, "--from=cronjob/shorts-batch", "-n", NAMESPACE],
         check=True,
     )
@@ -101,21 +117,21 @@ def run_one_off_job(*, image, args, timeout_s: int = 600) -> None:
     # /containers/0 is the `conductor` container defined in the CronJob jobTemplate.
     patch = {"spec": {"template": {"spec": {"containers": [
         {"name": "conductor", "image": image, "args": list(args)}]}}}}
-    subprocess.run(
+    _run(
         ["kubectl", "patch", "job", name, "-n", NAMESPACE,
          "--type=strategic", "-p", json.dumps(patch)],
         check=True,
     )
     # Block until the Job completes; a failed Job trips the second wait and we raise.
     try:
-        subprocess.run(
+        _run(
             ["kubectl", "wait", "--for=condition=complete", f"job/{name}",
              "-n", NAMESPACE, f"--timeout={timeout_s}s"],
-            check=True,
+            check=True, timeout=timeout_s + 60,   # outlive kubectl's own --timeout
         )
     except subprocess.CalledProcessError as e:
         # Surface whether it actually FAILED (vs merely slow) for a clearer test signal.
-        failed = subprocess.run(
+        failed = _run(
             ["kubectl", "get", f"job/{name}", "-n", NAMESPACE,
              "-o", "jsonpath={.status.conditions[?(@.type=='Failed')].status}"],
             capture_output=True, text=True,
@@ -139,11 +155,17 @@ def submit_cronworkflow_now(path, *, timeout_s: int = 900) -> None:
 
     NOTE: exercised only on a real cluster (integration).
     """
-    subprocess.run(
+    # Idempotent: drop a prior CronWorkflow/Workflow of the same name so re-runs don't fail with
+    # AlreadyExists before the run starts.
+    _run(["kubectl", "delete", "cronworkflow", "shorts-nightly", "-n", NAMESPACE,
+          "--ignore-not-found"], check=True)
+    _run(["kubectl", "delete", "workflow", "shorts-batch", "-n", NAMESPACE,
+          "--ignore-not-found"], check=True)
+    _run(
         ["argo", "cron", "create", str(path), "-n", NAMESPACE], check=True,
         timeout=timeout_s,
     )
-    subprocess.run(
+    _run(
         ["argo", "submit", "--from", "cronwf/shorts-nightly", "-n", NAMESPACE,
          "--name", "shorts-batch"],
         check=True, timeout=timeout_s,
@@ -161,7 +183,7 @@ def wait_succeeded(*, workflow, timeout_s) -> bool:
     """
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        out = subprocess.check_output(
+        out = _check_output(
             ["argo", "get", workflow, "-n", NAMESPACE, "-o", "json"]
         )
         phase = json.loads(out).get("status", {}).get("phase", "")
@@ -182,7 +204,7 @@ def no_pod_errors(*, namespace) -> bool:
     crashlooping sidecar still fails the smoke.
     """
     bad_waiting = {"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "Error"}
-    out = subprocess.check_output(
+    out = _check_output(
         ["kubectl", "get", "pods", "-n", namespace, "-o", "json"]
     )
     for pod in json.loads(out).get("items", []):

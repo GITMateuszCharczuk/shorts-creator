@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -179,7 +180,8 @@ def main(argv: list[str] | None = None) -> int:
         report["days_window"] = args.days
         report["generated_at"] = datetime.now(tz=timezone.utc).isoformat()
 
-        out_path = out_dir / f"audit_{today}.{niche}.json"
+        safe = re.sub(r"[^a-z0-9_-]", "_", str(niche).lower()) or "unknown"  # niche -> filename
+        out_path = out_dir / f"audit_{today}.{safe}.json"
         out_path.write_text(json.dumps(report, indent=2))
 
         n_disagree = len(report["label_score_disagreement"])

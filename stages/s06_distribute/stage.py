@@ -7,7 +7,10 @@ from shared.distribution.posts_ledger import idempotency_key
 from shared.distribution.visibility import resolve_visibility
 from shared.ramp.policy import gate_active
 from shared.ramp.state import is_warmed, load_state
+from shared.schema import SchemaRegistry
 from shared.stage import StageManifest, stage
+
+_REG = SchemaRegistry()
 
 
 class HeldForReview(Exception):
@@ -61,12 +64,14 @@ def run(ctx: StageContext) -> StageResult:
          "ts": datetime.now(timezone.utc).isoformat()}))
     cqc = json.loads(ctx.read_input("creative_qc").read_text())
     fr = ctx.write_output("feature_record")
-    fr.write_text(json.dumps({"schema_version": "1.0.0", "video_id": ctx.job["video_id"],
-                              "niche": ctx.job.get("niche"),
-                              "format": script["format"], "seed": ctx.seed,
-                              "hook_variant_id": "chosen",
-                              "judge_scores": cqc.get("scores", {}),
-                              "metrics": {},
-                              "creative_qc_overall": cqc.get("overall")}))
+    feature_record = {"schema_version": "1.0.0", "video_id": ctx.job["video_id"],
+                      "niche": ctx.job.get("niche"),
+                      "format": script["format"], "seed": ctx.seed,
+                      "hook_variant_id": "chosen",
+                      "judge_scores": cqc.get("scores", {}),
+                      "metrics": {},
+                      "creative_qc_overall": cqc.get("overall")}
+    _REG.validate("feature_record", feature_record)   # schema boundary — never emit an invalid one
+    fr.write_text(json.dumps(feature_record))
     ctx.log.info("distributed", platforms=list(posted))
     return StageResult(outputs={"posts": out, "feature_record": fr})

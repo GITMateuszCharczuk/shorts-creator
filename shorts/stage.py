@@ -141,6 +141,7 @@ def main() -> int:
     p.add_argument("--batch")
     p.add_argument("--video")
     a = p.parse_args()
+    load_all()       # populate REGISTRY first: resolve_argo_args (Argo mode, below) reads it
 
     if (a.batch is None) != (a.video is None):
         p.error("--batch and --video must be given together (Argo mode)")
@@ -177,7 +178,6 @@ def main() -> int:
         seed = a.seed
         cfg = json.loads(a.config)
 
-    load_all()
     reg = REGISTRY[a.stage_id]
     job = json.loads((run_dir / "job.json").read_text())
     for key in ("input_paths", "output_paths"):

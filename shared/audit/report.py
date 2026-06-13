@@ -7,10 +7,14 @@ def build_report(*, posts: list[dict], quarantines: list[dict], feature_records:
     (injected by the caller from config), not a hardcoded default — so a promoted floor isn't
     audited stale."""
     reasons = Counter(c for q in quarantines for c in q.get("failed_checks", []))
+    # creative_qc_overall is nullable in the schema (a quarantined video never scored), so guard
+    # the type before the numeric floor comparison — a None would raise TypeError here.
     disagree = [{"video_id": fr["video_id"], "score": fr["creative_qc_overall"],
                  "human_approved": fr["ramp_label"]["approved"]}
-                for fr in feature_records if "ramp_label" in fr
-                and "creative_qc_overall" in fr
+                for fr in feature_records
+                if isinstance(fr.get("creative_qc_overall"), (int, float))
+                and isinstance(fr.get("ramp_label"), dict)
+                and isinstance(fr["ramp_label"].get("approved"), bool)
                 and (fr["creative_qc_overall"] >= floor) != fr["ramp_label"]["approved"]]
     return {"posted_count": len(posts), "quarantined_count": len(quarantines), "posts": posts,
             "quarantine_reasons": dict(reasons), "label_score_disagreement": disagree}

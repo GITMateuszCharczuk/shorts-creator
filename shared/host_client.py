@@ -20,5 +20,12 @@ def to_relative(path: str, *, data_root: str) -> str:
 
 def resolve(rel_path: str, *, data_root: str | None = None) -> Path:
     """Resolve a DATA_ROOT-relative path against THIS process's DATA_ROOT (/data in a pod, the WSL2
-    dir on the host) — every process maps the same relative path to its own mount (D4)."""
-    return Path(data_root or os.environ["DATA_ROOT"]) / rel_path
+    dir on the host) — every process maps the same relative path to its own mount (D4). An absolute
+    or ``..``-escaping rel_path is rejected: it could read/write outside the mount."""
+    root = Path(data_root or os.environ["DATA_ROOT"])
+    if Path(rel_path).is_absolute():
+        raise ValueError(f"{rel_path!r} must be DATA_ROOT-relative, not absolute")
+    p = Path(os.path.normpath(root / rel_path))      # collapse .. before the containment check
+    if not p.is_relative_to(os.path.normpath(root)):
+        raise ValueError(f"{rel_path!r} escapes DATA_ROOT {str(root)!r}")
+    return p

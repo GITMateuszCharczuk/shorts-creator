@@ -2,13 +2,19 @@ import os
 from pathlib import Path
 
 
+def _esc(v) -> str:
+    """Escape a Prometheus label VALUE per the exposition format: backslash, double-quote and
+    newline. Unescaped values (e.g. a batch_id with a quote) would corrupt the metric line."""
+    return str(v).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
 def render_stage_metrics(
     *, batch_id, stage, video_id, duration_s, status, running, heartbeat_ts
 ) -> str:
-    lbl = f'batch="{batch_id}",stage="{stage}",video="{video_id}"'
+    lbl = f'batch="{_esc(batch_id)}",stage="{_esc(stage)}",video="{_esc(video_id)}"'
     return (
         f"shorts_stage_duration_seconds{{{lbl}}} {duration_s}\n"
-        f'shorts_stage_status{{{lbl},status="{status}"}} 1\n'
+        f'shorts_stage_status{{{lbl},status="{_esc(status)}"}} 1\n'
         f"shorts_stage_running{{{lbl}}} {running}\n"
         f"shorts_stage_heartbeat_timestamp{{{lbl}}} {heartbeat_ts}\n"
     )
@@ -17,7 +23,7 @@ def render_stage_metrics(
 def render_stage_liveness(*, batch_id, stage, video_id, running, heartbeat_ts) -> str:
     """Minimal renderer for ONLY the two series the StageStuck alert reads, emitted in-flight by
     the Heartbeat daemon (shorts/stage.py). Same label format as render_stage_metrics."""
-    lbl = f'batch="{batch_id}",stage="{stage}",video="{video_id}"'
+    lbl = f'batch="{_esc(batch_id)}",stage="{_esc(stage)}",video="{_esc(video_id)}"'
     return (f"shorts_stage_running{{{lbl}}} {running}\n"
             f"shorts_stage_heartbeat_timestamp{{{lbl}}} {heartbeat_ts}\n")
 
@@ -25,7 +31,7 @@ def render_stage_liveness(*, batch_id, stage, video_id, running, heartbeat_ts) -
 def render_batch_metrics(
     *, batch_id, niche, videos_total, quarantined, failed, quarantine_rate, quarantine_baseline
 ) -> str:
-    lbl = f'batch="{batch_id}",niche="{niche}"'
+    lbl = f'batch="{_esc(batch_id)}",niche="{_esc(niche)}"'
     return (
         f"shorts_batch_videos_total{{{lbl}}} {videos_total}\n"
         f"shorts_batch_quarantined_total{{{lbl}}} {quarantined}\n"

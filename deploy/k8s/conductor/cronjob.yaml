@@ -52,6 +52,16 @@ spec:
             - name: conductor
               image: shorts-creator:ci   # prod overlay patches name+tag/digest (kustomize images:)
               command: ["python", "-m", "shorts.run_batch"]
+              # Least-privilege: the conductor needs no root/escalation/capabilities. (Root FS is
+              # left writable — the process writes under the /data PVC mount and to tmp.)
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65534
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                seccompProfile:
+                  type: RuntimeDefault
               env:
                 # DATA_ROOT — the PVC mount; same tree runner-mode uses.
                 - name: DATA_ROOT

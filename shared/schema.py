@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
+from referencing import Registry, Resource
+from referencing.jsonschema import DRAFT202012
 
 SCHEMAS_DIR = Path(__file__).resolve().parents[1] / "schemas"
 
@@ -46,6 +48,21 @@ class SchemaRegistry:
     def __init__(self, schemas_dir: Path = SCHEMAS_DIR):
         self._dir = schemas_dir
         self._cache: dict[str, dict[str, Any]] = {}
+        self._ref_registry: Registry | None = None
+
+    def _registry(self) -> Registry:
+        # Build a referencing Registry of every schema (keyed by its $id) once, so a cross-file
+        # $ref (e.g. job.schema's "profile" -> profile.schema.json) resolves instead of being
+        # fetched off the network. Internal #/$defs refs are unaffected.
+        if self._ref_registry is None:
+            resources = []
+            for p in sorted(self._dir.glob("*.schema.json")):
+                doc = json.loads(p.read_text())
+                rid = doc.get("$id", p.name)
+                resources.append(
+                    (rid, Resource.from_contents(doc, default_specification=DRAFT202012)))
+            self._ref_registry = Registry().with_resources(resources)
+        return self._ref_registry
 
     def schema(self, name: str) -> dict[str, Any]:
         if name not in self._cache:
@@ -66,8 +83,8 @@ class SchemaRegistry:
             instance=instance.get("schema_version"),
         )
         try:
-            errors = sorted(Draft202012Validator(schema).iter_errors(instance),
-                            key=lambda e: e.json_path)
+            validator = Draft202012Validator(schema, registry=self._registry())
+            errors = sorted(validator.iter_errors(instance), key=lambda e: e.json_path)
         except Exception as e:  # a malformed schema file -> surface as SchemaError, not a raw crash
             raise SchemaError(f"{name} schema is malformed: {e}") from e
         if errors:
