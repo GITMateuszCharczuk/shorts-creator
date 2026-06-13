@@ -1,0 +1,24 @@
+name: ci
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+# cancel superseded runs on the same ref so rapid pushes don't queue redundant CI
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest   # GPU-less by design (ADR 0012)
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ffmpeg   # the offline render slice (M1 stage 05) shells out to ffmpeg
+        run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"   # pin so CI matches the local interpreter (pyproject >=3.12)
+      - name: Sync deps
+        run: uv sync
+      - name: Run the GPU-free suite
+        run: uv run pytest -q -m "not integration"

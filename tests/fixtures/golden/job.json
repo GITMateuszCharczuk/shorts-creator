@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0.0",
+  "batch_id": "2026-06-09",
+  "video_id": "fin-0001",
+  "niche": "finance",
+  "profile": "finance",
+  "platform_targets": ["youtube", "tiktok"],
+  "seed": 424242,
+  "stages": {"00a": {"status": "done"}, "00b": {"status": "pending"}},
+  "paths": {"data": "data/data.json", "script": "fin-0001/script.json"}
+}

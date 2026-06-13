@@ -43,6 +43,10 @@ add runtime capability — no new stage, model, or platform — it shapes how th
    a function + declare deps," not "edit the function *and* the workflow YAML and hope they agree."
    **For the PoC, ship hand-written Argo templates plus the metadata manifest, with a test that
    asserts the templates match the manifest (drift-catcher) — do *not* build a DAG generator yet.**
+   *(Superseded in part by ADR 0015: the PoC ships **no Argo templates at all** — the metadata
+   manifests drive the production Python runner directly, and the drift-catcher asserts
+   manifest ⟷ stage-registry agreement. The Argo profile, if/when built post-PoC, uses dumb
+   one-line templates; choreography never lives in YAML.)*
    The fixed ~15-stage *concurrent* topology of ADR 0011 (lane-fork, the confirm-VRAM gate between
    00b/01b, per-video `continueOn` sub-DAGs) would make a generator more complex than the ~15
    templates it emits; the generator is deferred (see open items) until the topology actually churns.
@@ -56,7 +60,7 @@ add runtime capability — no new stage, model, or platform — it shapes how th
      degrades to SELF_ONLY/private as *data*, not a code branch — ADR 0009 D3), rather than a coarse
      boolean.
    - **Model capability backends** (`generate_image(prompt, seed)`, `img2vid(…)`, `tts(…)`,
-     `vlm_judge(…)`, `llm(…)`) — splits today's single host client into per-capability interfaces
+     `vlm_judge(…)`, `llm(…)`, `restore(…)` — 01d upscale/restore) — splits today's single host client into per-capability interfaces
      so every A/B swap on the open list is a **config swap**, not stage surgery. Backend choice
      resolves **per-stage** (00b can run Qwen-32B while 05b runs 14B), and the **judge backend can
      point at a separate CPU/small-model endpoint** so an independent non-Qwen judge (ADR 0009 D4) is

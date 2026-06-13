@@ -1,0 +1,31 @@
+[project]
+name = "shorts-creator"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = ["jsonschema>=4.21", "httpx>=0.27", "feedparser>=6.0", "soundfile>=0.12"]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.4"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "--strict-markers"   # a typo'd marker (e.g. an integration test) must error, not silently run
+markers = ["integration: touches a live model/service; skipped in GPU-free CI"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]   # pycodestyle + pyflakes + isort (review-driven: make ruff functional in CI)
+
+[tool.setuptools.packages.find]
+# review-driven: auto-discover so shorts/ (M4) isn't silently skipped by a static list; tests excluded
+where = ["."]
+include = ["shared*", "stages*", "shorts*"]
+exclude = ["tests*"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

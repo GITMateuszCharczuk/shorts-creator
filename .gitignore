@@ -1,2 +1,10 @@
 # runtime state written by scripts/up.sh (pidfiles, logs)
 .run/
+
+# Python build / cache artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/

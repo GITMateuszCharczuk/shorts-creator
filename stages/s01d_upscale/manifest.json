@@ -1,0 +1,1 @@
+{"id": "01d", "inputs": ["scenes_motion"], "outputs": ["assets"], "compute": "gpu", "capability": "restore"}

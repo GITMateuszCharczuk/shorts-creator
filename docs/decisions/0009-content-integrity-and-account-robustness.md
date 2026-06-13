@@ -49,7 +49,9 @@ on inspection.
    "never co-resident," the independent judge should run on a **separate CPU / small-model endpoint**
    (different family, no GPU contention with the diffusion plane) — so adopting it is a config swap
    via the per-stage judge backend (ADR 0010 D3), not a VRAM fight. Recorded as a **known weakness**
-   either way — the floor is a guess until analytics + labels exist.
+   either way — the floor is a guess until analytics + labels exist. **Closed by ADR 0016 D1/D2:**
+   the independent non-Qwen judge is now a *decided mechanism* (not a preference), and the ramp's
+   human approvals are captured as the labeled calibration set.
 
 ### Licensing & posture honesty
 
@@ -78,12 +80,24 @@ on inspection.
    Pexels/Pixabay hourly caps) and best-of-N × N-candidates-per-beat × batch can exhaust them.
    `00a`/`01a` get **request budgeting + a local cache** (dedup identical queries within a batch,
    cache market pulls), and a tripped budget is a **first-class WARN/degrade**, not a silent
-   throttle or hard fail.
+   throttle or hard fail. **Source preference (re-review):** with two niches × multiple series ×
+   retries, 25 req/day has no headroom — daily **series** data comes from **FRED/stooq** (free,
+   generous); **Alpha Vantage is reserved for quotes only**. **YouTube Data API is budgeted too**
+   (third re-review): default quota is **10,000 units/day**, `videos.insert` costs **~1,600
+   units** (→ a ~6-uploads/day ceiling) and the confirm/reconcile `search.list` costs **100/call**
+   — fits 2–4/day but must sit in the same budget ledger before retries eat it.
 
 9. **News corroboration for `news_reaction` (#9).** A single RSS item can be rumor, satire, or
    wrong. Before `news_reaction` commits a fresh story, require **corroboration across ≥2 reputable
    sources** (or a source-reliability weighting); an uncorroborated item degrades to a lower-
    confidence treatment or is skipped via the starvation ladder (ADR 0002).
+
+10. **OAuth app lifecycle — the silent 2-week-run killer (re-review).** A Google OAuth client left
+    in **"Testing" publishing status has refresh tokens that expire every 7 days** — which silently
+    kills unattended YouTube posting *mid-way through the M6 endurance run*, the exact scenario the
+    DoD must survive. Before M5: move the OAuth app to **Production status** (even unverified) so
+    refresh tokens persist, and add **token age / refresh health to the credential pre-flight**
+    (ADR 0003) so an expiring credential fails the batch loudly *before* posting time, not during.
 
 ## Consequences
 

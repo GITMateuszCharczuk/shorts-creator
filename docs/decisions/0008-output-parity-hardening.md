@@ -69,6 +69,10 @@ written, and a few human-parity ceilings were unacknowledged:
      over trend reach); revisit only if a licensed trending-audio path appears.
    - **Bounded humor / hot-takes / lived experience** — LLM scripting under YMYL stays
      educational/third-person; relatability is capped. (By design.)
+   - **No automated community engagement** — an unattended faceless pipeline cannot reply to
+     comments, so it cannot contribute the creator-reply portion of the first-hours engagement
+     velocity that ADR 0006 weights. **Accepted ceiling** for the unattended PoC (ADR 0014 D4);
+     revisit if a safe automated-reply path appears.
 
 ## Consequences
 

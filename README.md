@@ -12,7 +12,8 @@ subtitles → mood-matched music → render + finishing polish → automated QC 
 distribute per-platform.
 
 **Constraints:** no recurring cost, commercial/monetization-safe licensing, no copyright
-strikes, runs locally on `kind` with a single NVIDIA GPU.
+strikes, runs locally on a single NVIDIA-GPU box (Windows/WSL2) — **runner-first,
+Kubernetes-deployable by profile** ([ADR 0015](docs/decisions/0015-runner-first-orchestration.md)).
 
 ## Docs
 - **[docs/POC.md](docs/POC.md)** — ⭐ **authoritative current scope.** The deliberately narrow,
@@ -37,11 +38,14 @@ strikes, runs locally on `kind` with a single NVIDIA GPU.
 Pre-implementation (planning). No pipeline code yet. Active scope = **[docs/POC.md](docs/POC.md)**.
 
 ## Stack at a glance
-> Runtime topology is locked in **[ADR 0001](docs/decisions/0001-lightened-runtime-architecture.md)**:
-> the host owns the GPU (ComfyUI + a per-batch LLM); a thin Argo control plane on `kind`
-> orchestrates CPU stages and calls the host over HTTP; one PVC holds everything.
+> Runtime topology: **[ADR 0001](docs/decisions/0001-lightened-runtime-architecture.md)** (two
+> planes: the host owns the GPU — ComfyUI + a per-batch LLM — CPU stages call it over HTTP) as
+> re-shaped by **[ADR 0015](docs/decisions/0015-runner-first-orchestration.md)**: a **Python
+> conductor** (stage manifests → DAG, cache, retries, status) orchestrates everything under a
+> WSL2 systemd timer; one `DATA_ROOT` holds everything; **kind/Argo is a deferred deployment
+> profile** kept honest by a CI-built shared image.
 
-- **Orchestration:** Argo Workflows on kind (CPU control plane), artifacts on a shared PVC
+- **Orchestration:** the Python conductor (runner-first, ADR 0015); Argo/kind = deferred profile
 - **GPU plane (host):** ComfyUI owns the GPU — FLUX / LTX / ESRGAN / RIFE / GFPGAN; no GPU-in-kind
 - **Script:** Ollama + Qwen2.5-14B (hook-first, real-data for finance/business)
 - **Visuals:** real-footage-first (Pexels/Pixabay/Mixkit/Coverr/Videvo) + FLUX.1-schnell fill

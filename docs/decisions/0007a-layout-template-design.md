@@ -42,18 +42,24 @@ the renderer + libraries are the only code, shared verbatim with **01e data-viz*
 
 ### 2. Engine & data flow — render is `pure(manifest)`
 
-A deterministic, pure **resolve step** merges the format `layout` + typed per-beat data + WhisperX
-word timings + brand kit + seeded slots (CTA bump D10, loop + end-card 0006) into a flat, fully
+A deterministic, pure **resolve step** merges the format `layout` + typed per-beat data + **the
+visual lane's chosen per-beat assets (`assets.json` — MediaZone regions resolve to the selected
+clip's path, not the `media_query` string)** + WhisperX
+word timings **(threaded into the injected `KaraokeCaption` region's `words` param, not only into
+scene spans)** + brand kit + seeded slots (CTA bump D10, loop + end-card 0006) into a flat, fully
 bound **`render_manifest.json`**, consuming the persisted `job.json` seed (ADR 0009). **Everything
 stochastic is decided here**, so the Remotion render is a **pure function of the manifest** →
 reproducible. The renderer paints frames; **per-platform deltas are manifest deltas** (safe-zone
 insets + CTA verb/icon — same `<Composition>`, three manifests; the ADR 0005 D4 distinct cuts).
+*(Honesty note, ADR 0015: production renders run in the WSL2 venv, not the pinned CI image — so
+production output is SSIM-class vs the goldens; the byte-hash tripwire is a CI regression guard.)*
 
 This **refines the ADR 0010 D3 seam** from `render(format_layout, structured_data, brand_kit) →
 frames` to `render(render_manifest) → frames`: resolve is the new pre-engine step that merges those
 three inputs (plus timings + seed) into the manifest, so the engine carries *no* unresolved or
-stochastic input. The manifest gets its own `render_manifest.schema.json` (authored M0) — the
-resolve step's output contract, sibling to `layout.schema.json`. It carries **projected pixel
+stochastic input. The manifest gets its own `render_manifest.schema.json` (**authored in M2**
+alongside `layout.schema.json` — M0 deferred the compositor's contracts, so both land in the M2
+compositor milestone, not M0) — the resolve step's output contract, sibling to `layout.schema.json`. It carries **projected pixel
 bboxes** (post-grid, §7a) plus resolved style values and the SFX/marker frame-indices, so the
 renderer is pure painting with **no geometry of its own**.
 
@@ -129,8 +135,10 @@ not new names.
 - Each animation/transition **emits a synchronized SFX cue marker** into the manifest (whoosh on
   swipe, tick on a `pop`-badge, impact on `riser-reveal`) — bound at resolve time to the Stage 04
   transition-SFX layer (ADR 0005 D6).
-- *(Later hook: the treatment's energy curve (ADR 0005) can drive default param intensity —
-  high-energy beat → faster `dur`, more `overshoot`, louder cue. Deferred.)*
+- *(The treatment's energy curve (ADR 0005) drives default param intensity — high-energy beat →
+  faster `dur`, more `overshoot`, louder cue. **Activated by ADR 0017 D7** (was deferred): the
+  resolve step scales animation `dur`/overshoot by the beat's energy, alongside the voice-rate and
+  music-intensity modulation — deterministic, since the curve is in the script.)*
 
 ### 6. Inherited standard regions
 

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "format.schema.json",
+  "schema_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "beat_pattern", "lane_support", "data_shape"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "id": {"type": "string"},
+    "beat_pattern": {"type": "array", "items": {"type": "string"}},
+    "lane_support": {
+      "type": "object", "additionalProperties": false,
+      "required": ["visual", "audio"],
+      "properties": {"visual": {"type": "boolean"}, "audio": {"type": "boolean"}}
+    },
+    "data_shape": {"enum": ["ranked_list", "head_to_head"]}
+  }
+}

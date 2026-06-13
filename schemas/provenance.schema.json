@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "provenance.schema.json",
+  "schema_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "assets"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["asset_id", "source", "url", "license", "fetch_date"],
+        "properties": {
+          "asset_id": {"type": "string"},
+          "source": {"type": "string"},
+          "url": {"type": "string"},
+          "license": {"type": "string"},
+          "fetch_date": {"type": "string"}
+        }
+      }
+    }
+  }
+}
