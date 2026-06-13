@@ -33,6 +33,21 @@ def test_intent_or_publishing_without_confirm_is_a_retry_case(tmp_path):
     assert pending_post(led, "v", "tiktok") and not already_confirmed(led, "v", "tiktok")
 
 
+def test_append_durably_writes_the_record_before_returning(tmp_path):
+    # H2: _append flushes + fsyncs so an OS crash can't lose an intent/confirmed record (which
+    # would cause a double-post on retry). fsync itself isn't unit-observable, so we assert the
+    # durable-write path is exercised: the record is on disk (read_records sees it) immediately
+    # after the call returns, with the durable contents intact.
+    led = tmp_path / "v" / "posts.jsonl"
+    write_intent(led, video_id="v", platform="youtube")
+    recs = read_records(led)                                # re-reads from disk, not a buffer
+    assert led.exists() and len(recs) == 1
+    assert recs[0]["state"] == "intent" and recs[0]["video_id"] == "v"
+    write_confirmed(led, video_id="v", platform="youtube", remote_id="yt", url="u")
+    states = [r["state"] for r in read_records(led)]        # both records durably present
+    assert states == ["intent", "confirmed"]
+
+
 def test_corrupt_line_fails_loud(tmp_path):
     led = tmp_path / "posts.jsonl"
     led.write_text('{"good": 1}\nNOT JSON\n')

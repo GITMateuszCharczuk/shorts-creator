@@ -42,6 +42,48 @@ def test_pending_post_recovers_via_injected_find_without_reposting(tmp_path):
     assert calls == {"init": 0, "upload": 0}               # posts == 0: recovery is a no-op post
 
 
+def test_publishing_record_with_publish_id_persists_across_post_init_crash(tmp_path):
+    # H3: a crash AFTER init returns the publish_id but BEFORE confirm must leave a 'publishing'
+    # ledger record carrying that publish_id, so recovery has a re-pollable id (TikTok has no
+    # search-by-marker; the publish_id IS the marker). We simulate the crash by having upload raise
+    # after init/_record_publishing has run, then assert the publish_id is durably on the ledger.
+    from shared.distribution.posts_ledger import read_records
+
+    def init(_body, _media):
+        return "pub_init_42"
+
+    def boom_upload(_pid, _media):
+        raise RuntimeError("network died after init, before confirm")
+
+    a = TikTokAdapter(token=None, init=init, upload=boom_upload, poll=lambda p: "PUBLISH_COMPLETE")
+    led = tmp_path / "v" / "posts.jsonl"
+    with pytest.raises(RuntimeError):
+        a.publish(video_id="v", media_path="m.mp4",
+                  metadata={"title": "t", "idempotency_key": "k"},
+                  visibility="SELF_ONLY", ledger_path=led)
+    recs = read_records(led)
+    pubs = [r for r in recs if r["state"] == "publishing"]
+    assert len(pubs) == 1 and pubs[0]["remote_id"] == "pub_init_42"   # in-flight id persisted
+    assert not any(r["state"] == "confirmed" for r in recs)           # never confirmed
+
+    # recovery: a fresh attempt finds the in-flight publish_id via the injected re-poll hook (host
+    # wiring reads the publishing record's publish_id) and confirms WITHOUT re-init/re-upload.
+    calls = {"init": 0, "upload": 0}
+    b = TikTokAdapter(
+        token=None,
+        init=lambda _b, _m: calls.__setitem__("init", calls["init"] + 1) or "pub_NEW",
+        upload=lambda _p, _m: calls.__setitem__("upload", calls["upload"] + 1),
+        poll=lambda p: "PUBLISH_COMPLETE",
+        find=lambda k: ("pub_init_42", "https://tiktok.com/@me/video/pub_init_42"),
+    )
+    rec = b.publish(video_id="v", media_path="m.mp4",
+                    metadata={"title": "t", "idempotency_key": "k"},
+                    visibility="SELF_ONLY", ledger_path=led)
+    assert rec == {"remote_id": "pub_init_42",
+                   "url": "https://tiktok.com/@me/video/pub_init_42", "recovered": True}
+    assert calls == {"init": 0, "upload": 0}                          # zero re-posts
+
+
 def test_find_existing_defaults_to_none_without_injection():
     assert TikTokAdapter(token=None)._find_existing("k") is None
 

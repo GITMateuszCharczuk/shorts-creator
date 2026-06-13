@@ -31,6 +31,10 @@ class TikTokAdapter(DistributionAdapter):
 
     def _post(self, media_path, metadata, visibility):
         publish_id = self._init(self._init_body(metadata, visibility), media_path)
+        # H3: persist the publish_id BEFORE upload/poll. A crash after init but before confirm now
+        # leaves a 'publishing' record carrying the publish_id for recovery to re-poll (the
+        # publish_id IS the marker — TikTok has no search-by-marker, see _find_existing).
+        self._record_publishing(publish_id)
         self._upload(publish_id, media_path)
         status = self._poll(publish_id)                  # blocks until PUBLISH_COMPLETE or raises
         if status != "PUBLISH_COMPLETE":
