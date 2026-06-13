@@ -157,6 +157,34 @@ are reported by gate name; fix before starting the soak.
   | Current status | sandbox / under review / cleared |
   | `tiktok.audit_cleared` flipped | yes / no |
 
+### 2g. Verify platform API contracts against LIVE docs before the first real post (the project never invents API fields)
+
+Platform APIs drift, and this project's hard rule is **never invent or assume an API
+field — verify it against the live docs.**  Web sources flagged two YouTube changes and
+one TikTok detail that must be confirmed against the *current* official documentation
+before the first real post.  Confirm each, then record the verified value:
+
+- [ ] **YouTube AI-disclosure mechanism.**  Confirm whether
+  `status.containsSyntheticMedia` is a real field on the live `videos` resource
+  (developers.google.com/youtube/v3/docs/videos).  As of this writing this is
+  **unverified** — the official docs blocked an automated fetch (403).
+  - If it **IS** a real field: wire it into
+    `shared/adapters/youtube.py::_insert_body` (set it in the `status` block) and
+    update [ADR 0009](../../docs/decisions/0009-content-integrity-and-account-robustness.md).
+  - If it is **NOT**: the current description-based disclosure (the `idem:`/disclosure
+    line embedded in the description) stands — do **not** add a speculative field.
+- [ ] **YouTube quota cost.**  Confirm the current `videos.insert` unit cost
+  (developers.google.com/youtube/v3/determine_quota_cost) and set
+  `budgets.youtube_insert_units` in the conductor config accordingly.  It was **1600**;
+  it is reportedly **~100** since around Dec 2025.  The pre-flight default
+  (`_INSERT_UNITS` in `shared/conductor/preflight.py`) is unchanged at 1600 — the
+  operator overrides it here with the live-verified number so the quota gate sizes the
+  daily upload ceiling correctly.
+- [ ] **TikTok AIGC flag.**  Confirm the exact key on the live Direct Post reference
+  and that it sits in `post_info` (NOT `source_info`).  The code currently uses
+  `post_info.aigc_content` (`shared/adapters/tiktok.py::_init_body`) — verify this key
+  name against the live docs before the first TikTok post.
+
 ---
 
 ## 3. Windows-host hardening (ADR 0013/0015 D3)

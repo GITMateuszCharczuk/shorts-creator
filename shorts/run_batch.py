@@ -8,6 +8,7 @@ from typing import Callable
 from shared.conductor.ledger import commit_ledgers
 from shared.conductor.lock import acquire_lock, release_lock
 from shared.conductor.preflight import (
+    _INSERT_UNITS,
     free_space_gate,
     host_health_gate,
     oauth_token_age_gate,
@@ -57,7 +58,9 @@ def production_preflight(*, cfg: dict, data_root: Path, usage: dict,
                          http_get: Callable[[str], int] | None = None):
     """Compose the five REAL gates from the resolved config + the day's usage counters into the
     single closure batch_flow calls once. cfg keys: gc.min_free_gb, hosts.comfy_url/ollama_url,
-    oauth_mode, budgets.youtube_units, budgets.data_api ({source: daily cap}). usage keys:
+    oauth_mode, budgets.youtube_units, budgets.youtube_insert_units (per-insert cost — verify at
+    bring-up, see soak-runbook §2g; defaults to the preflight constant), budgets.data_api
+    ({source: daily cap}). usage keys:
     token_age_days, last_used_days, youtube_used_units, planned_inserts, data_api_used/planned."""
     hooks = {
         "free_space": lambda: free_space_gate(
@@ -70,7 +73,11 @@ def production_preflight(*, cfg: dict, data_root: Path, usage: dict,
             mode=cfg["oauth_mode"]),
         "youtube_quota": lambda: youtube_quota_gate(
             used_units=usage["youtube_used_units"], planned_inserts=usage["planned_inserts"],
-            daily_quota=cfg["budgets"]["youtube_units"]),
+            daily_quota=cfg["budgets"]["youtube_units"],
+            # Per-insert cost is a verify-at-bring-up value (YouTube changed it ~1600->~100 around
+            # Dec 2025); the operator sets the live-verified number in config. Absent it, fall back
+            # to the preflight default so behaviour is unchanged (ADR 0009 #8; soak-runbook §2g).
+            insert_units=cfg["budgets"].get("youtube_insert_units", _INSERT_UNITS)),
         "data_budget": lambda: data_api_budget_gate(
             used=usage["data_api_used"], planned=usage["data_api_planned"],
             budgets=cfg["budgets"]["data_api"]),

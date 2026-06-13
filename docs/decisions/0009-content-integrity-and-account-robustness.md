@@ -121,3 +121,16 @@ on inspection.
 - Per-platform **music libraries** + verified cross-platform terms.
 - **Warming duration** + provisioning checklist; per-API **budget numbers** + cache TTLs;
   the **corroboration threshold** + reputable-source list per niche.
+
+**2026-06 re-verification note (bring-up gate).** Two #8-adjacent items are pending
+live-docs verification before the first real post and are tracked as a bring-up gate, not
+decided here: (a) whether YouTube now exposes a real `status.containsSyntheticMedia`
+disclosure field on the `videos` resource — *currently unverified* (official docs blocked
+an automated fetch); if it exists it should be wired into `youtube.py::_insert_body` and
+this ADR updated, otherwise the description-based disclosure (#6 / the current
+`_insert_body`) stands and no speculative field is added; and (b) the current
+`videos.insert` quota cost, which YouTube reportedly changed (~1600 → ~100 around Dec
+2025). The cost is now config-sourced (`budgets.youtube_insert_units`, defaulting to the
+unchanged 1600 in `shared/conductor/preflight.py`) — the operator sets the live-verified
+value at bring-up. See the verification checklist in
+[`deploy/host/soak-runbook.md`](../../deploy/host/soak-runbook.md) §2g.

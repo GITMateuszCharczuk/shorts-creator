@@ -57,6 +57,39 @@ def test_production_preflight_composes_the_real_gates_config_driven(tmp_path):
         preflight()
 
 
+def _cfg_usage_for_quota(tmp_path, *, insert_units=None, planned_inserts, used_units):
+    """A config/usage pair where ONLY the youtube_quota gate can fail — the other four gates pass —
+    so a quota assertion is unambiguous. insert_units=None omits the config key (default path)."""
+    budgets = {"youtube_units": 10000, "data_api": {}}
+    if insert_units is not None:
+        budgets["youtube_insert_units"] = insert_units
+    cfg = {"gc": {"min_free_gb": 0.0},
+           "hosts": {"comfy_url": "http://h:8188", "ollama_url": "http://h:11434"},
+           "oauth_mode": "testing", "budgets": budgets}
+    usage = {"token_age_days": 0.0, "last_used_days": 0.0,
+             "youtube_used_units": used_units, "planned_inserts": planned_inserts,
+             "data_api_used": {}, "data_api_planned": {}}
+    return cfg, usage
+
+
+def test_production_preflight_honors_config_youtube_insert_units(tmp_path):
+    """B/A review follow-up: the per-insert quota cost is verify-at-bring-up and config-sourced.
+    A batch of 6 inserts costs 9600 at the default 1600 (BLOCKS under a 10000/day quota), but only
+    600 at a bring-up-verified 100 (PASSES). Drive it through the REAL production_preflight wiring,
+    not a mock, so the cfg value actually reaches youtube_quota_gate."""
+    # default cost (key absent) -> 6 * 1600 = 9600 > 10000? no, but +used pushes it over.
+    cfg, usage = _cfg_usage_for_quota(tmp_path, planned_inserts=6, used_units=1000)
+    with pytest.raises(PreflightFailure, match="YouTube quota"):     # 6*1600=9600, +1000 > 10000
+        production_preflight(cfg=cfg, data_root=tmp_path, usage=usage,
+                             http_get=lambda url: 200)()
+
+    # SAME batch, but a config-supplied verified cost of 100 -> 6*100=600, +1000 fits -> passes.
+    cfg, usage = _cfg_usage_for_quota(tmp_path, insert_units=100,
+                                      planned_inserts=6, used_units=1000)
+    production_preflight(cfg=cfg, data_root=tmp_path, usage=usage,
+                         http_get=lambda url: 200)()    # no raise
+
+
 # --- metered: per-stage .prom emission around the M4 run_stage (Task 1 Step 3 + StageSlow) ---
 
 def test_metered_writes_stage_metrics_and_slow_gauge(tmp_path):
