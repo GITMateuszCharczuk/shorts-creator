@@ -36,6 +36,16 @@ def stage(manifest: StageManifest):
     return deco
 
 
+def default_path(name: str) -> str:
+    """Declared artifact name -> run-dir-relative path. The SINGLE mapping used everywhere a
+    run-dir layout is materialised: the in-process runner (shared/runner.py) and the Argo-mode
+    IO-path derivation in shorts/stage.py. Argo shares one PVC run-dir per video, so an input's
+    path equals its producer's output path — both sides derive from this same function."""
+    binary = {"narration": "narration.wav", "music": "music.wav", "render": "renders/youtube.mp4",
+              "thumbnail": "renders/thumbnail.jpg", "captions": "captions.ass"}
+    return binary.get(name, f"{name}.json")
+
+
 def load_manifest(path: Path) -> StageManifest:
     raw = json.loads(path.read_text())
     try:

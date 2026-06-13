@@ -7,7 +7,7 @@ from shared.config import resolve_config
 from shared.ctx import Quarantined, StageContext, StageResult
 from shared.hashing import cache_key, input_hash, sha256_bytes
 from shared.schema import SchemaRegistry
-from shared.stage import REGISTRY
+from shared.stage import REGISTRY, default_path
 from stages.registry import load_all
 
 # linear M0 order (lane-fork parallelism is an orchestration concern, ADR 0011; semantics identical)
@@ -45,7 +45,7 @@ def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path,
         reg = REGISTRY[sid]
         m = reg.manifest
         input_paths = {name: produced[name] for name in m.inputs if name in produced}
-        output_paths = {name: _default_path(name) for name in m.outputs}
+        output_paths = {name: default_path(name) for name in m.outputs}
 
         digests = {name: sha256_bytes((run_dir / p).read_bytes())
                    for name, p in input_paths.items()}
@@ -90,9 +90,3 @@ def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path,
         ctx.set_status("done")
 
     return {"posts": produced["posts"], "cache_hits": cache_hits}
-
-
-def _default_path(name: str) -> str:
-    binary = {"narration": "narration.wav", "music": "music.wav", "render": "renders/youtube.mp4",
-              "thumbnail": "renders/thumbnail.jpg", "captions": "captions.ass"}
-    return binary.get(name, f"{name}.json")

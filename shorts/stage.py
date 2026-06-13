@@ -11,7 +11,7 @@ from pathlib import Path
 from shared.ctx import Degraded, Quarantined, StageContext
 from shared.exitcodes import EXIT_DEGRADED, EXIT_HELD, EXIT_OK, EXIT_QUARANTINED
 from shared.obs.metrics import render_stage_liveness, write_metrics
-from shared.stage import REGISTRY
+from shared.stage import REGISTRY, default_path
 from stages.registry import load_all
 
 
@@ -106,17 +106,28 @@ class Heartbeat:
                 running=1, heartbeat_ts=ts))
 
 
-def resolve_argo_args(*, data_root, batch_id: str, video_id: str) -> dict:
+def resolve_argo_args(*, data_root, batch_id: str, video_id: str, stage_id: str) -> dict:
     """Argo mode (ADR 0015a B): address a stage by (batch, video); resolve the explicit run-dir,
     per-video seed, and config from the planner's batch.json on the PVC — so ``--batch/--video``
-    and the M4 ``--run-dir/--seed/--config`` mode run the IDENTICAL stage body."""
+    and the M4 ``--run-dir/--seed/--config`` mode run the IDENTICAL stage body.
+
+    The returned ``config`` carries the full stage_cmd contract
+    (shared/conductor/subproc.stage_cmd):
+    ``input_paths``/``output_paths`` are derived HERE from the stage manifest's declared
+    inputs/outputs via the SAME ``default_path`` mapping the in-process runner uses. Argo shares
+    one PVC run-dir per video, so an input's path equals its producer's output path — both sides
+    derive from ``default_path``. Without this the IO gate in ``main()`` would ``p.error`` (exit 2)
+    on every Argo pod (C3)."""
     batch = json.loads((Path(data_root) / "runs" / batch_id / "batch.json").read_text())
     video = next((v for v in batch["videos"] if v["video_id"] == video_id), None)
     if video is None:
         raise KeyError(f"video {video_id!r} not in batch {batch_id!r}")
     run_dir = str(Path(data_root) / "runs" / batch_id / video_id)
+    manifest = REGISTRY[stage_id].manifest
     return {"run_dir": run_dir, "seed": video["seed"],
-            "config": {"niche": video["niche"], "format": video.get("format")}}
+            "config": {"niche": video["niche"], "format": video.get("format"),
+                       "input_paths": {n: default_path(n) for n in manifest.inputs},
+                       "output_paths": {n: default_path(n) for n in manifest.outputs}}}
 
 
 def main() -> int:
@@ -143,18 +154,19 @@ def main() -> int:
             data_root=os.environ["DATA_ROOT"],
             batch_id=a.batch,
             video_id=a.video,
+            stage_id=a.stage_id,
         )
         run_dir = Path(resolved["run_dir"])
         seed = resolved["seed"]
-        # IO-path resolution in Argo mode: the Argo workflow generator is responsible for
-        # constructing the --config JSON with input_paths/output_paths (the same stage_cmd
-        # contract as explicit mode).  resolve_argo_args returns only niche/format from
-        # batch.json; the generator merges those with the stage manifest's declared IO paths
-        # and passes the full --config at workflow-template emit time.  We therefore still
-        # parse --config here (defaulting to "{}") — in a correctly generated Argo DAG it
-        # will always be present; in unit-test / smoke contexts the parser's default "{}" is
-        # used and the IO-path check below will catch a missing config before any stage runs.
-        cfg = json.loads(a.config)
+        # IO-path resolution in Argo mode (C3): resolve_argo_args derives input_paths/output_paths
+        # from the stage manifest's declared inputs/outputs via the SAME default_path mapping the
+        # in-process runner uses — one PVC run-dir per video means an input's path equals its
+        # producer's output path. The Argo template therefore does NOT need to carry --config; the
+        # full stage_cmd contract (input_paths/output_paths + niche/format) is built HERE, so the
+        # IO gate below passes and the stage body runs instead of aborting (p.error / exit 2).
+        # Any explicit --config (default "{}") is layered UNDER the resolved values so an operator
+        # override can still set stage_config/backends without clobbering the derived IO paths.
+        cfg = {**json.loads(a.config), **resolved["config"]}
     else:
         # Explicit mode (M4 / Variant A): --run-dir and --seed are required.
         if a.run_dir is None:
