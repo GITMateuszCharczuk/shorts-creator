@@ -1,0 +1,21 @@
+# M7 / ADR 0015a D2 — kind cluster config (consumed by `make cluster-up`:
+#   kind create cluster --name shorts --config <this file>).
+#
+# NOT a kustomize resource — this is kind's own Cluster config kind. It maps
+# the host DATA_ROOT (the WSL2 ext4 dir) into the single node at the local-PV
+# hostPath, so the PVC's local-PV (hostPath: /data) is actually the host's
+# DATA_ROOT. Byte-compatible with runner-mode disk (ADR 0015a D4): a batch run
+# from the cluster and from `make trigger` read/write the SAME tree.
+#
+# Substitute ${DATA_ROOT} (see `make print-data-root`) for the real host path
+# before `kind create cluster`; `make cluster-up` does this substitution.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: shorts
+nodes:
+  - role: control-plane
+    extraMounts:
+      # hostPath: the host DATA_ROOT (WSL2 ext4). containerPath: where the
+      # node sees it — the local-PV hostPath the `shorts-data` PV binds to.
+      - hostPath: ${DATA_ROOT}     # e.g. /home/user/shorts-creator/data
+        containerPath: /data

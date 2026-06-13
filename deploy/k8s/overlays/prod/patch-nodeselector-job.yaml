@@ -1,0 +1,11 @@
+# prod manual Job nodeSelector patch — same placement as the CronJob.
+# Strategic-merge into the Job's pod spec.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: shorts-batch-manual
+spec:
+  template:
+    spec:
+      nodeSelector:
+        shorts-creator/role: conductor   # PLACEHOLDER — label your conductor node(s)

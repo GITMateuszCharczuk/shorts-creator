@@ -1,0 +1,14 @@
+# prod conductor CronJob nodeSelector patch — schedule the conductor on a node
+# that can reach the GPU box. PLACEHOLDER label. Strategic-merge into the
+# CronJob's jobTemplate pod spec.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: shorts-batch
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          nodeSelector:
+            shorts-creator/role: conductor   # PLACEHOLDER — label your conductor node(s)
