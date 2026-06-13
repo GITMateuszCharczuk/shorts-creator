@@ -1,0 +1,33 @@
+# M7 / ADR 0015a D2 — the persistent DATA_ROOT.
+#
+# This PVC backs `/data` (DATA_ROOT) inside the conductor pod. It is the SAME
+# data tree runner-mode uses, so a batch run from the cluster and one from
+# `make trigger` read/write identical state (ledger, lockfile, outputs).
+#
+# storageClassName: "" => no dynamic provisioner; the volume is bound MANUALLY
+# to a pre-created PV:
+#   - kind-local : a local-PV whose hostPath is the kind node mount of the
+#                  host DATA_ROOT (see overlays/kind-local: extraMounts).
+#   - prod       : a real StorageClass is patched in (overlays/prod) — the ""
+#                  is replaced and a class with a multi-node-capable backend
+#                  (NFS/CephFS/etc.) provisions the volume.
+#
+# accessModes is a KUSTOMIZE PATCH TARGET (see overlays):
+#   - single-node (kind-local) => ReadWriteOnce (RWO). One node, one writer;
+#     RWO is sufficient and the only mode a local-PV/hostPath supports.
+#   - multi-node (prod)        => ReadWriteMany (RWX). The D8 swap: with the
+#     conductor potentially scheduled on any node and (future) parallel
+#     readers, the volume must be mountable read-write from many nodes, which
+#     requires an RWX-capable backend. This is the single load-bearing diff
+#     between the single-node and multi-node storage stories.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shorts-data
+spec:
+  storageClassName: ""        # manual bind; prod overlay patches a real class
+  accessModes:
+    - ReadWriteOnce           # PATCH TARGET: RWO (kind single-node) / RWX (prod multi-node, D8)
+  resources:
+    requests:
+      storage: 100Gi
