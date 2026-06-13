@@ -1,8 +1,12 @@
 import random
+from pathlib import Path
 
 from shared.planner.lanes import next_lane
 from shared.planner.rotation import NoFormatError, pick_format
 from shared.planner.topics import claim_topics
+from shared.profiles.loader import load_profile
+
+_PROFILES_ROOT = Path(__file__).resolve().parents[2] / "profiles"
 
 
 def plan_batch(*, batch_id: str, niches: list[str], per_niche: int, formats: list[dict],
@@ -38,3 +42,22 @@ def plan_batch(*, batch_id: str, niches: list[str], per_niche: int, formats: lis
             recent_formats.append(fmt["id"])
     return {"schema_version": "1.0.0", "batch_id": batch_id,
             "monetization_share": monetization_share, "videos": videos}
+
+
+def build_job(video: dict, *, batch_id: str, platform_targets: list[str] | None = None,
+              profiles_root: Path | None = None) -> dict:
+    """Author the per-video job.json the fan-out runner consumes (ADR 0010 D5/0012): the resolved
+    profile dict 05b reads (job["profile"]["defaults"]["disclaimer"/"denylist_terms"]) is injected
+    HERE — no production code authored it before, so the first real run would KeyError. stages/paths
+    start empty: each stage owns its own section. An unknown niche (a profiles_root without its
+    profile.yaml) fails LOUD with the niche named — a silently-missing profile is a safety hole."""
+    niche = video["niche"]
+    root = Path(profiles_root) if profiles_root is not None else _PROFILES_ROOT
+    profile_path = root / niche / "profile.yaml"
+    if not profile_path.exists():
+        raise ValueError(f"no profile for niche {niche!r} at {profile_path}")
+    profile = load_profile(profile_path)
+    return {"schema_version": "1.0.0", "batch_id": batch_id, "video_id": video["video_id"],
+            "niche": niche, "seed": video["seed"],
+            "platform_targets": platform_targets or ["youtube"],
+            "profile": profile, "stages": {}, "paths": {}}

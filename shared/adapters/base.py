@@ -11,7 +11,8 @@ from shared.distribution.posts_ledger import (
 
 class DistributionAdapter(ABC):
     """Exactly-once is OWNED HERE (ADR 0003 D1/0010). publish() writes to the PER-VIDEO ledger;
-    the shared history/posts.jsonl is the M4 fan-in's job (ADR 0003 D6). A retry recovers via
+    the shared history/posts.jsonl is shorts.run_batch.merge_posts_to_history's job (the M6 fan-in,
+    ADR 0003 D6). A retry recovers via
     _find_existing — never a blind re-post.
 
     This is THE distribution contract: the M0 ``shared.adapters.protocols.DistributionAdapter``

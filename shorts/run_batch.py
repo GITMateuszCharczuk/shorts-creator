@@ -151,6 +151,57 @@ def load_outcome_history(data_root: Path, *, niche: str | None = None) -> list[s
     return statuses
 
 
+def _tolerant_records(path: Path) -> list[dict]:
+    """Read a posts.jsonl WITHOUT the ledger's fail-loud LedgerCorruption (read_records raises on a
+    malformed line). The fan-in must survive a torn write mid-crash and pre-existing forensic
+    garbage — skip any line that isn't a JSON dict, never crash. Forensic bytes are read-only here;
+    callers never rewrite the file they read from."""
+    if not path.exists():
+        return []
+    out: list[dict] = []
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(rec, dict):
+            out.append(rec)
+    return out
+
+
+def merge_posts_to_history(data_root: Path, run_dirs: list[Path]) -> int:
+    """M6 fan-in (ADR 0003 D6): merge each run dir's per-video posts.jsonl into the durable
+    history/posts.jsonl that shorts/audit.py reads. Only CONFIRMED records cross over (intent/
+    publishing are crash-recovery state, not durable posts). Dedupe on (video_id, platform) — NOT
+    video_id alone like commit_ledgers, which would over-dedupe a video posted to two platforms and
+    silently drop the second. Tolerant of missing dirs/files and malformed lines on both sides; the
+    history file's existing (possibly corrupt) bytes are APPENDED to, never rewritten. Idempotent:
+    a resumed batch re-merging the same run dirs appends nothing. Returns the count appended."""
+    data_root = Path(data_root)
+    history = data_root / "history" / "posts.jsonl"
+    seen = {(r["video_id"], r["platform"]) for r in _tolerant_records(history)
+            if "video_id" in r and "platform" in r}
+    new: list[dict] = []
+    for run_dir in run_dirs:
+        for rec in _tolerant_records(Path(run_dir) / "posts.jsonl"):
+            if rec.get("state") != "confirmed":
+                continue
+            key = (rec.get("video_id"), rec.get("platform"))
+            if None in key or key in seen:
+                continue
+            seen.add(key)
+            new.append(rec)
+    if new:
+        history.parent.mkdir(parents=True, exist_ok=True)
+        with history.open("a") as f:
+            for rec in new:
+                f.write(json.dumps(rec) + "\n")
+    return len(new)
+
+
 def historical_baseline(history_outcomes: list[str], *, window: int) -> float:
     """The QuarantineSpike baseline: the trailing quarantine rate over CROSS-BATCH history (the
     last `window` outcomes that landed BEFORE this batch). Computing it from the current batch's
@@ -263,6 +314,11 @@ def main() -> int:
     outcomes_by_niche: dict[str, dict[str, str]] = {}
     for vid, status in outcomes.items():
         outcomes_by_niche.setdefault(niche_of.get(vid, "unknown"), {})[vid] = status
+    # Fan the per-video posts.jsonl ledgers into the durable history before the sweep GCs run dirs —
+    # otherwise audit reports zero posts and a reclaimed run dir loses the confirmed-post record.
+    run_dirs = [data_root / "runs" / batch_id / v["video_id"]
+                for v in (batch or {}).get("videos", [])]
+    merge_posts_to_history(data_root, run_dirs)
     post_batch_sweep(data_root, batch_id=batch_id, resumed_ids=b.get("resumed_ids", set()),
                      cfg=cfg, outcomes_by_niche=outcomes_by_niche, textfile_dir=textfile_dir)
     return 0
