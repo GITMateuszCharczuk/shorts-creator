@@ -4,8 +4,12 @@ from typing import Any
 from shared.layout.bind import BindError, _walk, validate_binds
 
 # §7a default named anchors: name -> [y, h] as fractions of the safe rect.
+# Values are the ADR 0007a §7a anchor table verbatim (start, span = end - start):
+#   badge .04-.18 · headline .26-.40 · stat .42-.52 · caption .82-.94.
+# (The earlier headline .62 / stat .80 draft put the stat UNDER the z=8 caption band — C4: the
+# z=2 stat was permanently occluded in every ranked_list render. Corrected to the §7a table.)
 DEFAULT_ANCHORS = {
-    "badge": [0.06, 0.10], "headline": [0.62, 0.16], "stat": [0.80, 0.12],
+    "badge": [0.04, 0.14], "headline": [0.26, 0.14], "stat": [0.42, 0.10],
     "label": [0.04, 0.10], "caption": [0.82, 0.12],
 }
 
@@ -64,11 +68,14 @@ def resolve(
     *, layout: dict, beat_data: dict, brand_kit: dict, timings: list[dict],
     seed: int, safe_rect: dict | None = None,
     media: dict[int, str] | None = None, words: list[dict] | None = None,
+    viz: dict[int, dict] | None = None,
 ) -> dict:
     """Pure fn: layout + typed beat data + THE VISUAL LANE'S CHOSEN ASSETS (`media`: beat index ->
-    DATA_ROOT-relative clip path, from assets.json) + brand kit + word timings (`words`, threaded
-    into KaraokeCaption) + seed -> render_manifest with PROJECTED PIXEL rects, §6 injected regions,
-    and marker frame-indices (ADR 0007a §2)."""
+    DATA_ROOT-relative clip path, from assets.json) + THE DATA-VIZ LANE'S CHARTS (`viz`: beat index
+    -> 01e chart spec, from scenes_viz.json — H8: the dataviz lane reaches the renderer here, the
+    parallel of `media` for the MediaZone lane) + brand kit + word timings (`words`, threaded into
+    KaraokeCaption) + seed -> render_manifest with PROJECTED PIXEL rects, §6 injected regions, and
+    marker frame-indices (ADR 0007a §2)."""
     safe = safe_rect or {"x": 0, "y": 0, "w": 1080, "h": 1920}
     anchors = {**DEFAULT_ANCHORS, **layout.get("anchors", {})}
     beats = beat_data["beats"]
@@ -105,6 +112,10 @@ def resolve(
                 # the assets.json JOIN (re-review): render the visual lane's CHOSEN clip —
                 # the bound media_query stays in `value` for provenance, the path goes in `src`.
                 reg["src"] = (media or {}).get(i)
+            if ptype == "DataVizSlot":
+                # the scenes_viz JOIN (H8): the data-viz lane's chart spec for this beat — 01e's
+                # DataVizSlot reused verbatim (ADR 0007a §7b). Parallels MediaZone's `src` join.
+                reg["viz"] = (viz or {}).get(i)
             if ptype == "KaraokeCaption":
                 # word-timed captions need the WORDS, not just scene spans (ADR 0007a §4)
                 reg["value"] = [w for w in (words or [])

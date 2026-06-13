@@ -1,0 +1,61 @@
+# M7 / ADR 0015a D2 — the host-GPU reachability mechanism (the load-bearing
+# networking decision). The GPU plane (ComfyUI :8188, Ollama :11434, the VLM
+# judge :11434) runs on the HOST and NEVER enters the cluster in Variant A.
+#
+# Pods reach it by resolving the in-cluster DNS name `host-gpu.shorts.svc` to
+# the host. We do that with a headless Service (clusterIP: None) that has NO
+# selector, paired with a manually-managed Endpoints object of the same name.
+# Because there is no selector, Kubernetes does not auto-populate Endpoints —
+# each overlay PATCHES the addresses to point at the host:
+#   - kind-local : the Docker bridge gateway IP (from `make host-gateway-ip`);
+#                  ComfyUI/Ollama must bind 0.0.0.0 on the host so the kind
+#                  node can reach them across the bridge.
+#   - prod       : the real GPU box address(es).
+#
+# Stages resolve these per-capability envs (ADR 0001) — injected into the
+# conductor pod (see deploy/k8s/conductor/cronjob.yaml) and, in the Argo
+# profile, emitted per-stage by the generator's CAPABILITY_ENV map:
+#   HOST_GPU_ENDPOINT    = http://host-gpu.shorts.svc:8188   # ComfyUI: generate_image / img2vid / restore
+#   HOST_OLLAMA_ENDPOINT = http://host-gpu.shorts.svc:11434  # Ollama:  llm / tts
+#   HOST_VLM_ENDPOINT    = http://host-gpu.shorts.svc:11434  # VLM judge: vlm_judge
+# No `nvidia.com/gpu` request appears anywhere in this profile — that is
+# Variant C. This base is C-ready by construction (D7): only this host-gpu
+# target and GPU resource requests would change.
+apiVersion: v1
+kind: Service
+metadata:
+  name: host-gpu
+  labels:
+    app.kubernetes.io/part-of: shorts-creator
+spec:
+  clusterIP: None            # headless: DNS resolves straight to the Endpoints addresses
+  ports:
+    - name: comfyui          # :8188 — HOST_GPU_ENDPOINT (FLUX/LTX/ESRGAN/RIFE/GFPGAN graphs)
+      protocol: TCP
+      port: 8188
+      targetPort: 8188
+    - name: ollama           # :11434 — HOST_OLLAMA_ENDPOINT (llm/tts) + HOST_VLM_ENDPOINT (vlm_judge)
+      protocol: TCP
+      port: 11434
+      targetPort: 11434
+---
+# Manual Endpoints — PLACEHOLDER addresses; PATCHED per overlay (Task 5).
+# 0.0.0.0 is a documented sentinel meaning "unset — the overlay MUST patch a
+# real host address". A pod that hits 0.0.0.0 fails loudly rather than
+# silently talking to itself, which is the intended fail-fast behaviour.
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: host-gpu            # MUST match the Service name so it backs `host-gpu.shorts.svc`
+  labels:
+    app.kubernetes.io/part-of: shorts-creator
+subsets:
+  - addresses:
+      - ip: "0.0.0.0"       # SENTINEL — overlays patch the real host IP (bridge gateway / GPU box)
+    ports:
+      - name: comfyui
+        port: 8188
+        protocol: TCP
+      - name: ollama
+        port: 11434
+        protocol: TCP

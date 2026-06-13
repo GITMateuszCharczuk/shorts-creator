@@ -14,7 +14,8 @@ dev = ["pytest>=8.0", "ruff>=0.4", "numpy", "pillow", "imagehash>=4.3", "scikit-
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "--strict-markers"   # a typo'd marker (e.g. an integration test) must error, not silently run
-markers = ["integration: touches a live model/service; skipped in GPU-free CI"]
+markers = ["integration: touches a live model/service; skipped in GPU-free CI",
+           "soak: the offline stability soak over the real batch_flow (make soak)"]
 
 [tool.ruff]
 line-length = 100

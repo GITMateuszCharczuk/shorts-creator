@@ -3,9 +3,138 @@
   "batch_id": "2026-06-09",
   "video_id": "fin-0001",
   "niche": "finance",
-  "profile": "finance",
-  "platform_targets": ["youtube", "tiktok"],
+  "profile": {
+    "schema_version": "1.0.0",
+    "niche": "finance",
+    "persona": {
+      "voice": "A calm, precise, lightly-dry evidence-skeptic — explains like a sharp friend who actually reads the filings. Distrusts hype and doom equally; never breathless, never preachy. Earns trust by showing the number and its source, not by raising its voice.\n",
+      "pov": "Long-term, costs-and-incentives first, evidence over vibes. Educational and third-person — explains how money mechanics work; never tells the viewer what to buy or sell (YMYL).\n",
+      "stances": [
+        "Fees and time compound louder than any stock pick.",
+        "If a return sounds exciting, it's usually risk you haven't priced yet.",
+        "Follow the incentive: ask who profits from the advice before you take it.",
+        "Diversification is the only free lunch; everything else has a bill.",
+        "The boring index usually beats the clever strategy once costs are counted.",
+        "A headline is a feeling; a filing is a fact — we read the filing."
+      ],
+      "catchphrase": "Follow the cash flow, not the crowd.",
+      "series": [
+        {
+          "id": "close_30s",
+          "title": "The 30-Second Close",
+          "cadence": "daily",
+          "lane": "reach",
+          "format": "news_reaction",
+          "premise": "What actually moved the market today and the one number that explains it."
+        },
+        {
+          "id": "myth_monday",
+          "title": "Myth Monday",
+          "cadence": "weekly",
+          "lane": "monetization",
+          "format": "myth_buster",
+          "premise": "One widely-repeated money belief, checked against the data."
+        },
+        {
+          "id": "the_receipt",
+          "title": "The Receipt",
+          "cadence": "weekly",
+          "lane": "reach",
+          "format": "surprising_stat",
+          "premise": "One counterintuitive, fully-sourced finance stat — and what it means for you."
+        }
+      ]
+    },
+    "brand_kit": {
+      "palette": [
+        "#0C1E12",
+        "#0E2A1C",
+        "#00E5FF",
+        "#F4F7F5"
+      ],
+      "font": "Inter",
+      "logo": "brand/finance/logo.svg",
+      "mascot": "brand/finance/ledger-owl.svg"
+    },
+    "defaults": {
+      "voice_backend": "kokoro",
+      "music_index": "profiles/finance/music/index.json",
+      "emphasis_hex": "00E5FF",
+      "disclaimer": "Educational only — not financial advice.",
+      "prohibited_claims": [
+        "buy / sell / hold recommendations on a specific security",
+        "price targets or 'this will hit $X' predictions",
+        "guaranteed, risk-free, or 'can't lose' returns",
+        "get-rich / double-your-money / passive-income framing",
+        "second-person advice ('you should buy/sell ...')",
+        "tax, legal, or personalised financial advice"
+      ],
+      "denylist_terms": [
+        "guaranteed",
+        "risk-free",
+        "can't lose",
+        "price target",
+        "you should buy",
+        "you should sell",
+        "double your money",
+        "get rich",
+        "hot tip"
+      ],
+      "hook_styles": [
+        "myth-flip:    'Everyone says X. The data says the opposite.'",
+        "receipt:      'Here's the number nobody quotes — and what it costs you.'",
+        "follow-money: 'Ask who profits from this advice. The answer explains everything.'",
+        "boring-wins:  'The unglamorous option quietly beat the clever one again. Here's why.'"
+      ],
+      "end_card_phrases": [
+        "Follow — we read the filings so you don't have to.",
+        "Follow for the number behind tomorrow's headline.",
+        "Follow the cash flow, not the crowd."
+      ],
+      "stock_style": "abstract",
+      "stock_denylist": [
+        "coins falling",
+        "stacks of cash",
+        "bull and bear statue",
+        "city skyline at dusk",
+        "businessman pointing at chart",
+        "rocket to the moon"
+      ],
+      "keyword_themes": [
+        "inflation",
+        "interest rates",
+        "index funds",
+        "compounding",
+        "fees",
+        "401(k)",
+        "ETFs",
+        "the Fed",
+        "savings",
+        "diversification"
+      ],
+      "topic_sources": [
+        "https://www.federalreserve.gov/feeds/press_all.xml",
+        "https://www.bls.gov/feed/news_release/cpi.rss",
+        "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=&output=atom",
+        "https://home.treasury.gov/system/files/226/RSS-feed.xml"
+      ]
+    }
+  },
+  "platform_targets": [
+    "youtube",
+    "tiktok"
+  ],
   "seed": 424242,
-  "stages": {"00a": {"status": "done"}, "00b": {"status": "pending"}},
-  "paths": {"data": "data/data.json", "script": "fin-0001/script.json"}
+  "stages": {
+    "00a": {
+      "status": "done"
+    },
+    "00b": {
+      "status": "pending"
+    }
+  },
+  "paths": {
+    "data": "data/data.json",
+    "script": "fin-0001/script.json"
+  }
 }

@@ -1,0 +1,19 @@
+name: k8s-generator-diff
+on: [push, pull_request]
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # diff-only job; don't leave the token in .git/config
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - name: Regenerate and diff (the D3 drift-catcher)
+        run: |
+          uv run python -m deploy.argo.generator.generate > /tmp/regenerated.yaml
+          diff -u deploy/argo/generated/shorts-workflowtemplate.yaml /tmp/regenerated.yaml \
+            || { echo "::error::generated WorkflowTemplate is stale — run 'make argo-generate' and commit"; exit 1; }

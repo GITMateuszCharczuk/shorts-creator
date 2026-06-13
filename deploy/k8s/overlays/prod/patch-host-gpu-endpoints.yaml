@@ -1,0 +1,17 @@
+# prod host-gpu Endpoints patch — the real GPU box address(es). Replaces the
+# base's 0.0.0.0 sentinel. PLACEHOLDER IP below. Strategic-merge replaces the
+# whole `subsets` list. (Variant C would drop this and run the GPU in-cluster.)
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: host-gpu
+subsets:
+  - addresses:
+      - ip: "10.0.0.10"      # PLACEHOLDER — the real GPU box IP (ComfyUI/Ollama bind 0.0.0.0)
+    ports:
+      - name: comfyui
+        port: 8188
+        protocol: TCP
+      - name: ollama
+        port: 11434
+        protocol: TCP

@@ -38,6 +38,12 @@ def color_match_args(*, clip_mean: float, target_mean: float) -> str:
 
 def assert_cut_rate(manifest: dict, *, max_scene_s: float = 4.0) -> None:
     for s in manifest["scenes"]:
-        if (s["end"] - s["start"]) > max_scene_s:
-            raise CutRateError(f"scene {s.get('kind')} runs {s['end'] - s['start']:.1f}s "
+        dur = s["end"] - s["start"]
+        # lower bound: a zero/negative-duration scene (e.g. _scene_spans on words=[]) renders
+        # 0 frames in Remotion — it must fail loud here, not slip past to the engine (M).
+        if dur <= 0:
+            raise CutRateError(f"scene {s.get('kind')} has non-positive duration "
+                               f"{dur:.3f}s ({s['start']}->{s['end']}) — would render 0 frames")
+        if dur > max_scene_s:
+            raise CutRateError(f"scene {s.get('kind')} runs {dur:.1f}s "
                                f"> {max_scene_s}s — add a cut or media change")

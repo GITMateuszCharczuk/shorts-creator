@@ -1,6 +1,6 @@
 import pytest
 
-from shared.adapters import ModelBackend
+from shared.adapters import TTSBackend
 from shared.adapters.real import ChatterboxBackend, KokoroBackend, OrpheusBackend
 from shared.audio.prosody import speech_segments
 from shared.audio.voice_ab import reference_script
@@ -16,5 +16,5 @@ def test_reference_script_yields_varied_rate_segments():
 
 
 @pytest.mark.parametrize("cls", [KokoroBackend, OrpheusBackend, ChatterboxBackend])
-def test_candidate_backend_satisfies_model_backend(cls, tmp_path):
-    assert isinstance(cls(out_dir=tmp_path), ModelBackend)
+def test_candidate_backend_satisfies_tts_backend(cls, tmp_path):
+    assert isinstance(cls(out_dir=tmp_path), TTSBackend)

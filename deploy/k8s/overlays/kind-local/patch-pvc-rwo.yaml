@@ -1,0 +1,8 @@
+# kind-local PVC patch — single-node => ReadWriteOnce (D8). Strategic-merge.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shorts-data
+spec:
+  accessModes:
+    - ReadWriteOnce

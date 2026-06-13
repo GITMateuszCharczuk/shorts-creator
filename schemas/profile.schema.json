@@ -78,6 +78,7 @@
     },
     "defaults": {
       "type": "object",
+      "required": ["disclaimer", "denylist_terms"],
       "properties": {
         "voice_backend": {
           "type": "string"
@@ -87,6 +88,14 @@
         },
         "emphasis_hex": {
           "type": "string"
+        },
+        "disclaimer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "denylist_terms": {
+          "type": "array",
+          "items": {"type": "string"}
         }
       }
     }

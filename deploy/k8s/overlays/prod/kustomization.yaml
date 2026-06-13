@@ -1,0 +1,51 @@
+# M7 / ADR 0015a D2/D8 — prod overlay. Real multi-node cluster. Differs from
+# kind-local only in the load-bearing storage/networking/image knobs:
+#   * PVC accessModes RWO -> ReadWriteMany (the D8 multi-node RWX swap);
+#   * PVC storageClassName "" -> a real RWX-capable StorageClass (NFS/CephFS/…);
+#   * host-gpu Endpoints -> the real GPU box address(es);
+#   * conductor nodeSelector -> schedule on a node that can reach the GPU box;
+#   * image -> a pinned registry image + tag/digest (kustomize images:).
+#
+# C-ready (D7): to move the GPU plane INTO the cluster (Variant C) only the
+# host-gpu target and a `nvidia.com/gpu` resource request change — nothing else
+# in this overlay or the base does.
+#
+# Validation (HOST/CI-deferred — no kustomize/kubectl in this env):
+#   kustomize build deploy/k8s/overlays/prod
+#   kubectl apply -k deploy/k8s/overlays/prod --dry-run=client
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: shorts
+resources:
+  - ../../conductor
+
+# Pin the deployable image (replaces the base's `shorts-creator:ci`). Set
+# newName to your registry repo and newTag to the CI-proven tag (or use
+# `digest:` for an immutable pin). PLACEHOLDERs below.
+images:
+  - name: shorts-creator:ci
+    newName: registry.example.com/shorts-creator   # PLACEHOLDER — your registry
+    newTag: "v0.0.0"                                 # PLACEHOLDER — CI-proven tag (prefer a digest)
+
+patches:
+  # PVC accessModes -> RWX (D8 multi-node swap) AND a real storageClassName
+  # (replaces ""). One strategic-merge patch covers both spec fields.
+  - path: patch-pvc-rwx.yaml
+    target:
+      kind: PersistentVolumeClaim
+      name: shorts-data
+  # host-gpu Endpoints -> the real GPU box address(es). PLACEHOLDER IP.
+  - path: patch-host-gpu-endpoints.yaml
+    target:
+      kind: Endpoints
+      name: host-gpu
+  # conductor nodeSelector -> schedule where the GPU box is reachable.
+  # PLACEHOLDER label. Applies to both the CronJob and the manual Job.
+  - path: patch-nodeselector.yaml
+    target:
+      kind: CronJob
+      name: shorts-batch
+  - path: patch-nodeselector-job.yaml
+    target:
+      kind: Job
+      name: shorts-batch-manual

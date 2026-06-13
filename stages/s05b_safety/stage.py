@@ -13,7 +13,8 @@ from shared.schema import SchemaRegistry
 from shared.stage import StageManifest, stage
 
 _REG = SchemaRegistry()
-_QUALITY_KEYS = {"score", "quality", "interesting", "rating", "overall"}
+_QUALITY_KEYS = {"score", "quality", "interesting", "rating", "overall",
+                 "grade", "rank", "assessment", "verdict", "evaluation"}
 
 # support-only: the 00b model checks factual grounding, NOT quality (ADR 0016 D1 stays intact).
 _FACT_PROMPT = ('Return STRICT JSON {"hallucination": bool, "note": "..."} — true if any stated '
@@ -37,7 +38,8 @@ def collect_checks(*, script, profile, vision, probes: ProbeResult, platform, le
         ck.sources_cited(script),
         ck.disclosure_set(script),
         ck.profanity_clear(script,
-                           set(profile["defaults"].get("profanity_wordlist", [])) or None),
+                           set(profile["defaults"].get("profanity_wordlist", []))
+                           | ck._DEFAULT_PROFANITY),
         ck.artifact_clear(vision),
         geo.in_safe_zone(probes.cta_rect, platform=platform, zones=safe_zones),
         ad.loudness_ok(integrated_lufs=probes.integrated_lufs,

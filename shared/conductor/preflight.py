@@ -37,7 +37,11 @@ def run_preflight(checks: list[Callable[[], None]]) -> None:
         check()
 
 
-_INSERT_UNITS = 1600          # YouTube videos.insert cost (ADR 0009 #8); config-overridable
+# videos.insert quota cost — VERIFY against live YouTube docs at bring-up; YouTube changed this
+# (~1600 -> ~100) around Dec 2025. developers.google.com/youtube/v3/determine_quota_cost
+# Default kept at the historical 1600 (behaviour unchanged) — the operator sets the verified value
+# via config (budgets.youtube_insert_units), never guess the current real cost here (ADR 0009 #8).
+_INSERT_UNITS = 1600          # config-overridable; see budgets.youtube_insert_units
 
 
 def oauth_token_age_gate(*, token_age_days: float = 0.0, last_used_days: float = 0.0,

@@ -1,12 +1,12 @@
 # tests/test_qwenvl_backend.py
 import pytest
 
-from shared.adapters import ModelBackend
+from shared.adapters import VLMBackend
 from shared.adapters.real import QwenVLBackend
 
 
 def test_qwenvl_satisfies_protocol():
-    assert isinstance(QwenVLBackend(base_url="http://h:8000", model="Qwen2.5-VL"), ModelBackend)
+    assert isinstance(QwenVLBackend(base_url="http://h:8000", model="Qwen2.5-VL"), VLMBackend)
 
 
 @pytest.mark.integration

@@ -1,0 +1,21 @@
+# M7 / ADR 0015a D2 — kind-local PersistentVolume. The manual bind target for
+# the `shorts-data` PVC (base PVC has storageClassName: "" — no dynamic
+# provisioner). Its hostPath (/data inside the node) is the kind extraMount of
+# the host DATA_ROOT (see kind-cluster.yaml), so the conductor pod's /data is
+# the host's DATA_ROOT — byte-compatible with runner-mode (D4).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: shorts-data-local
+  labels:
+    app.kubernetes.io/part-of: shorts-creator
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteOnce           # single-node local-PV => RWO (D8)
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""        # matches the PVC: manual bind, no provisioner
+  hostPath:
+    path: /data               # the kind node mount of the host DATA_ROOT
+    type: DirectoryOrCreate

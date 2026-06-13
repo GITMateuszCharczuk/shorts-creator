@@ -7,7 +7,8 @@
   "required": ["schema_version", "scores", "overall", "floor", "pass"],
   "properties": {
     "schema_version": {"type": "string"},
-    "scores": {"type": "object", "additionalProperties": {"type": "number"}},
+    "scores": {"type": "object",
+               "additionalProperties": {"type": "number", "minimum": 0.0, "maximum": 1.0}},
     "overall": {"type": "number"},
     "floor": {"type": "number"},
     "pass": {"type": "boolean"}

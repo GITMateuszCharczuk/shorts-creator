@@ -61,3 +61,50 @@ def test_below_floor_writes_artifact_then_quarantines(tmp_path):
         run(ctx)
     payload = json.loads((tmp_path / "creative_qc.json").read_text())   # artifact written FIRST
     assert payload["pass"] is False
+
+
+def test_judge_missing_key_quarantines_not_crashes(tmp_path):
+    """A deliberately-unhelpful judge that omits a required key (e.g. original_insight) must
+    not crash with KeyError before the artifact is written.  The missing key must be zero-filled
+    so weighted_overall runs, the low score leads to quarantine, AND the artifact is written."""
+    import json
+
+    from shared.ctx import Quarantined, StageContext
+    from stages.s05c_qc.stage import run
+
+    class _IncompleteJudge:
+        """Returns only 'hook'; omits original_insight and payoff — the two highest-weight keys."""
+        def llm_json(self, prompt, seed=None):
+            return {"hook": 0.9}   # missing original_insight (0.30 weight) and payoff (0.15)
+
+    (tmp_path / "vision.json").write_text(json.dumps(
+        {"judgment": {"visual_scores": {"coherence": 0.9, "pacing": 0.9}, "observations": []}}))
+    (tmp_path / "script.json").write_text(json.dumps({"format": "x"}))
+    (tmp_path / "render.mp4").write_bytes(b"x")
+    ctx = StageContext(stage="05c", run_dir=tmp_path, seed=1, job={}, config={},
+                       input_paths={"render": "render.mp4", "vision": "vision.json",
+                                    "script": "script.json"},
+                       output_paths={"creative_qc": "creative_qc.json"},
+                       backends={"llm": _IncompleteJudge()})
+    with pytest.raises(Quarantined):
+        run(ctx)
+    # Artifact MUST have been written even though the judge was incomplete.
+    payload = json.loads((tmp_path / "creative_qc.json").read_text())
+    assert payload["pass"] is False, "missing keys must produce a failing score (zero-filled)"
+    assert "original_insight" in payload["scores"], "zero-filled key must appear in scores"
+    assert payload["scores"]["original_insight"] == pytest.approx(0.0)
+
+
+def test_judge_text_zero_fills_missing_keys():
+    """Unit test: _judge_text must return all required keys, zero-filling any the LLM omitted."""
+    from stages.s05c_qc.stage import _TEXT_JUDGE_KEYS, _judge_text
+
+    class _PartialLLM:
+        def llm_json(self, prompt, seed=None):
+            return {"hook": 0.8}   # omits original_insight + payoff
+
+    result = _judge_text(_PartialLLM(), {}, [])
+    assert set(result) == _TEXT_JUDGE_KEYS, "all required keys must be present"
+    assert result["original_insight"] == pytest.approx(0.0)
+    assert result["payoff"] == pytest.approx(0.0)
+    assert result["hook"] == pytest.approx(0.8)   # real value preserved

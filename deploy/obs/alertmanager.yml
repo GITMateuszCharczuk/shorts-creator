@@ -1,0 +1,49 @@
+global:
+  # Default resolve timeout.
+  resolve_timeout: 5m
+
+route:
+  # Group alerts by alert name + niche so each niche gets its own notification thread.
+  group_by: [alertname, niche]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  # Default receiver (catches anything not matched by a child route).
+  receiver: page
+  routes:
+    # warn-severity alerts go to the quieter channel with a longer repeat interval.
+    - match:
+        severity: warn
+      receiver: warn
+      group_interval: 15m
+      repeat_interval: 24h
+
+    # page-severity alerts get the default (immediate) cadence defined on the root route.
+    - match:
+        severity: page
+      receiver: page
+
+receivers:
+  # Operator: point these webhook URLs at your real notification channel
+  # (e.g. a PagerDuty integration endpoint, an OpsGenie webhook, or a custom HTTP handler).
+  - name: page
+    webhook_configs:
+      - url: "http://127.0.0.1:9099/page"
+        send_resolved: true
+
+  - name: warn
+    webhook_configs:
+      - url: "http://127.0.0.1:9099/warn"
+        send_resolved: true
+
+inhibit_rules:
+  # When a stage is STUCK (page) suppress the SLOW warn for the same stage — being stuck
+  # subsumes being slow; firing both creates noise without adding information.
+  - source_match:
+      severity: page
+      alertname: StageStuck
+    target_match:
+      severity: warn
+      alertname: StageSlow
+    # The inhibition applies only when the stage label matches (same stage, same batch).
+    equal: [stage]

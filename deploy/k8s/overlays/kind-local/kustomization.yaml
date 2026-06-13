@@ -1,0 +1,37 @@
+# M7 / ADR 0015a D2/D8 — kind-local overlay. Single-node kind cluster on the
+# host (WSL2 native dockerd). The host GPU plane is reached over the Docker
+# bridge gateway; the data tree is bind-mounted into the kind node.
+#
+# `make cluster-up` runs:
+#   kind create cluster (--config kind-cluster.yaml)   # extraMounts -> node hostPath
+#   kubectl apply -k deploy/k8s/overlays/kind-local
+#
+# The host-gpu Endpoints addresses are PATCHED to the Docker bridge gateway IP
+# (render from `make host-gateway-ip`); ComfyUI/Ollama must bind 0.0.0.0 on the
+# host so the kind node reaches them across the bridge.
+#
+# Validation (HOST/CI-deferred — no kustomize/kubectl in this env):
+#   kustomize build deploy/k8s/overlays/kind-local
+#   kubectl apply -k deploy/k8s/overlays/kind-local --dry-run=client
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: shorts
+resources:
+  - ../../conductor
+  - local-pv.yaml          # the manual local-PV the shorts-data PVC binds to
+
+patches:
+  # PVC accessModes -> RWO. Single-node kind: one node, one writer; RWO is the
+  # only mode a local-PV/hostPath supports (base D8 patch target).
+  - path: patch-pvc-rwo.yaml
+    target:
+      kind: PersistentVolumeClaim
+      name: shorts-data
+  # host-gpu Endpoints -> Docker bridge gateway IP. The address below is a
+  # PLACEHOLDER; `make cluster-up` is the canonical apply path and the operator
+  # renders the real gateway via `make host-gateway-ip` (e.g. 172.17.0.1) into
+  # this patch before apply. ComfyUI/Ollama must bind 0.0.0.0 on the host.
+  - path: patch-host-gpu-endpoints.yaml
+    target:
+      kind: Endpoints
+      name: host-gpu

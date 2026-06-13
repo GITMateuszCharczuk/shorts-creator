@@ -3,17 +3,17 @@ import importlib.util
 
 import pytest
 
-from shared.adapters import ModelBackend
+from shared.adapters import LLMBackend, TTSBackend
 from shared.adapters.real import KokoroBackend, OllamaBackend
 
 
 def test_ollama_satisfies_protocol():
     assert isinstance(OllamaBackend(base_url="http://h:11434", model="qwen2.5:14b-instruct"),
-                      ModelBackend)
+                      LLMBackend)
 
 
 def test_kokoro_satisfies_protocol(tmp_path):
-    assert isinstance(KokoroBackend(out_dir=tmp_path), ModelBackend)
+    assert isinstance(KokoroBackend(out_dir=tmp_path), TTSBackend)
 
 
 def test_ollama_builds_generate_payload():

@@ -7,7 +7,7 @@ from shared.config import resolve_config
 from shared.ctx import Quarantined, StageContext, StageResult
 from shared.hashing import cache_key, input_hash, sha256_bytes
 from shared.schema import SchemaRegistry
-from shared.stage import REGISTRY
+from shared.stage import REGISTRY, default_path
 from stages.registry import load_all
 
 # linear M0 order (lane-fork parallelism is an orchestration concern, ADR 0011; semantics identical)
@@ -15,7 +15,7 @@ ORDER = ["00a", "00b", "01a", "01b", "01c", "01d", "01e",
          "02", "03", "04", "05", "05x", "05b", "05c", "06"]
 
 # which declared outputs carry a schema (validated at the boundary)
-OUTPUT_SCHEMA = {"data": None, "script": "script", "assets": "assets", "provenance": "provenance",
+OUTPUT_SCHEMA = {"data": "data", "script": "script", "assets": "assets", "provenance": "provenance",
                  "vision": "vision", "qc": "qc", "creative_qc": "creative_qc", "posts": "posts",
                  "feature_record": "feature_record"}
 
@@ -45,7 +45,7 @@ def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path,
         reg = REGISTRY[sid]
         m = reg.manifest
         input_paths = {name: produced[name] for name in m.inputs if name in produced}
-        output_paths = {name: _default_path(name) for name in m.outputs}
+        output_paths = {name: default_path(name) for name in m.outputs}
 
         digests = {name: sha256_bytes((run_dir / p).read_bytes())
                    for name, p in input_paths.items()}
@@ -90,9 +90,3 @@ def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path,
         ctx.set_status("done")
 
     return {"posts": produced["posts"], "cache_hits": cache_hits}
-
-
-def _default_path(name: str) -> str:
-    binary = {"narration": "narration.wav", "music": "music.wav", "render": "renders/youtube.mp4",
-              "thumbnail": "renders/thumbnail.jpg", "captions": "captions.ass"}
-    return binary.get(name, f"{name}.json")

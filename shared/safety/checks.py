@@ -24,7 +24,10 @@ def no_prohibited_claims(script: dict, profile: dict) -> CheckResult:
     """The denylist is the PROFILE's denylist_terms (data, not code, ADR 0010 D5). Conservative by
     design: a match quarantines (safe); the list is the niche's responsibility to keep complete."""
     def _norm(s: str) -> str:
-        return s.lower().replace("-", " ")   # "risk-free" and "risk free" must match either way
+        # Collapse ALL whitespace AND every dash/hyphen variant (ASCII -, soft hyphen U+00AD,
+        # hyphen U+2010..em-dash U+2015 incl. horizontal bar, minus U+2212) to a single space —
+        # so "risk-free"/"risk–free"/"risk‑free"/"guaranteed  returns" all match one canonical form.
+        return re.sub(r"[\s­‐-―−\-]+", " ", s.lower()).strip()
     terms = [_norm(t) for t in profile["defaults"].get("denylist_terms", [])]
     text = _norm(_text(script))
     hit = next((t for t in terms if t in text), None)

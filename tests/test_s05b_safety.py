@@ -45,6 +45,25 @@ def test_hallucination_flag_fails_the_gate():
     assert any(r.name == "hallucination" and not r.ok for r in results)
 
 
+def test_profanity_wordlist_unions_with_defaults_not_replaces():
+    """A profile that adds a niche term ('shill') must NOT silently drop the global
+    defaults ('damn'/'crap'). The gate must only ever get wider, never narrower."""
+    script = {"disclaimer": "Educational only — not financial advice.",
+              "narration_beats": [{"text": "oh damn that is wild"}],
+              "captions": [{"text": "the index"}], "claims": [{"source_ref": "data.cpi"}],
+              "platform_meta": {"ai_disclosure": True}, "hook": {"spoken": "h"}}
+    profile = {"defaults": {"disclaimer": "Educational only — not financial advice.",
+                            "denylist_terms": ["guaranteed"],
+                            "profanity_wordlist": ["shill"]}}
+    vision = {"judgment": {"observations": ["clean"]}}
+    results = collect_checks(script=script, profile=profile, vision=vision, probes=_probes(),
+                             platform="tiktok", ledger=[], llm=_SaneLLM(),
+                             thresholds=SafetyThresholds(), safe_zones=None)
+    profanity = next(r for r in results if r.name == "profanity")
+    assert not profanity.ok, "default profanity 'damn' must still be caught when profile adds terms"
+    assert "damn" in profanity.detail
+
+
 def test_llm_quality_leak_is_rejected():
     class _LeakyLLM:
         def llm_json(self, prompt, seed=None):
@@ -54,4 +73,25 @@ def test_llm_quality_leak_is_rejected():
                        profile={"defaults": {"disclaimer": "", "denylist_terms": []}},
                        vision={"judgment": {"observations": []}}, probes=_probes(),
                        platform="tiktok", ledger=[], llm=_LeakyLLM(),
+                       thresholds=SafetyThresholds(), safe_zones=None)
+
+
+@pytest.mark.parametrize("leaked_key", [
+    "grade", "rank", "assessment", "verdict", "evaluation",
+])
+def test_new_quality_synonym_keys_are_rejected(leaked_key):
+    """_QUALITY_KEYS must include newly added synonyms so the 05b fact LLM can't smuggle
+    quality signal in via alternate labels (e.g. 'grade' or 'verdict')."""
+    class _LeakyLLM:
+        def __init__(self, key):
+            self._key = key
+
+        def llm_json(self, prompt, seed=None):
+            return {"hallucination": False, self._key: 0.9}
+
+    with pytest.raises(QualityLeakError):
+        collect_checks(script={"disclaimer": "", "narration_beats": [], "hook": {}},
+                       profile={"defaults": {"disclaimer": "", "denylist_terms": []}},
+                       vision={"judgment": {"observations": []}}, probes=_probes(),
+                       platform="tiktok", ledger=[], llm=_LeakyLLM(leaked_key),
                        thresholds=SafetyThresholds(), safe_zones=None)

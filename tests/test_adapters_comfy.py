@@ -1,13 +1,15 @@
 import pytest
 
-from shared.adapters import ModelBackend
+from shared.adapters import ImageBackend, Img2VidBackend, RestoreBackend
 from shared.adapters.real import ComfyUIBackend
 
 
 def test_comfy_satisfies_protocol():
     be = ComfyUIBackend(base_url="http://h:8188", graphs={"flux": "g_flux_v3"})
-    assert isinstance(be, ModelBackend)
-    assert hasattr(be, "restore")   # restore is part of ModelBackend (added to the M0 Protocol)
+    # ComfyUI genuinely provides the three GPU-graph capabilities — narrow protocols reflect that.
+    assert isinstance(be, ImageBackend)
+    assert isinstance(be, Img2VidBackend)
+    assert isinstance(be, RestoreBackend)
 
 
 def test_graph_version_exposed_for_cache_key():

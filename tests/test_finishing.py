@@ -43,6 +43,17 @@ def test_cut_rate_guard():
         assert_cut_rate(slow, max_scene_s=4.0)     # the no-slideshow target (ADR 0005 D4)
 
 
+def test_cut_rate_guard_rejects_zero_duration_scene():
+    # M: _scene_spans on words=[] yields a 0-duration scene; only the upper bound was checked, so
+    # it slipped through to Remotion as a 0-frame render. The lower bound must reject it loud.
+    zero = {"fps": 30, "scenes": [{"start": 0.0, "end": 0.0, "kind": "item", "regions": []}]}
+    with pytest.raises(CutRateError):
+        assert_cut_rate(zero)
+    neg = {"fps": 30, "scenes": [{"start": 2.0, "end": 1.0, "kind": "item", "regions": []}]}
+    with pytest.raises(CutRateError):
+        assert_cut_rate(neg)
+
+
 def test_end_card_verb_fallback_when_phrase_lacks_slot():
     m = inject_finishing(_manifest(), brand_kit={"end_card_phrases": ["Don't miss out"]},
                          seed=7, platform="youtube")

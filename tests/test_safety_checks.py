@@ -98,3 +98,30 @@ def test_prohibited_term_matches_hyphen_space_variants():
     assert not no_prohibited_claims({"narration_beats": [{"text": "a risk free bet"}]}, p).ok
     p2 = {"defaults": {"disclaimer": "d", "denylist_terms": ["risk free"]}}
     assert not no_prohibited_claims({"narration_beats": [{"text": "a risk-free bet"}]}, p2).ok
+
+
+# --- H1: unicode/whitespace denylist normalization bypasses (false-negatives now CAUGHT) ---
+
+
+def test_prohibited_term_caught_through_unicode_and_whitespace_variants():
+    """H1: a multi-word/hyphenated denylist term must be caught regardless of which
+    dash codepoint or how much whitespace separates the words. Each of these was a
+    confirmed false-negative before _norm collapsed all of them to a single space."""
+    risk_free = {"defaults": {"disclaimer": "d", "denylist_terms": ["risk-free"]}}
+    en_dash = {"defaults": {"disclaimer": "d", "denylist_terms": ["risk–free"]}}
+    guaranteed = {"defaults": {"disclaimer": "d", "denylist_terms": ["guaranteed returns"]}}
+
+    cases = [
+        # (profile, bypass text, term-substring expected in detail)
+        (guaranteed, "guaranteed  returns now", "guaranteed returns"),   # double space
+        (guaranteed, "guaranteed\treturns now", "guaranteed returns"),   # tab
+        (risk_free, "a risk–free bet", "risk free"),                # en dash U+2013
+        (risk_free, "a risk—free bet", "risk free"),                # em dash U+2014
+        (risk_free, "a risk‑free bet", "risk free"),                # non-breaking hyphen U+2011
+        (risk_free, "a risk­free bet", "risk free"),                # soft hyphen U+00AD
+        (en_dash, "a risk-free bet", "risk free"),                  # en-dash term vs ascii text
+    ]
+    for profile, text, expected in cases:
+        result = no_prohibited_claims({"narration_beats": [{"text": text}]}, profile)
+        assert not result.ok, f"bypass must be caught: {text!r}"
+        assert expected in result.detail, f"{expected!r} not in {result.detail!r}"

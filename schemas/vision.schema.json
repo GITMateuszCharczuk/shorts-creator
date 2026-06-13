@@ -26,7 +26,10 @@
         "visual_scores": {
           "type": "object", "additionalProperties": false,
           "required": ["coherence", "pacing"],
-          "properties": {"coherence": {"type": "number"}, "pacing": {"type": "number"}}
+          "properties": {
+            "coherence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "pacing": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+          }
         },
         "observations": {"type": "array", "items": {"type": "string"}}
       }

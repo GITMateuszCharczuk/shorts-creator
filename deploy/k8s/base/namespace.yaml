@@ -1,0 +1,11 @@
+# M7 / ADR 0015a — the OPTIONAL post-PoC k8s/Argo profile (Variant A).
+# All shorts-creator k8s resources live in the `shorts` namespace so the
+# control plane is isolated from anything else on the cluster. The GPU plane
+# stays host-owned and is reached over HTTP via the `host-gpu` Service (D2);
+# it never enters the cluster in this profile.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shorts
+  labels:
+    app.kubernetes.io/part-of: shorts-creator

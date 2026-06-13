@@ -41,7 +41,7 @@ def _thumbnail(render: Path, out: Path) -> None:
         raise RuntimeError(f"thumbnail grab failed (exit {r.returncode}):\n{r.stderr[-2000:]}")
 
 
-@stage(StageManifest(id="05", inputs=["script", "assets", "captions",
+@stage(StageManifest(id="05", inputs=["script", "assets", "scenes_viz", "captions",
                                       "word_timings", "music", "data"],
                      outputs=["render", "thumbnail"], compute="cpu"))
 def run(ctx: StageContext) -> StageResult:
@@ -49,6 +49,14 @@ def run(ctx: StageContext) -> StageResult:
     layout = load_layout(ctx.run_dir / f"formats/{script['format']}/layout.json")
     words = json.loads(ctx.read_input("word_timings").read_text())  # declared input (no bypass)
     assets = json.loads(ctx.read_input("assets").read_text())
+    # H8: the data-viz lane (01e) reaches the renderer here — its per-beat charts fold into the
+    # DataVizSlot regions, the parallel of the MediaZone lane's `assets` join (resolve() viz=).
+    # The lane is OPTIONAL: a slice that ran no 01e (the M1 harness) leaves scenes_viz unwired —
+    # then there are simply no charts to fold (empty viz), not a hard error.
+    viz: dict[int, dict] = {}
+    if "scenes_viz" in ctx.input_paths:
+        scenes_viz = json.loads(ctx.read_input("scenes_viz").read_text())
+        viz = {c["beat"]: c["spec"] for c in scenes_viz.get("charts", [])}  # beat -> CHART spec
     brand_kit = json.loads(
         (ctx.run_dir / ctx.config.get("brand_kit", "brand_kit.json")).read_text())
     beat_data = {"beats": _beats_from_script(script)}  # the typed per-beat data 00b emitted
@@ -63,7 +71,7 @@ def run(ctx: StageContext) -> StageResult:
         manifest = resolve(layout=layout, beat_data=beat_data, brand_kit=brand_kit,
                            timings=_scene_spans(words, beat_data), seed=ctx.seed,
                            safe_rect=_safe_rect(plat, ctx.config),   # per-platform reflow (D4)
-                           media=media, words=words)
+                           media=media, words=words, viz=viz)
         cut = out if plat == "youtube" else out.parent / f"{plat}.mp4"
         if primary is None:   # persist the PRIMARY cut's manifest for 05x keyframe sampling —
             # the per-platform workdir copy is rmtree'd right after encode

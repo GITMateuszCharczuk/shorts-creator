@@ -21,4 +21,4 @@ jobs:
       - name: Sync deps
         run: uv sync
       - name: Run the GPU-free suite
-        run: uv run pytest -q -m "not integration"
+        run: uv run pytest -q -m "not integration and not soak"

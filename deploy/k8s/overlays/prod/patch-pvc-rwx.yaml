@@ -1,0 +1,11 @@
+# prod PVC patch — multi-node => ReadWriteMany (D8) + a real StorageClass
+# (replaces the base's ""). storageClassName must name an RWX-capable backend
+# (NFS / CephFS / etc.). Strategic-merge.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shorts-data
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: "nfs-rwx"   # PLACEHOLDER — your RWX-capable StorageClass

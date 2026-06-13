@@ -33,6 +33,7 @@ def execute_batch(batch: dict, *, stage_order: list[str],
             v["status"] = "running"
     if persist:
         persist(batch)
+    last_stage = stage_order[-1] if stage_order else None
     for stage_id in stage_order:
         consecutive_failed = 0
         for vid, v in videos.items():
@@ -54,6 +55,13 @@ def execute_batch(batch: dict, *, stage_order: list[str],
                 consecutive_failed += 1
                 if consecutive_failed >= max_consecutive_failures:
                     v["status"] = "failed"
+                    # H7: a systemic halt must NOT leak a SUCCEEDED video as "running" — the
+                    # boot reconciler would needlessly re-run it (and a re-claimed topic could
+                    # collide). Any still-"running" video that has completed the full sweep
+                    # (reconciled to "done" when it cleared `last_stage` below) is already
+                    # terminal; videos not yet reached stay "running" for resume. We persist
+                    # this corrected snapshot ONCE before raising (the commit on the failure
+                    # path was previously skipped).
                     if persist:
                         persist(batch)
                     raise SystemicFailure(
@@ -63,6 +71,14 @@ def execute_batch(batch: dict, *, stage_order: list[str],
                 consecutive_failed = 0              # interleaved success = per-video, not systemic
             if out.status != "done":
                 v["status"] = out.status
+                if persist:
+                    persist(batch)
+            elif stage_id == last_stage and v["status"] == "running":
+                # completed every stage in this sweep -> terminal NOW, not deferred to the
+                # post-loop reconciliation (which a systemic halt would skip). This is the
+                # invariant the H7 fix turns on: a fully-swept video is "done" the moment it
+                # clears the last stage, so the SystemicFailure path observes it as terminal.
+                v["status"] = "done"
                 if persist:
                     persist(batch)
     for v in videos.values():

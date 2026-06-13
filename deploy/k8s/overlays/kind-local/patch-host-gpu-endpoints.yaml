@@ -1,0 +1,22 @@
+# kind-local host-gpu Endpoints patch — point at the Docker bridge gateway so
+# the kind node reaches the host's ComfyUI (:8188) / Ollama+VLM (:11434).
+#
+# 172.17.0.1 is the conventional default Docker bridge gateway. The REAL value
+# is whatever `make host-gateway-ip` prints (`ip route | awk '/default/{print $3}'`);
+# the operator substitutes it here before `kubectl apply -k` if it differs.
+# This replaces the base's 0.0.0.0 sentinel. Strategic-merge replaces the whole
+# `subsets` list.
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: host-gpu
+subsets:
+  - addresses:
+      - ip: "172.17.0.1"   # Docker bridge gateway — see `make host-gateway-ip`
+    ports:
+      - name: comfyui
+        port: 8188
+        protocol: TCP
+      - name: ollama
+        port: 11434
+        protocol: TCP

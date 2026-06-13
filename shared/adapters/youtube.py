@@ -23,7 +23,15 @@ class YouTubeAdapter(DistributionAdapter):
         return "private"
 
     def _insert_body(self, metadata, visibility):
-        return {"snippet": {"title": metadata["title"], "description": metadata["description"],
+        description = metadata["description"]
+        # C1 bring-up: embed the internally-derived idempotency key as a DESCRIPTION marker so
+        # _find_existing (uploads-playlist scan) can match this exact upload after a crash. The key
+        # is set by DistributionAdapter.publish before _post is called; absent it (e.g. a direct
+        # _insert_body unit call) the description is left as-is.
+        key = getattr(self, "_idempotency_key", None)
+        if key and f"idem:{key}" not in description:
+            description = f"{description}\nidem:{key}"
+        return {"snippet": {"title": metadata["title"], "description": description,
                             "categoryId": "25"},
                 "status": {"privacyStatus": visibility, "selfDeclaredMadeForKids": False}}
 
