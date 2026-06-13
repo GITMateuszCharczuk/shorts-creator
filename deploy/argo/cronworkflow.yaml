@@ -1,0 +1,90 @@
+# M7 Variant B — the Argo CronWorkflow (ADR 0015a D1/D8).
+#
+# The nightly batch. Its video list comes from the PLANNER, never hand-authored: a two-step entry
+# DAG — (1) `plan` runs `python -m shorts.run_batch --plan-only` (writes runs/<batch>/batch.json to
+# the PVC + the planned video_ids), then (2) a `withParam` fan-out instantiates the committed
+# `shorts-batch` WorkflowTemplate (deploy/argo/generated/shorts-workflowtemplate.yaml, Task 7) once
+# per planned video_id. NO video IDs are hand-authored here — they are the planner's single source.
+#
+# concurrencyPolicy: Forbid mirrors Variant A's single-flight conductor (D1) — a long batch must
+# never overlap the next night's run on the shared PVC.
+#
+# D8 single-node caveat: the per-stage fan-out below schedules pods across nodes. On a single-node
+# bring-up the default ReadWriteOnce `shorts-data` PVC is fine; MULTI-NODE fan-out needs the PVC
+# swapped to RWX — the prod overlay one-liner patches accessModes/storageClassName (D8). Until then,
+# fan-out pods land on the one node that owns the RWO volume.
+#
+# HOST/CI-DEFERRED: `argo lint deploy/argo/cronworkflow.yaml` and
+# `argo lint deploy/argo/generated/shorts-workflowtemplate.yaml` require the `argo` CLI (not present
+# in this env). They run under `make cluster-up` / CI, not per-commit. This file is validated here
+# only for YAML well-formedness (python yaml.safe_load_all).
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: shorts-nightly
+  namespace: shorts
+spec:
+  schedule: "0 2 * * *"          # nightly at 02:00
+  concurrencyPolicy: Forbid      # mirrors Variant A's single-flight conductor (D1)
+  startingDeadlineSeconds: 3600
+  workflowSpec:
+    entrypoint: main
+    volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: shorts-data   # D8: RWO by default; prod overlay patches to RWX for multi-node
+    templates:
+    # --- entry DAG: plan -> withParam fan-out ---
+    - name: main
+      dag:
+        tasks:
+        - name: plan
+          template: plan
+        - name: fanout
+          depends: plan
+          # The planner's video_ids (a JSON array string) drive the fan-out — one shorts-batch
+          # instance per planned video_id. No hand-authored IDs.
+          withParam: "{{tasks.plan.outputs.parameters.video_ids}}"
+          templateRef:
+            name: shorts-batch          # the committed WorkflowTemplate (Task 7)
+            template: shorts-dag
+          arguments:
+            parameters:
+            - name: batch_id
+              value: "{{tasks.plan.outputs.parameters.batch_id}}"
+            - name: video_id
+              value: "{{item}}"
+
+    # --- plan step: PLAN-ONLY, no stages, no GPU/LLM backends ---
+    # Writes runs/<batch>/batch.json + per-video job.json to the PVC, and the STABLE well-known
+    # runs/latest/{video_ids.json,batch_id.txt} that the outputs.parameters below read (the batch_id
+    # is dynamic — Argo can't template a per-run output path, so plan-only also writes a fixed copy).
+    # --config points at the resolved planner-inputs JSON mounted at bring-up (a ConfigMap; the
+    # BRING-UP CONTRACT — the conductor's resolved config layers + the day's fresh topics, never
+    # fabricated). PLAN_CONFIG_PATH is wired to that mount in the cluster overlay.
+    - name: plan
+      container:
+        image: shorts-creator:ci
+        command: ["python", "-m", "shorts.run_batch"]
+        args: ["--plan-only", "--config", "/config/plan.json"]
+        env:
+        - name: DATA_ROOT
+          value: /data
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: plan-config
+          mountPath: /config
+          readOnly: true
+      volumes:
+      - name: plan-config
+        configMap:
+          name: shorts-plan-config   # resolved planner inputs (bring-up contract); not hand-authored IDs
+      outputs:
+        parameters:
+        - name: video_ids
+          valueFrom:
+            path: /data/runs/latest/video_ids.json   # JSON array string -> withParam iterates it
+        - name: batch_id
+          valueFrom:
+            path: /data/runs/latest/batch_id.txt

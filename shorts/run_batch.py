@@ -18,6 +18,7 @@ from shared.obs.quarantine_rate import trailing_rate
 from shared.ops.budgets import data_api_budget_gate
 from shared.ops.cache_evict import evict_to_cap
 from shared.ops.gc import PROTECTED, quarantine_to_delete, runs_to_delete
+from shared.planner.batch import build_job, plan_batch
 
 
 def batch_flow(*, lock_path: Path, data_root: Path, preflight, plan, execute, commit, backup):
@@ -291,9 +292,116 @@ def _build_backends(*, data_root: Path) -> dict:
         "production backend wiring lands with the on-box bring-up runbook (M6 Task 12)")
 
 
-def main() -> int:
+def plan_only(*, data_root: Path, cfg: dict) -> dict:
+    """M7 Variant B (ADR 0015a D1): the Argo CronWorkflow's `plan` step. PLAN-ONLY — no stages,
+    no real backends (no GPU/LLM), so it must NOT go through the `_build_backends` bring-up seam.
+    It resolves the batch_id, calls plan_batch over its CONFIG-SOURCED planner inputs, writes the
+    planner's artifacts to the PVC, and emits the planned video_ids so Argo's `withParam` fan-out
+    can instantiate the per-video WorkflowTemplate once per id.
+
+    The planner inputs (niches/per_niche/formats/topic_candidates/lane_history/ledger_topics/
+    monetization_share/master_seed/series_due) are taken from `cfg` — this is the CONFIG-SOURCED
+    contract. In production the conductor sources these from the resolved config layers + the day's
+    fresh topics behind `_build_backends` (the on-box bring-up seam, M6 Task 12); plan-only takes
+    the SAME shape from a resolved-config dict so it is runnable with no cluster/GPU. cfg keys:
+      batch_id, niches, per_niche, formats, topic_candidates, lane_history, ledger_topics,
+      monetization_share, master_seed, series_due (optional), platform_targets (optional).
+
+    Side effects on the PVC (read by the dual-mode stage CLI's resolve_argo_args + by Argo):
+      - runs/<batch_id>/batch.json            — the canonical plan (what resolve_argo_args reads)
+      - runs/<batch_id>/<video_id>/job.json   — the per-video job incl. the resolved profile (05b)
+      - runs/<batch_id>/video_ids.json        — the planned ids as a JSON array
+      - runs/<batch_id>/batch_id.txt          — the resolved batch_id (one line)
+      - runs/latest/video_ids.json            — STABLE well-known copy for Argo outputs.parameters
+      - runs/latest/batch_id.txt              — STABLE well-known copy (the dynamic batch_id source)
+
+    Argo capture: file-based (robust — no stdout parsing). The CronWorkflow's `plan` step reads
+    runs/latest/{video_ids.json,batch_id.txt} via outputs.parameters[].valueFrom.path. We also
+    PRINT the id list as a JSON array on stdout's last line for ad-hoc/manual capture.
+    Returns the plan dict.
+    """
+    data_root = Path(data_root)
+    batch_id = cfg["batch_id"]
+    batch = plan_batch(
+        batch_id=batch_id,
+        niches=cfg["niches"],
+        per_niche=cfg.get("per_niche", 1),
+        formats=cfg["formats"],
+        lane_history=cfg.get("lane_history", []),
+        topic_candidates=cfg["topic_candidates"],
+        ledger_topics=set(cfg.get("ledger_topics", set())),
+        monetization_share=cfg["monetization_share"],
+        master_seed=cfg["master_seed"],
+        series_due=cfg.get("series_due"),
+    )
+
+    run_dir = data_root / "runs" / batch_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _atomic_write(run_dir / "batch.json", json.dumps(batch, indent=2) + "\n")
+
+    platform_targets = cfg.get("platform_targets")
+    profiles_root = cfg.get("profiles_root")
+    video_ids: list[str] = []
+    for video in batch["videos"]:
+        job = build_job(video, batch_id=batch_id, platform_targets=platform_targets,
+                        profiles_root=Path(profiles_root) if profiles_root else None)
+        vdir = run_dir / video["video_id"]
+        vdir.mkdir(parents=True, exist_ok=True)
+        _atomic_write(vdir / "job.json", json.dumps(job, indent=2) + "\n")
+        video_ids.append(video["video_id"])
+
+    ids_json = json.dumps(video_ids)
+    _atomic_write(run_dir / "video_ids.json", ids_json + "\n")
+    _atomic_write(run_dir / "batch_id.txt", batch_id + "\n")
+    # Stable well-known path so Argo's outputs.parameters.valueFrom.path is fixed (the batch_id is
+    # dynamic — Argo can't template a per-run output path), and the fanout learns the real batch_id.
+    latest = data_root / "runs" / "latest"
+    latest.mkdir(parents=True, exist_ok=True)
+    _atomic_write(latest / "video_ids.json", ids_json + "\n")
+    _atomic_write(latest / "batch_id.txt", batch_id + "\n")
+
+    # stdout's last line is the JSON array (ad-hoc capture; the CronWorkflow uses the file path).
+    print(ids_json)
+    return batch
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Temp+rename so a concurrent reader (resolve_argo_args / Argo's artifact reader) never sees a
+    half-written file — the same durability discipline the conductor's persist hook uses."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text)
     import os
+    os.replace(tmp, path)
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    import os
+    p = argparse.ArgumentParser(prog="python -m shorts.run_batch")
+    # M7 Variant B: plan WITHOUT running stages or needing real backends (no GPU/LLM). The Argo
+    # CronWorkflow's `plan` step calls this; the `withParam` fan-out consumes the planned ids.
+    p.add_argument("--plan-only", action="store_true",
+                   help="plan the batch + write batch.json/job.json/video_ids.json, run no stages")
+    p.add_argument("--config",
+                   help="path to a JSON file with the resolved planner inputs for --plan-only")
+    a = p.parse_args(argv)
+
     data_root = Path(os.environ.get("DATA_ROOT", "/data/shorts"))
+
+    if a.plan_only:
+        # CONFIG-SOURCED planner inputs. In production the conductor resolves these from the config
+        # layers (ADR 0014) + the day's fresh topics behind `_build_backends` (the on-box bring-up
+        # seam, M6 Task 12); the BRING-UP CONTRACT is that the same resolved-config shape is handed
+        # to plan_only — via --config <file> here, or a generated ConfigMap in the cluster. We do
+        # NOT fabricate planner inputs: --config (or PLAN_CONFIG env) MUST supply them.
+        cfg_path = a.config or os.environ.get("PLAN_CONFIG")
+        if not cfg_path:
+            p.error("--plan-only requires --config <file.json> (or PLAN_CONFIG env): the resolved "
+                    "planner inputs are config-sourced at bring-up, never fabricated")
+        cfg = json.loads(Path(cfg_path).read_text())
+        plan_only(data_root=data_root, cfg=cfg)
+        return 0
+
     b = _build_backends(data_root=data_root)   # the documented NotImplementedError seam
     cfg, batch_id = b["cfg"], b["batch_id"]
     textfile_dir = data_root / ".metrics" / "textfile"
