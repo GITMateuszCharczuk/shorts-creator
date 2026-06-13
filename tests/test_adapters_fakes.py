@@ -1,7 +1,7 @@
-from pathlib import Path
-
-from shared.adapters import DistributionAdapter, ModelBackend, PostMeta, Visibility
+from shared.adapters import ModelBackend
+from shared.adapters.base import DistributionAdapter
 from shared.adapters.fakes import FixtureBackend, FixtureDistributionAdapter
+from shared.distribution.posts_ledger import idempotency_key, write_intent
 
 
 def test_fake_backend_satisfies_protocol(tmp_path):
@@ -9,8 +9,12 @@ def test_fake_backend_satisfies_protocol(tmp_path):
     assert isinstance(be, ModelBackend)
 
 
-def test_fake_distribution_satisfies_protocol():
-    assert isinstance(FixtureDistributionAdapter(), DistributionAdapter)
+def test_fake_distribution_is_a_distribution_adapter():
+    ad = FixtureDistributionAdapter("tiktok")
+    assert isinstance(ad, DistributionAdapter) and ad.platform == "tiktok"
+    assert FixtureDistributionAdapter().platform == "youtube"
+    assert ad.allowed_visibility({}) == {"private", "public"}
+    assert ad.public_label() == "public" and ad.private_label() == "private"
 
 
 def test_llm_replays_fixture_by_capability_and_hash(tmp_path):
@@ -24,14 +28,25 @@ def test_llm_replays_fixture_by_capability_and_hash(tmp_path):
     assert be.llm("hi") == "canned response"
 
 
-def test_publish_confirm_roundtrip():
+def test_publish_is_exactly_once_via_the_ledger(tmp_path):
+    led = tmp_path / "posts.jsonl"
     ad = FixtureDistributionAdapter()
-    meta = PostMeta(title="t", description="d", hashtags=(), visibility=Visibility.PUBLIC)
-    rec = ad.publish(Path("/tmp/x.mp4"), meta)
-    assert ad.confirm_posted(rec.video_id, rec.platform) == rec
+    md = {"title": "t", "idempotency_key": "k"}
+    rec = ad.publish(video_id="v", media_path="m.mp4", metadata=md,
+                     visibility="private", ledger_path=led)
+    assert rec == {"remote_id": "fake_1", "url": "https://fake/1", "recovered": False}
+    again = ad.publish(video_id="v", media_path="m.mp4", metadata=md,
+                       visibility="private", ledger_path=led)
+    assert again is None                                    # confirmed -> never re-posted
 
 
-def test_allowed_visibility_degrades_when_unaudited():
+def test_retry_after_crash_recovers_via_the_searchable_store(tmp_path):
+    led = tmp_path / "posts.jsonl"
     ad = FixtureDistributionAdapter()
-    assert Visibility.PUBLIC not in ad.allowed_visibility("unaudited")
-    assert Visibility.PUBLIC in ad.allowed_visibility("audited")
+    write_intent(led, video_id="v", platform="youtube")     # pending from a crashed attempt
+    # ...but the post actually landed — keyed under the INTERNALLY-derived key (C1), not metadata
+    ad.searchable[idempotency_key("v", "youtube")] = ("fake_9", "https://fake/9")
+    rec = ad.publish(video_id="v", media_path="m.mp4",
+                     metadata={"title": "t", "idempotency_key": "k"},
+                     visibility="private", ledger_path=led)
+    assert rec == {"remote_id": "fake_9", "url": "https://fake/9", "recovered": True}

@@ -1,7 +1,8 @@
 import json
 from pathlib import Path
 
-from shared.adapters.types import Judgment, PostMeta, PostReceipt, Visibility
+from shared.adapters.base import DistributionAdapter
+from shared.adapters.types import Judgment
 from shared.hashing import input_hash, sha256_bytes
 
 
@@ -78,25 +79,30 @@ class FixtureStockClient:
                  "license": "Pexels", "fetch_date": "2026-06-09"} for i in range(min(n, 2))]
 
 
-class FixtureDistributionAdapter:
-    """In-memory exactly-once fake: publish records intent->confirm; confirm replays it."""
+class FixtureDistributionAdapter(DistributionAdapter):
+    """In-memory fake on the REAL ABC: exactly-once comes from the base's per-video ledger walk
+    (intent -> confirm; a retry recovers via _find_existing). One instance per platform —
+    ctx.backend("distribution") resolves to a dict[platform, adapter] (Task 13)."""
 
-    def __init__(self):
-        self._posted: dict[tuple[str, str], PostReceipt] = {}
+    def __init__(self, platform: str = "youtube"):
+        self.platform = platform
+        # idempotency_key -> (remote_id, url); settable by tests to simulate a landed post
+        self.searchable: dict[str, tuple[str, str]] = {}
         self._counter = 0
 
-    def publish(self, render: Path, meta: PostMeta) -> PostReceipt:
+    def allowed_visibility(self, cfg: dict) -> set[str]:
+        return {"private", "public"}            # youtube-like labels for every fake platform
+
+    def public_label(self) -> str:
+        return "public"
+
+    def private_label(self) -> str:
+        return "private"
+
+    def _post(self, media_path, metadata: dict, visibility: str) -> tuple[str, str]:
         self._counter += 1
-        # unique per call so a multi-video offline batch doesn't collide on one ledger key
-        rec = PostReceipt(video_id=f"fin-{self._counter:04d}", platform="youtube",
-                          remote_post_id=f"fake_{self._counter}", visibility=meta.visibility)
-        self._posted[(rec.video_id, rec.platform)] = rec
-        return rec
+        n = self._counter
+        return f"fake_{n}", f"https://fake/{n}"
 
-    def confirm_posted(self, video_id: str, platform: str) -> PostReceipt | None:
-        return self._posted.get((video_id, platform))
-
-    def allowed_visibility(self, audit_state: str) -> set[Visibility]:
-        if audit_state == "audited":
-            return {Visibility.PRIVATE, Visibility.SELF_ONLY, Visibility.PUBLIC}
-        return {Visibility.PRIVATE, Visibility.SELF_ONLY}
+    def _find_existing(self, idempotency_key: str) -> tuple[str, str] | None:
+        return self.searchable.get(idempotency_key)

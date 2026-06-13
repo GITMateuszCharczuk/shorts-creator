@@ -21,7 +21,7 @@
         "additionalProperties": false,
         "required": ["status"],
         "properties": {
-          "status": {"enum": ["pending", "running", "done", "quarantined", "failed"]},
+          "status": {"enum": ["pending", "running", "done", "quarantined", "failed", "held"]},
           "detail": {"type": "string"}
         }
       }

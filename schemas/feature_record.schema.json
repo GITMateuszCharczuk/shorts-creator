@@ -13,6 +13,10 @@
     "seed": {"type": "integer"},
     "hook_variant_id": {"type": "string"},
     "judge_scores": {"type": "object", "additionalProperties": {"type": "number"}},
-    "metrics": {"type": "object"}
+    "metrics": {"type": "object"},
+    "ramp_label": {
+      "type": "object", "additionalProperties": false, "required": ["approved"],
+      "properties": {"approved": {"type": "boolean"}, "reason": {"type": "string"}, "ts": {"type": "string"}}
+    }
   }
 }

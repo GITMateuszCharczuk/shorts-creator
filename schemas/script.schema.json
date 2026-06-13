@@ -164,6 +164,11 @@
     },
     "platform_meta": {
       "type": "object",
+      "properties": {
+        "ai_disclosure": {
+          "type": "boolean"
+        }
+      },
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
@@ -184,6 +189,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "primary_keyword": {
+            "type": "string"
           }
         }
       }

@@ -1,2 +1,3 @@
-{"schema_version": "1.0.0", "verdict": "pass",
- "checks": {"disclaimer": {"pass": true}, "loudness": {"pass": true, "detail": "-14 LUFS"}}}
+{"schema_version": "1.0.0", "passed": true,
+ "checks": [{"name": "disclaimer", "ok": true},
+            {"name": "loudness", "ok": true, "detail": "-14 LUFS"}]}

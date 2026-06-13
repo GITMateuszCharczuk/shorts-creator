@@ -51,6 +51,23 @@ def _fake_compositor(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _fake_safety_seams(monkeypatch):
+    """The documented 05b integration seams: the ffprobe/loudnorm `probe` and the history-window
+    `_recent_ledger` are faked in CI (the pure checks are unit-tested). The fixture ProbeResult is
+    clean: loudness in-window, no silences/black runs, duration ~equal, CTA inside the safe zone."""
+    import stages.s05b_safety.stage as s05b
+    from shared.safety.probe import ProbeResult
+
+    def fake_probe(run_dir, *, narration, music, render, render_manifest):
+        return ProbeResult(integrated_lufs=-14.0, true_peak_dbtp=-1.4, silences=[], black_spans=[],
+                           actual_s=30.0, projected_s=31.0,
+                           cta_rect={"x": 120, "y": 900, "w": 600, "h": 200})
+
+    monkeypatch.setattr(s05b, "probe", fake_probe)
+    monkeypatch.setattr(s05b, "_recent_ledger", lambda ctx: [])
+
+
+@pytest.fixture(autouse=True)
 def _fake_vision_extraction(monkeypatch, run_dir):
     """The documented 05x seams: ffprobe frame count + ffmpeg keyframe extraction are faked in
     CI (sampling stays unit-tested; the VLM judgment is the FixtureBackend's canned one)."""
@@ -89,7 +106,14 @@ def _seed_fixture(run_dir: Path) -> dict:
         [{"id": "t1", "mood": "confident", "energy": "mid", "path": "music/t1.wav",
           "license": "YouTubeAudioLibrary"}]))
     sf.write(music_dir / "t1.wav", np.zeros(24000, dtype="float32"), 24000)
-    return {"data_fixture": "data_fixture.json", "best_of_n": 1}
+    # Stage 06 (ramp-gated distribute): a fresh ramp.json (never provisioned -> warmed=False ->
+    # "private") with the lift bar zeroed so the gate is INACTIVE (approved=True) offline.
+    return {"data_fixture": "data_fixture.json", "best_of_n": 1,
+            "ramp_state_path": str(run_dir / "ramp.json"),
+            "disclosure_line": "AI-generated. Educational only.",
+            "ramp": {"lift": {"min_approved": 0, "min_days": 0, "max_rejected": 999,
+                              "max_strikes": 999}},
+            "visibility": {"youtube": {"public_after_warming": True}}}
 
 
 def test_full_dag_produces_posts_record(run_dir, tmp_path):
