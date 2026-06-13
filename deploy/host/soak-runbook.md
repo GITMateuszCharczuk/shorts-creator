@@ -278,6 +278,11 @@ host rebuild.
 | YYYY-MM-DD | yes/no | N · url1, url2 | none / reason | none / alert-name | yes/no | none / description |
 ```
 
+**If a platform strike lands, record it the day it lands** with
+`uv run python -m shorts.review --data-root $DATA_ROOT --record-strike "<platform/why>"` —
+this feeds the ramp gate's `max_strikes` bar (`shared/ramp/policy.py`), re-activating the
+human-at-publish gate until the track record clears.
+
 **The DoD clock resets ONLY on an UNRECOVERED failure.**
 
 Definitions:

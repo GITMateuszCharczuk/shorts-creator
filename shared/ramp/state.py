@@ -4,13 +4,17 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 _DEFAULT = {"provisioned": False, "warming_until": None, "approved": 0, "rejected": 0,
-            "first_approval_ts": None, "approved_videos": {}}
+            "first_approval_ts": None, "approved_videos": {}, "strikes": 0, "strike_log": []}
 
 
 def load_state(path: Path) -> dict:
-    if not Path(path).exists():
-        return dict(_DEFAULT, approved_videos={})
-    return {**_DEFAULT, **json.loads(Path(path).read_text())}
+    loaded = json.loads(Path(path).read_text()) if Path(path).exists() else {}
+    s = {**_DEFAULT, **loaded}
+    # _DEFAULT's mutable fields are module-shared; return FRESH copies so callers that
+    # append/assign (record_strike, record_decision) never mutate the global default.
+    s["approved_videos"] = dict(loaded.get("approved_videos", {}))
+    s["strike_log"] = list(loaded.get("strike_log", []))
+    return s
 
 
 def _save(path: Path, state: dict) -> None:
@@ -34,6 +38,16 @@ def record_decision(path: Path, *, video_id: str, approved: bool) -> None:
     if approved and s["first_approval_ts"] is None:
         s["first_approval_ts"] = datetime.now(timezone.utc).isoformat()
     _save(path, s)
+
+
+def record_strike(path: Path, *, note: str = "") -> dict:
+    """Operator-logged platform strike (copyright/community-guideline). Feeds the ramp gate's
+    max_strikes bar (shared/ramp/policy.py): strikes > 0 keeps the human-at-publish gate ACTIVE."""
+    s = load_state(path)
+    s["strikes"] += 1
+    s["strike_log"].append({"ts": datetime.now(timezone.utc).isoformat(), "note": note})
+    _save(path, s)
+    return s
 
 
 def is_warmed(state: dict) -> bool:
