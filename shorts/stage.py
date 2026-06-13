@@ -106,23 +106,71 @@ class Heartbeat:
                 running=1, heartbeat_ts=ts))
 
 
+def resolve_argo_args(*, data_root, batch_id: str, video_id: str) -> dict:
+    """Argo mode (ADR 0015a B): address a stage by (batch, video); resolve the explicit run-dir,
+    per-video seed, and config from the planner's batch.json on the PVC — so ``--batch/--video``
+    and the M4 ``--run-dir/--seed/--config`` mode run the IDENTICAL stage body."""
+    batch = json.loads((Path(data_root) / "runs" / batch_id / "batch.json").read_text())
+    video = next((v for v in batch["videos"] if v["video_id"] == video_id), None)
+    if video is None:
+        raise KeyError(f"video {video_id!r} not in batch {batch_id!r}")
+    run_dir = str(Path(data_root) / "runs" / batch_id / video_id)
+    return {"run_dir": run_dir, "seed": video["seed"],
+            "config": {"niche": video["niche"], "format": video.get("format")}}
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("stage_id")
-    p.add_argument("--run-dir", required=True)
-    p.add_argument("--seed", type=int, required=True)
+    # Explicit mode (M4 / Variant A conductor): all three are required together.
+    p.add_argument("--run-dir")
+    p.add_argument("--seed", type=int)
     p.add_argument("--config", default="{}")
+    # Argo mode (M7 / Variant B): address by (batch, video); resolves run-dir + seed from PVC.
+    p.add_argument("--batch")
+    p.add_argument("--video")
     a = p.parse_args()
+
+    argo_mode = a.batch is not None and a.video is not None
+
+    if argo_mode:
+        # Resolve run_dir + seed + niche/format from the planner's batch.json on the PVC.
+        # DATA_ROOT is the mount-point of the Argo PVC (set by the Argo workflow template at
+        # bring-up; absent in CI / explicit mode).
+        resolved = resolve_argo_args(
+            data_root=os.environ["DATA_ROOT"],
+            batch_id=a.batch,
+            video_id=a.video,
+        )
+        run_dir = Path(resolved["run_dir"])
+        seed = resolved["seed"]
+        # IO-path resolution in Argo mode: the Argo workflow generator is responsible for
+        # constructing the --config JSON with input_paths/output_paths (the same stage_cmd
+        # contract as explicit mode).  resolve_argo_args returns only niche/format from
+        # batch.json; the generator merges those with the stage manifest's declared IO paths
+        # and passes the full --config at workflow-template emit time.  We therefore still
+        # parse --config here (defaulting to "{}") — in a correctly generated Argo DAG it
+        # will always be present; in unit-test / smoke contexts the parser's default "{}" is
+        # used and the IO-path check below will catch a missing config before any stage runs.
+        cfg = json.loads(a.config)
+    else:
+        # Explicit mode (M4 / Variant A): --run-dir and --seed are required.
+        if a.run_dir is None:
+            p.error("--run-dir is required (explicit mode) unless --batch/--video are both given")
+        if a.seed is None:
+            p.error("--seed is required (explicit mode) unless --batch/--video are both given")
+        run_dir = Path(a.run_dir)
+        seed = a.seed
+        cfg = json.loads(a.config)
+
     load_all()
     reg = REGISTRY[a.stage_id]
-    run_dir = Path(a.run_dir)
     job = json.loads((run_dir / "job.json").read_text())
-    cfg = json.loads(a.config)
     for key in ("input_paths", "output_paths"):
         if key not in cfg:          # fail loud, not KeyError-deep (the stage_cmd contract)
             p.error(f"--config JSON must contain {key!r} "
                     f"(shape: shared/conductor/subproc.stage_cmd)")
-    ctx = StageContext(stage=a.stage_id, run_dir=run_dir, seed=a.seed, job=job,
+    ctx = StageContext(stage=a.stage_id, run_dir=run_dir, seed=seed, job=job,
                       config=cfg.get("stage_config", {}),
                       input_paths=cfg["input_paths"], output_paths=cfg["output_paths"],
                       backends=_build_backends(cfg, job))
