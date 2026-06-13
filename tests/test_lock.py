@@ -2,7 +2,39 @@ import os
 
 import pytest
 
-from shared.conductor.lock import LockHeld, acquire_lock, release_lock
+from shared.conductor import lock as lock_mod
+from shared.conductor.lock import LockHeld, _pid_alive, acquire_lock, release_lock
+
+
+def test_pid_alive_treats_permission_error_as_alive(monkeypatch):
+    # M: a foreign-owned live process raises PermissionError on os.kill(pid, 0). Treating it
+    # as dead would let acquire_lock STEAL a live lock. Conservative: PermissionError -> alive.
+    def fake_kill(pid, sig):
+        raise PermissionError("operation not permitted")
+
+    monkeypatch.setattr(lock_mod.os, "kill", fake_kill)
+    assert _pid_alive(12345) is True
+
+
+def test_foreign_owned_live_lock_is_not_stolen(tmp_path, monkeypatch):
+    lock = tmp_path / "batch.lock"
+    lock.write_text("12345")                       # held by a foreign, live pid
+
+    def fake_kill(pid, sig):
+        raise PermissionError("operation not permitted")
+
+    monkeypatch.setattr(lock_mod.os, "kill", fake_kill)
+    with pytest.raises(LockHeld):                  # alive foreign holder -> never taken over
+        acquire_lock(lock)
+    assert lock.read_text() == "12345"             # untouched
+
+
+def test_pid_alive_treats_process_lookup_as_dead(monkeypatch):
+    def fake_kill(pid, sig):
+        raise ProcessLookupError("no such process")
+
+    monkeypatch.setattr(lock_mod.os, "kill", fake_kill)
+    assert _pid_alive(12345) is False              # genuinely dead -> takeover allowed
 
 
 def test_acquire_then_second_acquire_fails(tmp_path):

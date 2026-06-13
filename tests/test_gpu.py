@@ -1,6 +1,29 @@
 import threading
 
-from shared.conductor.gpu import GPU_LOCK, vram_free_mb
+from shared.conductor.gpu import GPU_LOCK, confirm_vram, vram_free_mb
+
+
+def _stats_with_free_mb(free_mb: int) -> dict:
+    # build system_stats whose vram_free (bytes) floors to exactly `free_mb` MiB
+    return {"devices": [{"name": "cuda:0", "vram_free": free_mb * 1024 * 1024}]}
+
+
+def test_confirm_vram_true_when_above_floor():
+    assert confirm_vram(8000, _stats_with_free_mb(9000)) is True
+
+
+def test_confirm_vram_true_at_exact_boundary():
+    # H4: the never-co-resident gate is `>=` — free == floor must PASS (guards a >→>= regression)
+    assert confirm_vram(8000, _stats_with_free_mb(8000)) is True
+
+
+def test_confirm_vram_false_below_floor():
+    assert confirm_vram(8000, _stats_with_free_mb(7999)) is False
+
+
+def test_confirm_vram_false_with_no_device():
+    # no GPU reported -> 0 free -> cannot satisfy any positive floor
+    assert confirm_vram(1, {"devices": []}) is False
 
 
 def test_parses_comfyui_system_stats():

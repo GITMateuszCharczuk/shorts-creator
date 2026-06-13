@@ -10,7 +10,12 @@ def _pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
         return True
-    except (ProcessLookupError, PermissionError, OverflowError):
+    except PermissionError:
+        # The process EXISTS but is owned by another user (EPERM). It is ALIVE — treating it
+        # as dead would let acquire_lock steal a live foreign lock. Conservative: never steal.
+        return True
+    except (ProcessLookupError, OverflowError):
+        # No such process (dead) or a pid that cannot exist -> safe to take over a stale lock.
         return False
 
 
