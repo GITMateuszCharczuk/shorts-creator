@@ -1,0 +1,78 @@
+# M7 / ADR 0015a D1 — Variant A: the UNCHANGED M4/M6 conductor as a CronJob.
+#
+# This runs exactly `python -m shorts.run_batch` — the same entrypoint
+# `make trigger` / scripts/trigger.sh drive in runner-mode. No code changes:
+# the conductor orchestrates the whole DAG itself; k8s only schedules it and
+# mounts the data tree. The GPU plane is reached over HTTP via the host-gpu
+# Service (D2) — no GPU is requested in-cluster (that is Variant C).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: shorts-batch
+  labels:
+    app.kubernetes.io/part-of: shorts-creator
+    app.kubernetes.io/component: conductor
+spec:
+  schedule: "0 2 * * *"          # nightly at 02:00 (matches the host shorts-batch.timer cadence)
+  # Forbid: never run two conductors at once. The conductor owns a single
+  # DATA_ROOT (one ledger, one lockfile); concurrent runs would corrupt state.
+  # If a tick fires while the previous run is still going, k8s SKIPS the new
+  # one rather than queueing or replacing it.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600    # if the scheduler was down, only start a missed run within 10m
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # backoffLimit: 0 — the Job NEVER retries the whole conductor. Rationale:
+      #   * per-stage retries are conductor-INTERNAL (M4) — a transient stage
+      #     failure is already retried inside run_batch, not by re-running it;
+      #   * crash-recovery is the M6-wired lockfile + reconciler on the NEXT
+      #     nightly tick (a stale lock is detected and the partial batch
+      #     reconciled), NOT a same-run retry;
+      #   * the exactly-once publish ledger guards against double-posts, so a
+      #     re-run can never re-publish an already-posted video.
+      # A whole-conductor retry would therefore add no safety and risk a second
+      # writer against the same DATA_ROOT — hence 0.
+      backoffLimit: 0
+      # activeDeadlineSeconds = the M4 ~10h batch watchdog. A batch that runs
+      # past this is hung; the Job is killed so the next nightly tick (with the
+      # reconciler) can recover, rather than a zombie holding the lock forever.
+      activeDeadlineSeconds: 36000   # 10h
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: shorts-creator
+            app.kubernetes.io/component: conductor
+        spec:
+          # restartPolicy: Never — pair with backoffLimit: 0 so a crashed
+          # conductor pod is NOT restarted in-place; recovery is the next tick.
+          restartPolicy: Never
+          containers:
+            - name: conductor
+              image: shorts-creator:ci   # prod overlay patches name+tag/digest (kustomize images:)
+              command: ["python", "-m", "shorts.run_batch"]
+              env:
+                # DATA_ROOT — the PVC mount; same tree runner-mode uses.
+                - name: DATA_ROOT
+                  value: "/data"
+                # Per-capability host-GPU endpoints (ADR 0001 / D2). Resolve
+                # host-gpu.shorts.svc to the host's ComfyUI/Ollama/VLM.
+                - name: HOST_GPU_ENDPOINT
+                  value: "http://host-gpu.shorts.svc:8188"
+                - name: HOST_OLLAMA_ENDPOINT
+                  value: "http://host-gpu.shorts.svc:11434"
+                - name: HOST_VLM_ENDPOINT
+                  value: "http://host-gpu.shorts.svc:11434"
+              # Platform OAuth + API keys from the base Secret (D5). Real values
+              # are injected by `make k8s-secrets` from the host vault.
+              envFrom:
+                - secretRef:
+                    name: shorts-secrets
+              volumeMounts:
+                - name: shorts-data
+                  mountPath: /data
+          volumes:
+            - name: shorts-data
+              persistentVolumeClaim:
+                claimName: shorts-data

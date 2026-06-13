@@ -1,0 +1,51 @@
+# M7 / ADR 0015a D1 — one-off MANUAL-trigger Job. The committed equivalent of
+#   kubectl create job shorts-batch-manual --from=cronjob/shorts-batch -n shorts
+# Use it to run a batch now (the cluster analogue of `make trigger`) without
+# waiting for the nightly CronJob tick. Its podSpec MIRRORS the CronJob's
+# jobTemplate so a manual run is identical to a scheduled one.
+#
+# Dry-run override (the cluster analogue of `make dry-run`): override `command`
+# (or `args`) to post nothing, e.g. with a kustomize/kubectl patch:
+#   command: ["python","-m","shorts.run_batch","--dry-run","--profiles","finance,business","--count","2"]
+# or `kubectl apply` an edited copy of this manifest with the --dry-run args.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: shorts-batch-manual
+  labels:
+    app.kubernetes.io/part-of: shorts-creator
+    app.kubernetes.io/component: conductor
+spec:
+  backoffLimit: 0                 # same rationale as the CronJob: no whole-conductor retry
+  activeDeadlineSeconds: 36000    # the M4 ~10h batch watchdog
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: shorts-creator
+        app.kubernetes.io/component: conductor
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: conductor
+          image: shorts-creator:ci   # prod overlay patches name+tag/digest (kustomize images:)
+          command: ["python", "-m", "shorts.run_batch"]
+          # For a dry run, override command/args as shown in the header comment.
+          env:
+            - name: DATA_ROOT
+              value: "/data"
+            - name: HOST_GPU_ENDPOINT
+              value: "http://host-gpu.shorts.svc:8188"
+            - name: HOST_OLLAMA_ENDPOINT
+              value: "http://host-gpu.shorts.svc:11434"
+            - name: HOST_VLM_ENDPOINT
+              value: "http://host-gpu.shorts.svc:11434"
+          envFrom:
+            - secretRef:
+                name: shorts-secrets
+          volumeMounts:
+            - name: shorts-data
+              mountPath: /data
+      volumes:
+        - name: shorts-data
+          persistentVolumeClaim:
+            claimName: shorts-data
