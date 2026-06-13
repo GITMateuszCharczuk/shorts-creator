@@ -9,7 +9,8 @@ from shared.stage import StageManifest, stage
 
 def build_mix_cmd(*, narration, music, platform: str, out) -> list[str]:
     # duck music under VO (sidechain), then normalize the bed to the platform target
-    fc = (f"[1:a]sidechaincompress=threshold=0.05:ratio=8[duck];"
+    # sidechaincompress needs two inputs: main = music [1:a], sidechain trigger = VO [0:a]
+    fc = (f"[1:a][0:a]sidechaincompress=threshold=0.05:ratio=8[duck];"
           f"[0:a][duck]amix=inputs=2:duration=longest,{loudnorm_args(platform)}[a]")
     return ["ffmpeg", "-y", "-i", str(narration), "-i", str(music),
             "-filter_complex", fc, "-map", "[a]", str(out)]

@@ -97,16 +97,22 @@ def run(ctx: StageContext) -> StageResult:
 
 def _beats_from_script(script: dict) -> list[dict]:
     ld = script["layout_data"]
-    if ld["kind"] == "ranked_list":
+    kind = ld["kind"]
+    if kind == "ranked_list":
         return [{"kind": "item", "item": it} for it in ld["items"]]
-    # head_to_head: one "round" beat per round (sides + that round's metrics), then a "verdict"
-    # beat — so the beat_pattern arc is real and vs_badge/stat_bars (on:[round]) and verdict
-    # (on:[verdict]) render on their own beats (ADR 0007a §7b).
-    beats = [{"kind": "round", "side_a": ld["side_a"], "side_b": ld["side_b"], "round": rnd}
-             for rnd in ld["round"]]
-    beats.append({"kind": "verdict", "side_a": ld["side_a"], "side_b": ld["side_b"],
-                  "verdict": ld["verdict"]})
-    return beats
+    if kind == "head_to_head":
+        # one "round" beat per round (sides + that round's metrics), then a "verdict" beat —
+        # so the beat_pattern arc is real and vs_badge/stat_bars (on:[round]) and verdict
+        # (on:[verdict]) render on their own beats (ADR 0007a §7b).
+        beats = [{"kind": "round", "side_a": ld["side_a"], "side_b": ld["side_b"], "round": rnd}
+                 for rnd in ld["round"]]
+        beats.append({"kind": "verdict", "side_a": ld["side_a"], "side_b": ld["side_b"],
+                      "verdict": ld["verdict"]})
+        return beats
+    # The other schema formats (explainer, myth_buster, news_reaction, cautionary_tale,
+    # how_to_steps, surprising_stat) declare layouts but are not yet wired through render —
+    # 00b only emits ranked_list today. Fail loudly rather than silently mis-binding as H2H.
+    raise ValueError(f"_beats_from_script: layout_data kind {kind!r} not yet wired through render")
 
 
 def _scene_spans(words: list[dict], beat_data: dict) -> list[dict]:

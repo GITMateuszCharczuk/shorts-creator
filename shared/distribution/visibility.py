@@ -17,5 +17,8 @@ def resolve_visibility(adapter, cfg: dict, *, warmed: bool) -> str:
         go_public = warmed and bool(pcfg.get("public_after_warming"))
     chosen = public if go_public else private
     allowed = adapter.allowed_visibility(cfg)
-    assert chosen in allowed, f"{chosen} not in {adapter.platform} allowed {allowed}"
+    # NOT an assert: assertions are stripped under `python -O`, which would let a config typo
+    # silently post at an invalid (potentially public) visibility. Fail loud unconditionally.
+    if chosen not in allowed:
+        raise ValueError(f"{chosen} not in {adapter.platform} allowed {allowed}")
     return chosen
