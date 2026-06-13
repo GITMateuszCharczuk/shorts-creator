@@ -131,6 +131,8 @@ def main() -> int:
     p.add_argument("--video")
     a = p.parse_args()
 
+    if (a.batch is None) != (a.video is None):
+        p.error("--batch and --video must be given together (Argo mode)")
     argo_mode = a.batch is not None and a.video is not None
 
     if argo_mode:
