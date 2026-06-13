@@ -1,4 +1,16 @@
-from shared.obs.metrics import render_batch_metrics, render_stage_metrics, write_metrics
+from shared.obs.metrics import (
+    render_batch_metrics,
+    render_stage_liveness,
+    render_stage_metrics,
+    write_metrics,
+)
+
+
+def test_stage_liveness_emits_the_two_series_stagestuck_reads():
+    text = render_stage_liveness(batch_id="b1", stage="05b", video_id="v1", running=1,
+                                 heartbeat_ts=1718000000)
+    assert 'shorts_stage_running{batch="b1",stage="05b",video="v1"} 1' in text
+    assert 'shorts_stage_heartbeat_timestamp{batch="b1",stage="05b",video="v1"} 1718000000' in text
 
 
 def test_stage_metrics_carry_running_gauge_and_heartbeat():

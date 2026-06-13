@@ -10,6 +10,7 @@ from pathlib import Path
 
 from shared.ctx import Degraded, Quarantined, StageContext
 from shared.exitcodes import EXIT_DEGRADED, EXIT_HELD, EXIT_OK, EXIT_QUARANTINED
+from shared.obs.metrics import render_stage_liveness, write_metrics
 from shared.stage import REGISTRY
 from stages.registry import load_all
 
@@ -22,13 +23,27 @@ class Heartbeat:
     stops (and the file timestamp freezes) as soon as :meth:`stop` is called,
     allowing an external stuck-detector to observe that the age is no longer
     advancing.
+
+    When *prom_path* is supplied, each tick ALSO writes a Prometheus textfile gauge
+    (``shorts_stage_running 1`` + the same heartbeat_timestamp) so a crashed/hung
+    subprocess leaves ``running=1`` with an aging heartbeat — which is what the
+    StageStuck alert reads.  :meth:`stop` then overwrites it with ``running=0`` so a
+    cleanly-finished stage never false-pages.  The conductor's metered() post-completion
+    write targets the SAME .prom file and is the authoritative final record.
     """
 
-    def __init__(self, path: Path, interval_s: float = 30.0) -> None:
+    def __init__(self, path: Path, interval_s: float = 30.0, *,
+                 prom_path: Path | None = None, batch_id: str = "", stage: str = "",
+                 video_id: str = "") -> None:
         self._path = Path(path)
         self._interval_s = interval_s
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._prom_path = Path(prom_path) if prom_path is not None else None
+        self._batch_id = batch_id
+        self._stage = stage
+        self._video_id = video_id
+        self._last_ts = 0.0
 
     # ------------------------------------------------------------------
     # public API
@@ -45,6 +60,12 @@ class Heartbeat:
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join()
+        # A clean stop overwrites the in-flight gauge with running=0 (last ts preserved) so a
+        # completed stage never trips StageStuck. metered() later overwrites the same file.
+        if self._prom_path is not None:
+            write_metrics(self._prom_path, render_stage_liveness(
+                batch_id=self._batch_id, stage=self._stage, video_id=self._video_id,
+                running=0, heartbeat_ts=self._last_ts))
 
     def read_ts(self) -> float:
         """Return the ``ts`` value from the heartbeat file, or 0.0 if absent."""
@@ -66,7 +87,9 @@ class Heartbeat:
 
     def _write(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps({"ts": time.time()})
+        ts = time.time()
+        self._last_ts = ts
+        payload = json.dumps({"ts": ts})
         # atomic write: write to a sibling temp file then replace
         dir_ = str(self._path.parent)
         fd, tmp = tempfile.mkstemp(dir=dir_, suffix=".tmp")
@@ -75,6 +98,12 @@ class Heartbeat:
         finally:
             os.close(fd)
         os.replace(tmp, self._path)
+        # In-flight Prometheus gauge: running=1 with the SAME ts just written, so a crashed
+        # subprocess leaves running=1 + an aging heartbeat for StageStuck to fire on.
+        if self._prom_path is not None:
+            write_metrics(self._prom_path, render_stage_liveness(
+                batch_id=self._batch_id, stage=self._stage, video_id=self._video_id,
+                running=1, heartbeat_ts=ts))
 
 
 def main() -> int:
@@ -98,7 +127,15 @@ def main() -> int:
                       input_paths=cfg["input_paths"], output_paths=cfg["output_paths"],
                       backends=_build_backends(cfg, job))
     from stages.s06_distribute.stage import HeldForReview
-    hb = Heartbeat(run_dir / ".heartbeat" / f"{a.stage_id}.json")
+    # In-flight gauge emission only when the conductor passed a textfile dir at bring-up (absent
+    # in CI/offline -> JSON heartbeat only). The .prom filename MUST match metered()'s convention
+    # (textfile_dir / f"{video_id}-{stage_id}.prom") so the post-completion write overwrites it.
+    textfile_dir = cfg.get("textfile_dir")
+    prom_path = (Path(textfile_dir) / f"{job['video_id']}-{a.stage_id}.prom"
+                 if textfile_dir else None)
+    hb = Heartbeat(run_dir / ".heartbeat" / f"{a.stage_id}.json", prom_path=prom_path,
+                   batch_id=job.get("batch_id", ""), stage=a.stage_id,
+                   video_id=job.get("video_id", ""))
     hb.start()
     try:
         reg.fn(ctx)

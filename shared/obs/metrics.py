@@ -14,6 +14,14 @@ def render_stage_metrics(
     )
 
 
+def render_stage_liveness(*, batch_id, stage, video_id, running, heartbeat_ts) -> str:
+    """Minimal renderer for ONLY the two series the StageStuck alert reads, emitted in-flight by
+    the Heartbeat daemon (shorts/stage.py). Same label format as render_stage_metrics."""
+    lbl = f'batch="{batch_id}",stage="{stage}",video="{video_id}"'
+    return (f"shorts_stage_running{{{lbl}}} {running}\n"
+            f"shorts_stage_heartbeat_timestamp{{{lbl}}} {heartbeat_ts}\n")
+
+
 def render_batch_metrics(
     *, batch_id, niche, videos_total, quarantined, failed, quarantine_rate, quarantine_baseline
 ) -> str:

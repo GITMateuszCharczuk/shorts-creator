@@ -95,6 +95,9 @@ def metered(run_stage, *, batch_id: str, textfile_dir: Path,
         base = (baselines or {}).get(stage_id)
         slow = 1 if base and out.elapsed_s > base * slow_factor else 0
         lbl = f'batch="{batch_id}",stage="{stage_id}",video="{video_id}"'
+        # The in-flight running=1 gauge is emitted each tick by the stage subprocess's Heartbeat
+        # (shorts/stage.py) into this SAME <video>-<stage>.prom; this post-completion write
+        # (running=0 + duration/status) is the authoritative final overwrite.
         write_metrics(
             textfile_dir / f"{video_id}-{stage_id}.prom",
             render_stage_metrics(batch_id=batch_id, stage=stage_id, video_id=video_id,
