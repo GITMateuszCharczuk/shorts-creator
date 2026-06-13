@@ -1,0 +1,3 @@
+{"schema_version": "1.0.0", "id": "head_to_head",
+ "beat_pattern": ["hook", "round", "round", "verdict", "cta"],
+ "lane_support": {"reach": false, "monetization": true}, "data_shape": "head_to_head"}

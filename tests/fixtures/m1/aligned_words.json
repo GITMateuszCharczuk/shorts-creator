@@ -1,0 +1,6 @@
+[{"word": "Inflation", "start": 0.10, "end": 0.55, "emphasis": true},
+ {"word": "cooled", "start": 0.55, "end": 0.95, "emphasis": false},
+ {"word": "to", "start": 0.95, "end": 1.05, "emphasis": false},
+ {"word": "3.2%", "start": 1.05, "end": 1.60, "emphasis": true},
+ {"word": "this", "start": 1.60, "end": 1.80, "emphasis": false},
+ {"word": "month", "start": 1.80, "end": 2.10, "emphasis": false}]

@@ -1,0 +1,282 @@
+{
+  "accent": "#00E5FF",
+  "fps": 30,
+  "height": 1920,
+  "markers": {},
+  "safe_rect": {
+    "h": 1920,
+    "w": 1080,
+    "x": 0,
+    "y": 0
+  },
+  "scenes": [
+    {
+      "end": 2.0,
+      "kind": "item",
+      "regions": [
+        {
+          "enter": "fade",
+          "exit": "fade",
+          "name": "bg_media",
+          "primitive": {
+            "params": {
+              "fit": "cover",
+              "kenburns": true
+            },
+            "type": "MediaZone"
+          },
+          "rect": {
+            "h": 1920,
+            "w": 1080,
+            "x": 0,
+            "y": 0
+          },
+          "src": "scenes/a.mp4",
+          "style": {},
+          "value": "acme",
+          "z": 0
+        },
+        {
+          "enter": "slide_in_up",
+          "exit": "fade",
+          "name": "item_title",
+          "primitive": {
+            "params": {
+              "role": "display"
+            },
+            "type": "TextCard"
+          },
+          "rect": {
+            "h": 307,
+            "w": 1080,
+            "x": 0,
+            "y": 1190
+          },
+          "style": {
+            "size": 72
+          },
+          "value": "ACME",
+          "z": 2
+        },
+        {
+          "enter": "count_up",
+          "exit": "fade",
+          "name": "item_stat",
+          "primitive": {
+            "params": {
+              "role": "numeric"
+            },
+            "type": "TextCard"
+          },
+          "rect": {
+            "h": 230,
+            "w": 1080,
+            "x": 0,
+            "y": 1536
+          },
+          "style": {},
+          "value": "4.1%",
+          "z": 2
+        },
+        {
+          "enter": "pop",
+          "exit": "fade",
+          "name": "rank_badge",
+          "primitive": {
+            "params": {
+              "shape": "circle"
+            },
+            "type": "Badge"
+          },
+          "rect": {
+            "h": 192,
+            "w": 270,
+            "x": 0,
+            "y": 115
+          },
+          "style": {},
+          "value": 1,
+          "z": 3
+        },
+        {
+          "enter": "none",
+          "exit": "none",
+          "name": "caption",
+          "primitive": {
+            "params": {},
+            "type": "KaraokeCaption"
+          },
+          "rect": {
+            "h": 230,
+            "w": 1080,
+            "x": 0,
+            "y": 1574
+          },
+          "style": {},
+          "value": [
+            {
+              "end": 0.6,
+              "start": 0.2,
+              "word": "Inflation"
+            },
+            {
+              "end": 1.0,
+              "start": 0.6,
+              "word": "cooled"
+            }
+          ],
+          "z": 8
+        },
+        {
+          "enter": "none",
+          "exit": "none",
+          "name": "brand_overlay",
+          "primitive": {
+            "params": {},
+            "type": "BrandOverlay"
+          },
+          "rect": {
+            "h": 115,
+            "w": 360,
+            "x": 720,
+            "y": 38
+          },
+          "style": {},
+          "value": null,
+          "z": 9
+        }
+      ],
+      "start": 0.0
+    },
+    {
+      "end": 4.0,
+      "kind": "item",
+      "regions": [
+        {
+          "enter": "fade",
+          "exit": "fade",
+          "name": "bg_media",
+          "primitive": {
+            "params": {
+              "fit": "cover",
+              "kenburns": true
+            },
+            "type": "MediaZone"
+          },
+          "rect": {
+            "h": 1920,
+            "w": 1080,
+            "x": 0,
+            "y": 0
+          },
+          "src": "scenes/b.mp4",
+          "style": {},
+          "value": "beta",
+          "z": 0
+        },
+        {
+          "enter": "slide_in_up",
+          "exit": "fade",
+          "name": "item_title",
+          "primitive": {
+            "params": {
+              "role": "display"
+            },
+            "type": "TextCard"
+          },
+          "rect": {
+            "h": 307,
+            "w": 1080,
+            "x": 0,
+            "y": 1190
+          },
+          "style": {
+            "size": 72
+          },
+          "value": "BETA",
+          "z": 2
+        },
+        {
+          "enter": "count_up",
+          "exit": "fade",
+          "name": "item_stat",
+          "primitive": {
+            "params": {
+              "role": "numeric"
+            },
+            "type": "TextCard"
+          },
+          "rect": {
+            "h": 230,
+            "w": 1080,
+            "x": 0,
+            "y": 1536
+          },
+          "style": {},
+          "value": "3.7%",
+          "z": 2
+        },
+        {
+          "enter": "pop",
+          "exit": "fade",
+          "name": "rank_badge",
+          "primitive": {
+            "params": {
+              "shape": "circle"
+            },
+            "type": "Badge"
+          },
+          "rect": {
+            "h": 192,
+            "w": 270,
+            "x": 0,
+            "y": 115
+          },
+          "style": {},
+          "value": 2,
+          "z": 3
+        },
+        {
+          "enter": "none",
+          "exit": "none",
+          "name": "caption",
+          "primitive": {
+            "params": {},
+            "type": "KaraokeCaption"
+          },
+          "rect": {
+            "h": 230,
+            "w": 1080,
+            "x": 0,
+            "y": 1574
+          },
+          "style": {},
+          "value": [],
+          "z": 8
+        },
+        {
+          "enter": "none",
+          "exit": "none",
+          "name": "brand_overlay",
+          "primitive": {
+            "params": {},
+            "type": "BrandOverlay"
+          },
+          "rect": {
+            "h": 115,
+            "w": 360,
+            "x": 720,
+            "y": 38
+          },
+          "style": {},
+          "value": null,
+          "z": 9
+        }
+      ],
+      "start": 2.0
+    }
+  ],
+  "schema_version": "1.0.0",
+  "seed": 7,
+  "width": 1080
+}

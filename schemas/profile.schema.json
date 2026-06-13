@@ -4,20 +4,91 @@
   "schema_version": "1.0.0",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "niche", "persona", "brand_kit", "defaults"],
+  "required": [
+    "schema_version",
+    "niche",
+    "persona",
+    "brand_kit",
+    "defaults"
+  ],
   "properties": {
-    "schema_version": {"type": "string"},
-    "niche": {"type": "string"},
-    "persona": {"type": "object"},
-    "brand_kit": {
-      "type": "object", "additionalProperties": false,
-      "required": ["palette", "font", "logo"],
+    "schema_version": {
+      "type": "string"
+    },
+    "niche": {
+      "type": "string"
+    },
+    "persona": {
+      "type": "object",
+      "required": [
+        "catchphrase",
+        "series",
+        "stances"
+      ],
       "properties": {
-        "palette": {"type": "array", "items": {"type": "string"}},
-        "font": {"type": "string"},
-        "logo": {"type": "string"}
+        "voice": {
+          "type": "string"
+        },
+        "pov": {
+          "type": "string"
+        },
+        "stances": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "catchphrase": {
+          "type": "string"
+        },
+        "series": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
       }
     },
-    "defaults": {"type": "object"}
+    "brand_kit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "palette",
+        "font",
+        "logo"
+      ],
+      "properties": {
+        "palette": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "font": {
+          "type": "string"
+        },
+        "logo": {
+          "type": "string"
+        },
+        "mascot": {
+          "type": "string"
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "voice_backend": {
+          "type": "string"
+        },
+        "music_index": {
+          "type": "string"
+        },
+        "emphasis_hex": {
+          "type": "string"
+        }
+      }
+    }
   }
 }

@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0.0",
+  "format": "how_to_steps",
+  "beat_pattern": ["hook", "step", "step", "step", "cta"],
+  "anchors": {"step_num": [0.25, 0.14], "step_title": [0.40, 0.18], "step_body": [0.59, 0.20]},
+  "regions": [
+    {
+      "name": "bg_media",
+      "bbox": {"colA": 1, "colB": 12, "y": 0.0, "h": 1.0},
+      "z": 0,
+      "primitive": {"type": "MediaZone", "params": {"fit": "cover", "kenburns": true}},
+      "bind": "step.title",
+      "on": ["step"],
+      "enter": "fade",
+      "exit": "fade",
+      "style": "brand.media"
+    },
+    {
+      "name": "step_num",
+      "bbox": {"colA": 1, "colB": 3, "anchor": "step_num"},
+      "z": 3,
+      "primitive": {"type": "Badge", "params": {"shape": "circle"}},
+      "bind": "step.n",
+      "on": ["step"],
+      "enter": "pop",
+      "exit": "fade",
+      "style": "brand.badge"
+    },
+    {
+      "name": "step_title",
+      "bbox": {"colA": 4, "colB": 12, "anchor": "step_title"},
+      "z": 2,
+      "primitive": {"type": "TextCard", "params": {"role": "display"}},
+      "bind": "step.title",
+      "on": ["step"],
+      "enter": "slide_in_up",
+      "exit": "fade",
+      "style": "brand.title"
+    },
+    {
+      "name": "step_body",
+      "bbox": {"colA": 4, "colB": 12, "anchor": "step_body"},
+      "z": 2,
+      "primitive": {"type": "TextCard", "params": {"role": "body"}},
+      "bind": "step.body",
+      "on": ["step"],
+      "enter": "fade",
+      "exit": "fade",
+      "style": "brand.label"
+    }
+  ]
+}

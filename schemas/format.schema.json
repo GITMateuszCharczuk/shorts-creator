@@ -11,9 +11,17 @@
     "beat_pattern": {"type": "array", "items": {"type": "string"}},
     "lane_support": {
       "type": "object", "additionalProperties": false,
-      "required": ["visual", "audio"],
-      "properties": {"visual": {"type": "boolean"}, "audio": {"type": "boolean"}}
+      "properties": {
+        "visual": {"type": "boolean"}, "audio": {"type": "boolean"},
+        "reach": {"type": "boolean"}, "monetization": {"type": "boolean"}
+      },
+      "anyOf": [
+        {"required": ["visual", "audio"]},
+        {"required": ["reach", "monetization"]}
+      ]
     },
-    "data_shape": {"enum": ["ranked_list", "head_to_head"]}
+    "data_shape": {"enum": ["ranked_list", "head_to_head", "myth_buster", "explainer",
+                            "news_reaction", "cautionary_tale", "surprising_stat",
+                            "how_to_steps"]}
   }
 }

@@ -1,6 +1,10 @@
 # runtime state written by scripts/up.sh (pidfiles, logs)
 .run/
 
+# Remotion toolchain + render outputs (never commit node_modules or rendered frames)
+remotion/node_modules/
+remotion/out/
+
 # Python build / cache artifacts
 __pycache__/
 *.py[cod]

@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from shared.adapters.fakes import FixtureBackend, FixtureDistributionAdapter
+from shared.adapters.fakes import FixtureBackend, FixtureDistributionAdapter, FixtureStockClient
 from shared.cache import StageCache
 from shared.config import resolve_config
 from shared.ctx import Quarantined, StageContext, StageResult
@@ -48,8 +48,11 @@ def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path,
         # in model_id + graph_version so a model/graph bump is a miss (ADR 0010 D4).
         resolved = resolve_config(global_defaults=config or {}, niche={}, batch={}, per_platform={})
         gen = {"model_id": "m0-fake", "graph_version": "m0"} if m.compute == "gpu" else {}
+        # bumped per milestone: a stale cache entry from an older artifact contract (e.g. a
+        # pre-M3 vision.json without "judgment") must MISS, never poison a downstream stage.
+        # M4's conductor owns true per-stage versioning.
         ih = input_hash(declared_input_digests=digests, resolved_config=resolved,
-                        stage_version="m0", **gen)
+                        stage_version="m3", **gen)
         key = cache_key(sid, ih, seed)
 
         hit = cache.get(key)
@@ -64,7 +67,8 @@ def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path,
                            input_paths=input_paths, output_paths=output_paths,
                            backends={"llm": backend, "generate_image": backend,
                                      "img2vid": backend, "tts": backend, "vlm_judge": backend,
-                                     "restore": backend, "distribution": dist})
+                                     "restore": backend, "distribution": dist,
+                                     "stock": FixtureStockClient()})
         ctx.set_status("running")                       # ADR 0012 §4 status transitions
         try:
             reg.fn(ctx) or StageResult()
@@ -84,5 +88,6 @@ def run_dag(*, run_dir: Path, seed: int, cache: StageCache, fixtures_dir: Path,
 
 
 def _default_path(name: str) -> str:
-    binary = {"narration": "narration.wav", "music": "music.wav", "render": "renders/youtube.mp4"}
+    binary = {"narration": "narration.wav", "music": "music.wav", "render": "renders/youtube.mp4",
+              "thumbnail": "renders/thumbnail.jpg", "captions": "captions.ass"}
     return binary.get(name, f"{name}.json")

@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0.0",
+  "format": "surprising_stat",
+  "beat_pattern": ["hook", "stat", "unpack", "so_what", "cta"],
+  "anchors": {"stat": [0.25, 0.25], "unpack": [0.56, 0.18], "so_what": [0.74, 0.16]},
+  "regions": [
+    {
+      "name": "bg_media",
+      "bbox": {"colA": 1, "colB": 12, "y": 0.0, "h": 1.0},
+      "z": 0,
+      "primitive": {"type": "MediaZone", "params": {"fit": "cover", "kenburns": true}},
+      "bind": "stat.value",
+      "on": ["stat", "unpack", "so_what"],
+      "enter": "fade",
+      "exit": "fade",
+      "style": "brand.media"
+    },
+    {
+      "name": "stat",
+      "bbox": {"colA": 1, "colB": 12, "anchor": "stat"},
+      "z": 3,
+      "primitive": {"type": "TextCard", "params": {"role": "numeric"}},
+      "bind": "stat.value",
+      "on": ["stat"],
+      "enter": "count_up",
+      "exit": "fade",
+      "style": "brand.stat"
+    },
+    {
+      "name": "citation",
+      "bbox": {"colA": 1, "colB": 7, "y": 0.07, "h": 0.06},
+      "z": 4,
+      "primitive": {"type": "CitationChip"},
+      "bind": "stat.source_ref",
+      "on": ["stat"],
+      "enter": "fade",
+      "exit": "fade",
+      "style": "brand.citation"
+    },
+    {
+      "name": "unpack",
+      "bbox": {"colA": 1, "colB": 12, "anchor": "unpack"},
+      "z": 2,
+      "primitive": {"type": "TextCard", "params": {"role": "display"}},
+      "bind": "unpack.text",
+      "on": ["unpack"],
+      "enter": "slide_in_up",
+      "exit": "fade",
+      "style": "brand.title"
+    },
+    {
+      "name": "so_what",
+      "bbox": {"colA": 1, "colB": 12, "anchor": "so_what"},
+      "z": 2,
+      "primitive": {"type": "TextCard", "params": {"role": "display"}},
+      "bind": "so_what.text",
+      "on": ["so_what"],
+      "enter": "riser_reveal",
+      "exit": "fade",
+      "style": "brand.verdict"
+    }
+  ]
+}

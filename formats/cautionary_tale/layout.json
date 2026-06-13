@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0.0",
+  "format": "cautionary_tale",
+  "beat_pattern": ["hook", "setup", "mistake", "cost", "lesson", "cta"],
+  "anchors": {"setup": [0.10, 0.18], "mistake": [0.35, 0.18], "cost": [0.55, 0.20], "lesson": [0.74, 0.16]},
+  "regions": [
+    {
+      "name": "bg_media",
+      "bbox": {"colA": 1, "colB": 12, "y": 0.0, "h": 1.0},
+      "z": 0,
+      "primitive": {"type": "MediaZone", "params": {"fit": "cover", "kenburns": true}},
+      "bind": "setup.text",
+      "on": ["setup", "mistake", "cost", "lesson"],
+      "enter": "fade",
+      "exit": "fade",
+      "style": "brand.media"
+    },
+    {
+      "name": "setup",
+      "bbox": {"colA": 1, "colB": 12, "anchor": "setup"},
+      "z": 2,
+      "primitive": {"type": "TextCard", "params": {"role": "display"}},
+      "bind": "setup.text",
+      "on": ["setup"],
+      "enter": "slide_in_up",
+      "exit": "fade",
+      "style": "brand.title"
+    },
+    {
+      "name": "mistake",
+      "bbox": {"colA": 1, "colB": 12, "anchor": "mistake"},
+      "z": 2,
+      "primitive": {"type": "TextCard", "params": {"role": "display"}},
+      "bind": "mistake.text",
+      "on": ["mistake"],
+      "enter": "slide_in_up",
+      "exit": "fade",
+      "style": "brand.title"
+    },
+    {
+      "name": "cost",
+      "bbox": {"colA": 1, "colB": 12, "anchor": "cost"},
+      "z": 3,
+      "primitive": {"type": "TextCard", "params": {"role": "numeric"}},
+      "bind": "cost.stat",
+      "on": ["cost"],
+      "enter": "count_up",
+      "exit": "fade",
+      "style": "brand.stat"
+    },
+    {
+      "name": "lesson",
+      "bbox": {"colA": 1, "colB": 12, "anchor": "lesson"},
+      "z": 2,
+      "primitive": {"type": "TextCard", "params": {"role": "display"}},
+      "bind": "lesson.text",
+      "on": ["lesson"],
+      "enter": "riser_reveal",
+      "exit": "fade",
+      "style": "brand.verdict"
+    }
+  ]
+}

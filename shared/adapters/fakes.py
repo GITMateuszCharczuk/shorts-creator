@@ -34,7 +34,12 @@ class FixtureBackend:
         return json.loads(self.llm(prompt, seed))   # fixtures are valid JSON by construction
 
     def generate_image(self, prompt: str, seed: int) -> Path:
-        return self._path("generate_image", self._hash(prompt=prompt.encode()), "png")
+        p = self._path("generate_image", self._hash(prompt=prompt.encode()), "png")
+        if not p.exists():
+            # raise HERE so the error names this stage — otherwise the missing file surfaces one
+            # stage later in img2vid with a misattributed message
+            raise MissingFixtureError(f"no generate_image fixture at {p} — add the canned png")
+        return p
 
     def img2vid(self, image: Path, seed: int) -> Path:
         img = Path(image)
@@ -45,11 +50,32 @@ class FixtureBackend:
     def tts(self, text: str) -> Path:
         return self._path("tts", self._hash(text=text.encode()), "wav")
 
+    def tts_segments(self, segments: list[dict]) -> Path:
+        h = self._hash(segments=json.dumps(segments, sort_keys=True).encode())
+        p = self._path("tts", h, "wav")
+        if not p.exists():
+            raise MissingFixtureError(f"no tts fixture at {p} — add the canned wav")
+        return p
+
     def vlm_judge(self, frames: list[Path], script: dict) -> Judgment:
-        return Judgment(overall=0.82, scores={"hook": 0.8, "coherence": 0.85}, passed=True)
+        # visual sub-scores only (ADR 0016 D5) — the vision schema pins exactly these keys
+        return Judgment(overall=0.82, scores={"coherence": 0.85, "pacing": 0.8}, passed=True,
+                        observations=("clean frames",))
 
     def restore(self, frames: list[Path]) -> list[Path]:
         return list(frames)  # fake: passthrough
+
+
+class FixtureStockClient:
+    """Deterministic stock candidates for the offline DAG (no HTTP)."""
+
+    def search(self, query: str, n: int) -> list[dict]:
+        h = sha256_bytes(query.encode())[:16]   # deterministic per-query stem
+        return [{"path": f"stock/{h[:8]}_{i}.jpg",
+                 "phash": sha256_bytes(f"{query}/{i}".encode())[:16],   # distinct per candidate
+                 "score": 0.9 - 0.1 * i,
+                 "source": "pexels", "url": f"https://fixture/{h[:8]}/{i}",
+                 "license": "Pexels", "fetch_date": "2026-06-09"} for i in range(min(n, 2))]
 
 
 class FixtureDistributionAdapter:

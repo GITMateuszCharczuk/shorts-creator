@@ -1,0 +1,3 @@
+{"schema_version": "1.0.0", "id": "explainer",
+ "beat_pattern": ["hook", "concept", "step", "step", "takeaway", "cta"],
+ "lane_support": {"reach": false, "monetization": true}, "data_shape": "explainer"}

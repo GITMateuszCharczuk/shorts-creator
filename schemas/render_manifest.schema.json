@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "render_manifest.schema.json",
+  "schema_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "fps",
+    "width",
+    "height",
+    "seed",
+    "scenes"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "fps": {
+      "type": "integer"
+    },
+    "width": {
+      "type": "integer"
+    },
+    "height": {
+      "type": "integer"
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "accent": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "safe_rect": {
+      "type": "object"
+    },
+    "markers": {
+      "type": "object"
+    },
+    "scenes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "start",
+          "end",
+          "kind",
+          "regions"
+        ],
+        "properties": {
+          "start": {
+            "type": "number"
+          },
+          "end": {
+            "type": "number"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "regions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "primitive",
+                "rect",
+                "z",
+                "value"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "primitive": {
+                  "type": "object"
+                },
+                "rect": {
+                  "type": "object"
+                },
+                "z": {
+                  "type": "integer"
+                },
+                "enter": {
+                  "type": "string"
+                },
+                "exit": {
+                  "type": "string"
+                },
+                "value": {},
+                "style": {
+                  "type": "object"
+                },
+                "src": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "cta": {
+      "type": "object",
+      "description": "per-platform CTA delta (platform_delta injects it)"
+    },
+    "loop": {
+      "type": "object",
+      "description": "seamless-loop bridge flag (inject_finishing adds it, ADR 0006 D5)"
+    }
+  }
+}
