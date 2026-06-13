@@ -13,7 +13,8 @@ from shared.schema import SchemaRegistry
 from shared.stage import StageManifest, stage
 
 _REG = SchemaRegistry()
-_QUALITY_KEYS = {"score", "quality", "interesting", "rating", "overall"}
+_QUALITY_KEYS = {"score", "quality", "interesting", "rating", "overall",
+                 "grade", "rank", "assessment", "verdict", "evaluation"}
 
 # support-only: the 00b model checks factual grounding, NOT quality (ADR 0016 D1 stays intact).
 _FACT_PROMPT = ('Return STRICT JSON {"hallucination": bool, "note": "..."} — true if any stated '

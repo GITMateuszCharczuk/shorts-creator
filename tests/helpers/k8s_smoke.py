@@ -43,6 +43,10 @@ def argo_installed(namespace: str = NAMESPACE) -> None:
     before `argo submit` will do anything. We apply the pinned quick-start-minimal release and
     block on the controller Deployment rolling out so the subsequent submit isn't racing the CRD
     registration.
+
+    We also apply the generated WorkflowTemplate here so the fanout's templateRef: shorts-batch
+    resolves correctly; without this the CronWorkflow DAG step that references the template would
+    fail with an "unknown template" error at runtime.
     """
     subprocess.run(
         ["kubectl", "apply", "-n", namespace, "-f", ARGO_QUICK_START], check=True
@@ -50,6 +54,13 @@ def argo_installed(namespace: str = NAMESPACE) -> None:
     subprocess.run(
         ["kubectl", "rollout", "status", "-n", namespace,
          "deploy/workflow-controller", "--timeout=180s"],
+        check=True,
+    )
+    # Apply the WorkflowTemplate BEFORE the cronworkflow is submitted so the templateRef
+    # shorts-batch is resolvable by the workflow-controller at fanout time.
+    subprocess.run(
+        ["kubectl", "apply", "-f",
+         "deploy/argo/generated/shorts-workflowtemplate.yaml", "-n", namespace],
         check=True,
     )
 

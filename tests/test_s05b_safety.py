@@ -74,3 +74,24 @@ def test_llm_quality_leak_is_rejected():
                        vision={"judgment": {"observations": []}}, probes=_probes(),
                        platform="tiktok", ledger=[], llm=_LeakyLLM(),
                        thresholds=SafetyThresholds(), safe_zones=None)
+
+
+@pytest.mark.parametrize("leaked_key", [
+    "grade", "rank", "assessment", "verdict", "evaluation",
+])
+def test_new_quality_synonym_keys_are_rejected(leaked_key):
+    """_QUALITY_KEYS must include newly added synonyms so the 05b fact LLM can't smuggle
+    quality signal in via alternate labels (e.g. 'grade' or 'verdict')."""
+    class _LeakyLLM:
+        def __init__(self, key):
+            self._key = key
+
+        def llm_json(self, prompt, seed=None):
+            return {"hallucination": False, self._key: 0.9}
+
+    with pytest.raises(QualityLeakError):
+        collect_checks(script={"disclaimer": "", "narration_beats": [], "hook": {}},
+                       profile={"defaults": {"disclaimer": "", "denylist_terms": []}},
+                       vision={"judgment": {"observations": []}}, probes=_probes(),
+                       platform="tiktok", ledger=[], llm=_LeakyLLM(leaked_key),
+                       thresholds=SafetyThresholds(), safe_zones=None)

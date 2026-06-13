@@ -77,10 +77,12 @@ groups:
             The subprocess may have deadlocked or crashed silently.
 
       - alert: StageSlow
-        # The conductor emits shorts_stage_slow == 1 only for stages classify() returns "slow"
-        # (i.e. shorts_stage_running == 1 is already implied by the emission logic in classify()).
+        # Gate on shorts_stage_running == 1 so a completed-but-formerly-slow stage (which may
+        # retain its last-written shorts_stage_slow == 1 sample for up to 7 days of TSDB
+        # retention) does not keep firing after the stage finished.  Mirrors StageStuck's
+        # running-guard above.
         # A StageSlow alert for the same stage is inhibited when StageStuck fires (see alertmanager.yml).
-        expr: shorts_stage_slow == 1
+        expr: shorts_stage_slow == 1 and shorts_stage_running == 1
         labels:
           severity: warn
         annotations:

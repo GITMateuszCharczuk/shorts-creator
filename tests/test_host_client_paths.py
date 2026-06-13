@@ -17,6 +17,12 @@ def test_path_outside_data_root_is_a_hard_error():
         to_relative("/tmp/elsewhere/x.png", data_root="/srv/shorts-data")
 
 
+def test_dotdot_traversal_is_rejected():
+    """Path traversal via .. segments must raise, not return a path outside DATA_ROOT."""
+    with pytest.raises(ValueError):
+        to_relative("/srv/shorts-data/../etc/passwd", data_root="/srv/shorts-data")
+
+
 def test_resolve_uses_THIS_process_data_root(monkeypatch):
     monkeypatch.setenv("DATA_ROOT", "/data")
     assert str(resolve("runs/b1/v1/x.png")) == "/data/runs/b1/v1/x.png"

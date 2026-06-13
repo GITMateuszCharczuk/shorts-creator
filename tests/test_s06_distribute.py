@@ -181,3 +181,34 @@ def test_feature_record_validates_against_schema(tmp_path):
     reg = SchemaRegistry()
     # validate() raises jsonschema.ValidationError on failure
     reg.validate("feature_record", fr)
+
+
+def test_truthy_non_bool_approval_does_not_bypass_hold(tmp_path):
+    """approved_videos value must be exactly True (is True), not merely truthy.
+
+    A corrupt state entry like "yes" or 1 must NOT grant approval — only an explicit
+    True written by the review CLI counts (fixes the truthy-vs-is-True guard).
+    """
+    ramp_path = tmp_path / "ramp.json"
+    # Gate active (min_approved=1 not met), but approved_videos has a truthy non-bool value.
+    ramp_path.write_text(json.dumps({
+        "provisioned": True,
+        "warming_until": "2099-01-01T00:00:00+00:00",
+        "approved_videos": {"fin-0001": "yes"},   # truthy string, NOT bool True
+        "rejected_videos": {},
+        "strikes": 0,
+    }))
+
+    from shared.ramp.policy import gate_active
+    from shared.ramp.state import load_state
+
+    state = load_state(str(ramp_path))
+    ramp_cfg = {"lift": {"min_approved": 1, "min_days": 0, "max_rejected": 999,
+                         "max_strikes": 999}}
+    active = gate_active(state, ramp_cfg)
+    approved = (not active) or (state.get("approved_videos", {}).get("fin-0001") is True)
+    assert active, "gate should be active with provisioned=True and not enough approvals"
+    assert not approved, (
+        "a truthy non-bool value in approved_videos must NOT grant approval — "
+        "only explicit True counts (is-True guard)"
+    )

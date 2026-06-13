@@ -31,7 +31,7 @@ def run(ctx: StageContext) -> StageResult:
     state = load_state(ctx.config["ramp_state_path"])          # explicit path (no run-dir guessing)
     warmed = is_warmed(state)                          # CALENDAR predicate (now >= warming_until)
     active = gate_active(state, ctx.config.get("ramp", {}))
-    approved = (not active) or state.get("approved_videos", {}).get(ctx.job["video_id"], False)
+    approved = (not active) or (state.get("approved_videos", {}).get(ctx.job["video_id"]) is True)
     platforms, adapters = ctx.job.get("platform_targets", ["youtube"]), ctx.backend("distribution")
     vis_cfg = ctx.config.get("visibility", {})
     affiliate = script.get("affiliate") if ctx.config.get("affiliate_enabled") else None
