@@ -1,0 +1,471 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: shorts-batch
+  namespace: shorts
+spec:
+  arguments:
+    parameters:
+    - name: batch_id
+    - name: video_id
+  entrypoint: shorts-dag
+  templates:
+  - dag:
+      tasks:
+      - name: 00a
+        template: 00a
+      - dependencies:
+        - 00a
+        name: 00b
+        template: 00b
+      - dependencies:
+        - 00b
+        name: 01a
+        template: 01a
+      - dependencies:
+        - 00b
+        - 01a
+        name: 01b
+        template: 01b
+      - dependencies:
+        - 01b
+        name: 01c
+        template: 01c
+      - dependencies:
+        - 01c
+        name: 01d
+        template: 01d
+      - dependencies:
+        - 00a
+        - 00b
+        name: 01e
+        template: 01e
+      - dependencies:
+        - 00b
+        name: '02'
+        template: '02'
+      - dependencies:
+        - 00b
+        - '02'
+        name: '03'
+        template: '03'
+      - dependencies:
+        - 00b
+        - '02'
+        name: '04'
+        template: '04'
+      - dependencies:
+        - 00a
+        - 00b
+        - 01d
+        - '03'
+        - '04'
+        name: '05'
+        template: '05'
+      - dependencies:
+        - 00b
+        - '02'
+        - '04'
+        - '05'
+        - 05x
+        name: 05b
+        template: 05b
+      - dependencies:
+        - 00b
+        - '05'
+        - 05x
+        name: 05c
+        template: 05c
+      - dependencies:
+        - 00b
+        - '05'
+        name: 05x
+        template: 05x
+      - dependencies:
+        - 00b
+        - '05'
+        - 05b
+        - 05c
+        name: '06'
+        template: '06'
+    name: shorts-dag
+  - container:
+      args:
+      - 00a
+      - --batch
+      - '{{workflow.parameters.batch_id}}'
+      - --video
+      - '{{workflow.parameters.video_id}}'
+      command:
+      - python
+      - -m
+      - shorts.stage
+      env:
+      - name: DATA_ROOT
+        value: /data
+      image: shorts-creator:ci
+      volumeMounts:
+      - mountPath: /data
+        name: data
+    name: 00a
+    retryStrategy:
+      backoff:
+        duration: 30s
+        factor: 2
+      limit: 2
+  - container:
+      args:
+      - 00b
+      - --batch
+      - '{{workflow.parameters.batch_id}}'
+      - --video
+      - '{{workflow.parameters.video_id}}'
+      command:
+      - python
+      - -m
+      - shorts.stage
+      env:
+      - name: DATA_ROOT
+        value: /data
+      - name: HOST_OLLAMA_ENDPOINT
+        value: http://host-gpu.shorts.svc:11434
+      image: shorts-creator:ci
+      volumeMounts:
+      - mountPath: /data
+        name: data
+    name: 00b
+    retryStrategy:
+      backoff:
+        duration: 30s
+        factor: 2
+      limit: 2
+  - container:
+      args:
+      - 01a
+      - --batch
+      - '{{workflow.parameters.batch_id}}'
+      - --video
+      - '{{workflow.parameters.video_id}}'
+      command:
+      - python
+      - -m
+      - shorts.stage
+      env:
+      - name: DATA_ROOT
+        value: /data
+      image: shorts-creator:ci
+      volumeMounts:
+      - mountPath: /data
+        name: data
+    name: 01a
+    retryStrategy:
+      backoff:
+        duration: 30s
+        factor: 2
+      limit: 2
+  - container:
+      args:
+      - 01b
+      - --batch
+      - '{{workflow.parameters.batch_id}}'
+      - --video
+      - '{{workflow.parameters.video_id}}'
+      command:
+      - python
+      - -m
+      - shorts.stage
+      env:
+      - name: DATA_ROOT
+        value: /data
+      - name: HOST_GPU_ENDPOINT
+        value: http://host-gpu.shorts.svc:8188
+      image: shorts-creator:ci
+      volumeMounts:
+      - mountPath: /data
+        name: data
+    name: 01b
+    retryStrategy:
+      backoff:
+        duration: 30s
+        factor: 2
+      limit: 2
+  - container:
+      args:
+      - 01c
+      - --batch
+      - '{{workflow.parameters.batch_id}}'
+      - --video
+      - '{{workflow.parameters.video_id}}'
+      command:
+      - python
+      - -m
+      - shorts.stage
+      env:
+      - name: DATA_ROOT
+        value: /data
+      - name: HOST_GPU_ENDPOINT
+        value: http://host-gpu.shorts.svc:8188
+      image: shorts-creator:ci
+      volumeMounts:
+      - mountPath: /data
+        name: data
+    name: 01c
+    retryStrategy:
+      backoff:
+        duration: 30s
+        factor: 2
+      limit: 2
+  - container:
+      args:
+      - 01d
+      - --batch
+      - '{{workflow.parameters.batch_id}}'
+      - --video
+      - '{{workflow.parameters.video_id}}'
+      command:
+      - python
+      - -m
+      - shorts.stage
+      env:
+      - name: DATA_ROOT
+        value: /data
+      - name: HOST_GPU_ENDPOINT
+        value: http://host-gpu.shorts.svc:8188
+      image: shorts-creator:ci
+      volumeMounts:
+      - mountPath: /data
+        name: data
+    name: 01d
+    retryStrategy:
+      backoff:
+        duration: 30s
+        factor: 2
+      limit: 2
+  - container:
+      args:
+      - 01e
+      - --batch
+      - '{{workflow.parameters.batch_id}}'
+      - --video
+      - '{{workflow.parameters.video_id}}'
+      command:
+      - python
+      - -m
+      - shorts.stage
+      env:
+      - name: DATA_ROOT
+        value: /data
+      image: shorts-creator:ci
+      volumeMounts:
+      - mountPath: /data
+        name: data
+    name: 01e
+    retryStrategy:
+      backoff:
+        duration: 30s
+        factor: 2
+      limit: 2
+  - container:
+      args:
+      - '02'
+      - --batch
+      - '{{workflow.parameters.batch_id}}'
+      - --video
+      - '{{workflow.parameters.video_id}}'
+      command:
+      - python
+      - -m
+      - shorts.stage
+      env:
+      - name: DATA_ROOT
+        value: /data
+      - name: HOST_OLLAMA_ENDPOINT
+        value: http://host-gpu.shorts.svc:11434
+      image: shorts-creator:ci
+      volumeMounts:
+      - mountPath: /data
+        name: data
+    name: '02'
+    retryStrategy:
+      backoff:
+        duration: 30s
+        factor: 2
+      limit: 2
+  - container:
+      args:
+      - '03'
+      - --batch
+      - '{{workflow.parameters.batch_id}}'
+      - --video
+      - '{{workflow.parameters.video_id}}'
+      command:
+      - python
+      - -m
+      - shorts.stage
+      env:
+      - name: DATA_ROOT
+        value: /data
+      image: shorts-creator:ci
+      volumeMounts:
+      - mountPath: /data
+        name: data
+    name: '03'
+    retryStrategy:
+      backoff:
+        duration: 30s
+        factor: 2
+      limit: 2
+  - container:
+      args:
+      - '04'
+      - --batch
+      - '{{workflow.parameters.batch_id}}'
+      - --video
+      - '{{workflow.parameters.video_id}}'
+      command:
+      - python
+      - -m
+      - shorts.stage
+      env:
+      - name: DATA_ROOT
+        value: /data
+      image: shorts-creator:ci
+      volumeMounts:
+      - mountPath: /data
+        name: data
+    name: '04'
+    retryStrategy:
+      backoff:
+        duration: 30s
+        factor: 2
+      limit: 2
+  - container:
+      args:
+      - '05'
+      - --batch
+      - '{{workflow.parameters.batch_id}}'
+      - --video
+      - '{{workflow.parameters.video_id}}'
+      command:
+      - python
+      - -m
+      - shorts.stage
+      env:
+      - name: DATA_ROOT
+        value: /data
+      image: shorts-creator:ci
+      volumeMounts:
+      - mountPath: /data
+        name: data
+    name: '05'
+    retryStrategy:
+      backoff:
+        duration: 30s
+        factor: 2
+      limit: 2
+  - container:
+      args:
+      - 05b
+      - --batch
+      - '{{workflow.parameters.batch_id}}'
+      - --video
+      - '{{workflow.parameters.video_id}}'
+      command:
+      - python
+      - -m
+      - shorts.stage
+      env:
+      - name: DATA_ROOT
+        value: /data
+      - name: HOST_OLLAMA_ENDPOINT
+        value: http://host-gpu.shorts.svc:11434
+      image: shorts-creator:ci
+      volumeMounts:
+      - mountPath: /data
+        name: data
+    name: 05b
+    retryStrategy:
+      backoff:
+        duration: 30s
+        factor: 2
+      limit: 2
+  - container:
+      args:
+      - 05c
+      - --batch
+      - '{{workflow.parameters.batch_id}}'
+      - --video
+      - '{{workflow.parameters.video_id}}'
+      command:
+      - python
+      - -m
+      - shorts.stage
+      env:
+      - name: DATA_ROOT
+        value: /data
+      - name: HOST_OLLAMA_ENDPOINT
+        value: http://host-gpu.shorts.svc:11434
+      image: shorts-creator:ci
+      volumeMounts:
+      - mountPath: /data
+        name: data
+    name: 05c
+    retryStrategy:
+      backoff:
+        duration: 30s
+        factor: 2
+      limit: 2
+  - container:
+      args:
+      - 05x
+      - --batch
+      - '{{workflow.parameters.batch_id}}'
+      - --video
+      - '{{workflow.parameters.video_id}}'
+      command:
+      - python
+      - -m
+      - shorts.stage
+      env:
+      - name: DATA_ROOT
+        value: /data
+      - name: HOST_VLM_ENDPOINT
+        value: http://host-gpu.shorts.svc:11434
+      image: shorts-creator:ci
+      volumeMounts:
+      - mountPath: /data
+        name: data
+    name: 05x
+    retryStrategy:
+      backoff:
+        duration: 30s
+        factor: 2
+      limit: 2
+  - container:
+      args:
+      - '06'
+      - --batch
+      - '{{workflow.parameters.batch_id}}'
+      - --video
+      - '{{workflow.parameters.video_id}}'
+      command:
+      - python
+      - -m
+      - shorts.stage
+      env:
+      - name: DATA_ROOT
+        value: /data
+      image: shorts-creator:ci
+      volumeMounts:
+      - mountPath: /data
+        name: data
+    name: '06'
+    retryStrategy:
+      backoff:
+        duration: 30s
+        factor: 2
+      limit: 2
+  volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: shorts-data

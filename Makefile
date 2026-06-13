@@ -23,7 +23,8 @@ COUNT        ?= 2
         host-comfyui-up host-comfyui-down host-llm-up \
         host-up build wire submit-batch test soak voice-ab review calibrate audit \
         obs-up obs-lint \
-        host-gateway-ip cluster-up cluster-down k8s-secrets print-data-root
+        host-gateway-ip cluster-up cluster-down k8s-secrets print-data-root \
+        argo-generate
 
 help: ## list targets (grouped by section)
 	@awk 'BEGIN{FS=":.*?## "} \
@@ -127,3 +128,5 @@ k8s-secrets: ## [M7] inject the host vault env-file into the shorts-secrets Secr
 	   --dry-run=client -o yaml | kubectl apply -f -
 print-data-root: ## [M7] print the resolved DATA_ROOT (used by the smoke harness)
 	@echo $${DATA_ROOT:-/data}
+argo-generate: ## regenerate the committed Argo WorkflowTemplate (the only sanctioned way to update it)
+	@uv run python -m deploy.argo.generator.generate > deploy/argo/generated/shorts-workflowtemplate.yaml

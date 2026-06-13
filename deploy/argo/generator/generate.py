@@ -114,7 +114,8 @@ def main() -> int:
     rp = RetryPolicy()  # the SINGLE retry source (the conductor's defaults)
     sys.stdout.write(
         yaml.safe_dump(
-            build_workflow(manifests, retry={"retries": rp.retries, "backoff_s": rp.backoff_s}),
+            build_workflow(manifests, retry={"retries": rp.retries,
+                                              "backoff_s": int(rp.backoff_s)}),
             sort_keys=True,
         )
     )
