@@ -63,7 +63,7 @@ groups:
 
       - alert: StageStuck
         # Running gauge is 1 while the stage is active; heartbeat_timestamp stops advancing when
-        # the subprocess crashes.  180 s = 3× the 60 s heartbeat write interval.
+        # the subprocess crashes.  180 s = 6× the 30 s heartbeat write interval.
         expr: >
           shorts_stage_running == 1
           and time() - shorts_stage_heartbeat_timestamp > 180
