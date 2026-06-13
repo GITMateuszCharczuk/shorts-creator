@@ -37,7 +37,8 @@ def collect_checks(*, script, profile, vision, probes: ProbeResult, platform, le
         ck.sources_cited(script),
         ck.disclosure_set(script),
         ck.profanity_clear(script,
-                           set(profile["defaults"].get("profanity_wordlist", [])) or None),
+                           set(profile["defaults"].get("profanity_wordlist", []))
+                           | ck._DEFAULT_PROFANITY),
         ck.artifact_clear(vision),
         geo.in_safe_zone(probes.cta_rect, platform=platform, zones=safe_zones),
         ad.loudness_ok(integrated_lufs=probes.integrated_lufs,
