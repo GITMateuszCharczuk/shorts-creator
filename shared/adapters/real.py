@@ -64,6 +64,9 @@ class OllamaBackend:
     def tts(self, text: str) -> Path:
         raise NotImplementedError("use KokoroBackend for tts")
 
+    def tts_segments(self, segments: list[dict]) -> Path:
+        raise NotImplementedError("use KokoroBackend for tts_segments")
+
     def vlm_judge(self, frames: list[Path], script: dict) -> Judgment:
         raise NotImplementedError("vlm_judge is an M3 backend")
 
@@ -124,6 +127,9 @@ class ComfyUIBackend:
     def tts(self, text):
         raise NotImplementedError
 
+    def tts_segments(self, segments):
+        raise NotImplementedError
+
     def vlm_judge(self, frames, script):
         raise NotImplementedError
 
@@ -180,6 +186,9 @@ class QwenVLBackend:
         raise NotImplementedError
 
     def tts(self, text):
+        raise NotImplementedError
+
+    def tts_segments(self, segments):
         raise NotImplementedError
 
     def generate_image(self, prompt, seed):

@@ -15,7 +15,7 @@ ORDER = ["00a", "00b", "01a", "01b", "01c", "01d", "01e",
          "02", "03", "04", "05", "05x", "05b", "05c", "06"]
 
 # which declared outputs carry a schema (validated at the boundary)
-OUTPUT_SCHEMA = {"data": None, "script": "script", "assets": "assets", "provenance": "provenance",
+OUTPUT_SCHEMA = {"data": "data", "script": "script", "assets": "assets", "provenance": "provenance",
                  "vision": "vision", "qc": "qc", "creative_qc": "creative_qc", "posts": "posts",
                  "feature_record": "feature_record"}
 

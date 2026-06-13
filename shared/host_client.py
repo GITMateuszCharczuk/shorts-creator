@@ -6,7 +6,8 @@ def to_relative(path: str, *, data_root: str) -> str:
     """ADR 0015a D4: convert ComfyUI's host-ABSOLUTE output path to DATA_ROOT-relative AT THE API
     BOUNDARY — the only place an absolute path is allowed. Outside DATA_ROOT -> fail loud (a pod
     could never resolve it)."""
-    p = Path(path)
+    # collapse .. to stop traversal paths like /srv/../etc/passwd bypassing the DATA_ROOT guard
+    p = Path(os.path.normpath(path))
     if not p.is_absolute():
         return path
     try:

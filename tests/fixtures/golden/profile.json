@@ -24,6 +24,8 @@
     "logo": "brand/finance.svg"
   },
   "defaults": {
-    "voice_backend": "kokoro"
+    "voice_backend": "kokoro",
+    "disclaimer": "Educational only — not financial advice.",
+    "denylist_terms": ["guaranteed", "risk-free"]
   }
 }

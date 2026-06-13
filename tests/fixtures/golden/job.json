@@ -3,7 +3,7 @@
   "batch_id": "2026-06-09",
   "video_id": "fin-0001",
   "niche": "finance",
-  "profile": "finance",
+  "profile": {"defaults": {"disclaimer": "Educational only — not financial advice.", "denylist_terms": ["guaranteed", "risk-free"]}},
   "platform_targets": ["youtube", "tiktok"],
   "seed": 424242,
   "stages": {"00a": {"status": "done"}, "00b": {"status": "pending"}},
