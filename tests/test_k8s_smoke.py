@@ -13,6 +13,10 @@ from tests.helpers.k8s_smoke import (
 
 @pytest.mark.integration
 def test_variant_a_runs_the_golden_dag_as_a_job():
+    # BRING-UP DEPENDENCY: run_batch.main() does not yet accept --profiles/--backends; wiring the
+    # fake-backend offline path into the CLI is part of the M6 Task 12 on-box bring-up (the same
+    # _build_backends NotImplementedError seam). This integration gate runs only under
+    # `make k8s-smoke` on a real box, after that wiring lands.
     kind_cluster()
     run_one_off_job(image="shorts-creator:ci", args=["--profiles", "finance", "--backends", "fake"])
     assert list((data_root_pvc() / "runs").glob("*/*/posts.json"))     # a posts artifact landed
