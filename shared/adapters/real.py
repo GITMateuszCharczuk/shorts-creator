@@ -3,11 +3,9 @@ from pathlib import Path
 
 import httpx
 
-from shared.adapters.types import Judgment
-
 
 class OllamaBackend:
-    """ModelBackend.llm via an Ollama /api/generate endpoint on the host."""
+    """LLMBackend via an Ollama /api/generate endpoint on the host."""
 
     def __init__(self, base_url: str, model: str, timeout: float = 120.0):
         self._base = base_url.rstrip("/")
@@ -54,30 +52,11 @@ class OllamaBackend:
                                      f"({e}). Return ONLY valid JSON.")
         raise ValueError(f"LLM returned invalid JSON after retry: {last_err}")
 
-    # M2 GPU capabilities — not provided by the LLM endpoint.
-    def generate_image(self, prompt: str, seed: int) -> Path:
-        raise NotImplementedError("generate_image is an M2 ComfyUI backend")
-
-    def img2vid(self, image: Path, seed: int) -> Path:
-        raise NotImplementedError("img2vid is an M2 ComfyUI backend")
-
-    def tts(self, text: str) -> Path:
-        raise NotImplementedError("use KokoroBackend for tts")
-
-    def tts_segments(self, segments: list[dict]) -> Path:
-        raise NotImplementedError("use KokoroBackend for tts_segments")
-
-    def vlm_judge(self, frames: list[Path], script: dict) -> Judgment:
-        raise NotImplementedError("vlm_judge is an M3 backend")
-
-    def restore(self, frames: list[Path]) -> list[Path]:
-        raise NotImplementedError("restore is an M2 ComfyUI backend")
-
 
 # ADR 0015 D4 — everything runs in one WSL2 filesystem under DATA_ROOT; ComfyUI's output dir is
 # under DATA_ROOT, so _await_output returns directly-addressable paths (no host<->pod translation).
 class ComfyUIBackend:
-    """ModelBackend for the host ComfyUI: FLUX (generate_image), LTX (img2vid),
+    """Image/Img2Vid/Restore backend for the host ComfyUI: FLUX (generate_image), LTX (img2vid),
     ESRGAN+RIFE+GFPGAN (restore). Each capability maps to a named, versioned graph."""
 
     def __init__(self, base_url: str, graphs: dict[str, str], timeout: float = 600.0):
@@ -117,22 +96,6 @@ class ComfyUIBackend:
     def _await_output(self, prompt_id):
         raise NotImplementedError("poll /history wired at host bring-up")
 
-    # llm/tts/vlm_judge not provided by ComfyUI
-    def llm(self, prompt, seed=None):
-        raise NotImplementedError
-
-    def llm_json(self, prompt, seed=None):
-        raise NotImplementedError
-
-    def tts(self, text):
-        raise NotImplementedError
-
-    def tts_segments(self, segments):
-        raise NotImplementedError
-
-    def vlm_judge(self, frames, script):
-        raise NotImplementedError
-
 
 _OBSERVE_PROMPT = (
     "You are inspecting rendered video keyframes. Return STRICT JSON: "
@@ -142,7 +105,7 @@ _OBSERVE_PROMPT = (
 
 
 class QwenVLBackend:
-    """ModelBackend.vlm_judge via an OpenAI-compatible chat endpoint with image content
+    """VLMBackend (vlm_judge) via an OpenAI-compatible chat endpoint with image content
     (e.g. Ollama /v1/chat/completions serving Qwen2.5-VL) — ADR 0016 D5. Returns
     OBSERVATIONS + the visual sub-scores (coherence/pacing); verdicts belong to the gates."""
 
@@ -179,30 +142,9 @@ class QwenVLBackend:
         return Judgment(overall=sum(visual.values()) / len(visual), scores=visual,
                         passed=False, observations=tuple(d.get("observations", [])))
 
-    def llm(self, prompt, seed=None):
-        raise NotImplementedError
-
-    def llm_json(self, prompt, seed=None):
-        raise NotImplementedError
-
-    def tts(self, text):
-        raise NotImplementedError
-
-    def tts_segments(self, segments):
-        raise NotImplementedError
-
-    def generate_image(self, prompt, seed):
-        raise NotImplementedError
-
-    def img2vid(self, image, seed):
-        raise NotImplementedError
-
-    def restore(self, frames):
-        raise NotImplementedError
-
 
 class KokoroBackend:
-    """ModelBackend.tts via Kokoro-82M; writes a wav and returns its path."""
+    """TTSBackend via Kokoro-82M; writes a wav and returns its path."""
 
     def __init__(self, out_dir: Path, voice: str = "af_heart", sample_rate: int = 24000):
         self._out = Path(out_dir)
@@ -241,25 +183,10 @@ class KokoroBackend:
         sf.write(path, np.concatenate(chunks), self._sr)
         return path
 
-    def llm(self, prompt: str, seed: int | None = None) -> str:
-        raise NotImplementedError("use OllamaBackend for llm")
-
-    def llm_json(self, prompt: str, seed: int | None = None) -> dict:
-        raise NotImplementedError("use OllamaBackend for llm_json")
-
-    def generate_image(self, prompt: str, seed: int) -> Path:
-        raise NotImplementedError
-    def img2vid(self, image: Path, seed: int) -> Path:
-        raise NotImplementedError
-    def vlm_judge(self, frames: list[Path], script: dict) -> Judgment:
-        raise NotImplementedError
-    def restore(self, frames: list[Path]) -> list[Path]:
-        raise NotImplementedError
-
 
 class _CandidateTTSBackend:
     """Shared shape for the expressive-voice A/B candidates (ADR 0017 D1): constructed cheaply
-    (no model imports), satisfies ModelBackend; the live synth is wired at host bring-up and
+    (no model imports), satisfies TTSBackend; the live synth is wired at host bring-up and
     exercised only by the `make voice-ab` harness — never in CI."""
 
     _name = "candidate"
@@ -275,27 +202,12 @@ class _CandidateTTSBackend:
     def tts_segments(self, segments: list[dict]) -> Path:
         raise NotImplementedError(f"wired at host bring-up — {self._name}")
 
-    def llm(self, prompt: str, seed: int | None = None) -> str:
-        raise NotImplementedError("use OllamaBackend for llm")
-
-    def llm_json(self, prompt: str, seed: int | None = None) -> dict:
-        raise NotImplementedError("use OllamaBackend for llm_json")
-
-    def generate_image(self, prompt: str, seed: int) -> Path:
-        raise NotImplementedError
-    def img2vid(self, image: Path, seed: int) -> Path:
-        raise NotImplementedError
-    def vlm_judge(self, frames: list[Path], script: dict) -> Judgment:
-        raise NotImplementedError
-    def restore(self, frames: list[Path]) -> list[Path]:
-        raise NotImplementedError
-
 
 class OrpheusBackend(_CandidateTTSBackend):
-    """ModelBackend.tts via Orpheus-TTS — expressive-voice A/B candidate (ADR 0017 D1)."""
+    """TTSBackend via Orpheus-TTS — expressive-voice A/B candidate (ADR 0017 D1)."""
     _name = "orpheus"
 
 
 class ChatterboxBackend(_CandidateTTSBackend):
-    """ModelBackend.tts via Chatterbox — expressive-voice A/B candidate (ADR 0017 D1)."""
+    """TTSBackend.tts via Chatterbox — expressive-voice A/B candidate (ADR 0017 D1)."""
     _name = "chatterbox"
