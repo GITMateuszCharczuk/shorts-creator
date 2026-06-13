@@ -1,1 +1,1 @@
-{"id": "05", "inputs": ["script", "assets", "captions", "word_timings", "music", "data"], "outputs": ["render", "thumbnail"], "compute": "cpu"}
+{"id": "05", "inputs": ["script", "assets", "scenes_viz", "captions", "word_timings", "music", "data"], "outputs": ["render", "thumbnail"], "compute": "cpu"}
